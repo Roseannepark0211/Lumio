@@ -6,6 +6,7 @@ from dataclasses import dataclass
 class Platform(Enum):
     YOUTUBE = "youtube"
     INSTAGRAM = "instagram"
+    X = "x"
     UNSUPPORTED = "unsupported"
 
 
@@ -28,6 +29,11 @@ _INSTAGRAM_PATTERNS = [
     (re.compile(r"instagram\.com/([\w.]+)/?"), "profile"),
 ]
 
+_X_PATTERNS = [
+    (re.compile(r"(?:x\.com|twitter\.com)/[\w.]+/status/\d+"), "tweet"),
+    (re.compile(r"(?:x\.com|twitter\.com)/i/status/\d+"), "tweet"),
+]
+
 
 def parse_url(raw: str) -> ParsedURL:
     text = raw.strip()
@@ -43,5 +49,9 @@ def parse_url(raw: str) -> ParsedURL:
     for pattern, kind in _INSTAGRAM_PATTERNS:
         if pattern.search(text):
             return ParsedURL(url=text, platform=Platform.INSTAGRAM, kind=kind)
+
+    for pattern, kind in _X_PATTERNS:
+        if pattern.search(text):
+            return ParsedURL(url=text, platform=Platform.X, kind=kind)
 
     return ParsedURL(url=text, platform=Platform.UNSUPPORTED, kind="unknown")

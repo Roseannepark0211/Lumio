@@ -356,7 +356,7 @@ class MainWindow(QMainWindow):
 
         dur = ""
         if info.duration:
-            m, s = divmod(info.duration, 60)
+            m, s = divmod(int(info.duration), 60)
             dur = f"  ({m}:{s:02d})"
         time_str = f"  [{info.post_time}]" if info.post_time else ""
         author_str = f"  @{info.author}" if info.author else ""

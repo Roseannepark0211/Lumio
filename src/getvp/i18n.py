@@ -6,7 +6,7 @@ _TRANSLATIONS = {
     "zh": {
         "app_title": "Lumio",
         "url_input": "URL 输入",
-        "url_placeholder": "粘贴 YouTube 或 Instagram 链接...",
+        "url_placeholder": "粘贴 YouTube、Instagram 或 X (Twitter) 链接...",
         "parse": "解析",
         "save_to": "保存到...",
         "leave_empty": "留空则使用原始标题",
@@ -73,7 +73,7 @@ _TRANSLATIONS = {
         "remaining": "剩余 {time}",
         "added_to_queue": "已加入下载队列",
         # Cookie guide
-        "cookie_guide": "建议导入 Instagram Cookie，以获得最佳下载体验",
+        "cookie_guide": "建议导入 Instagram / X Cookie，以获得最佳下载体验",
         "cookie_expired": "已失效",
         # Init page
         "init_title": "首次启动环境检测",
@@ -95,7 +95,7 @@ _TRANSLATIONS = {
     "en": {
         "app_title": "Lumio",
         "url_input": "URL INPUT",
-        "url_placeholder": "Paste YouTube or Instagram URL here...",
+        "url_placeholder": "Paste YouTube, Instagram, or X (Twitter) URL here...",
         "parse": "Parse",
         "save_to": "Save to...",
         "leave_empty": "Leave empty to use original title",
@@ -162,7 +162,7 @@ _TRANSLATIONS = {
         "remaining": "Remaining {time}",
         "added_to_queue": "Added to download queue",
         # Cookie guide
-        "cookie_guide": "Import Instagram Cookie for best experience",
+        "cookie_guide": "Import Instagram / X Cookie for best experience",
         "cookie_expired": "Expired",
         # Init page
         "init_title": "First Launch Environment Check",

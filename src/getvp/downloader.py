@@ -172,6 +172,41 @@ def _ig_extract_info(url: str) -> VideoInfo:
     )
 
 
+# ---- X (Twitter) ----
+
+def _x_extract_info(url: str) -> VideoInfo:
+    cookie = get_cookie_path()
+    opts = _yt_opts(cookie)
+    opts["skip_download"] = True
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    info = yt_dlp.YoutubeDL.sanitize_info(info)
+
+    author = (
+        info.get("uploader")
+        or info.get("creator")
+        or ""
+    )
+
+    upload_date = info.get("upload_date", "")
+    post_time = ""
+    if upload_date and len(upload_date) == 8:
+        post_time = f"{upload_date[:4]}{upload_date[4:6]}{upload_date[6:8]}"
+
+    return VideoInfo(
+        title=info.get("title", "X post"),
+        url=url,
+        thumbnail=info.get("thumbnail"),
+        duration=info.get("duration"),
+        formats=info.get("formats", []),
+        platform="x",
+        author=author,
+        post_time=post_time,
+    )
+
+
 # ---- Public API ----
 
 def extract_info(url: str) -> VideoInfo:
@@ -180,6 +215,8 @@ def extract_info(url: str) -> VideoInfo:
         return _yt_extract_info(url)
     elif parsed.platform == Platform.INSTAGRAM:
         return _ig_extract_info(url)
+    elif parsed.platform == Platform.X:
+        return _x_extract_info(url)
     else:
         raise ValueError(f"Unsupported URL: {url}")
 
@@ -421,6 +458,30 @@ def _ig_download(
     task.filename = str(out_dir)
 
 
+def _x_download(
+    task: DownloadTask,
+    on_progress: ProgressCallback | None,
+    on_done: Callable[[DownloadTask], None] | None,
+):
+    cookie = get_cookie_path()
+    opts = _yt_opts(cookie)
+    out_name = _effective_name(task)
+    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
+    opts["progress_hooks"] = [_download_hook(task, on_progress)]
+    opts["format"] = "best[ext=mp4]/best"
+    opts["merge_output_format"] = "mp4"
+
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([task.url])
+
+    task.status = "done"
+    task.progress = 100
+
+
 def start_download(
     task: DownloadTask,
     on_progress: ProgressCallback | None = None,
@@ -434,6 +495,8 @@ def start_download(
                 _yt_download(task, on_progress, on_done)
             elif parsed.platform == Platform.INSTAGRAM:
                 _ig_download(task, on_progress, on_done)
+            elif parsed.platform == Platform.X:
+                _x_download(task, on_progress, on_done)
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"
@@ -588,6 +651,26 @@ def _ig_download_with_pause(task, pause_event, on_progress, on_done):
     task.filename = str(out_dir)
 
 
+def _x_download_with_pause(task, pause_event, on_progress, on_done):
+    cookie = get_cookie_path()
+    opts = _yt_opts(cookie)
+    out_name = _effective_name(task)
+    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
+    opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+    opts["format"] = "best[ext=mp4]/best"
+    opts["merge_output_format"] = "mp4"
+
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([task.url])
+
+    task.status = "done"
+    task.progress = 100
+
+
 def start_download_with_pause(
     task: DownloadTask,
     pause_event: threading.Event,
@@ -602,6 +685,8 @@ def start_download_with_pause(
                 _yt_download_with_pause(task, pause_event, on_progress, on_done)
             elif parsed.platform == Platform.INSTAGRAM:
                 _ig_download_with_pause(task, pause_event, on_progress, on_done)
+            elif parsed.platform == Platform.X:
+                _x_download_with_pause(task, pause_event, on_progress, on_done)
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"

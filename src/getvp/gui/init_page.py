@@ -100,7 +100,7 @@ class _CheckWorker(QThread):
 
         # 8. Network
         import requests
-        for url in ["https://www.youtube.com", "https://www.instagram.com"]:
+        for url in ["https://www.youtube.com", "https://www.instagram.com", "https://x.com"]:
             try:
                 requests.head(url, timeout=5, allow_redirects=True)
                 self.log.emit(f"Network: {url}", "[OK]")

@@ -58,3 +58,25 @@ class TestUnsupported:
     def test_garbage(self):
         r = parse_url("not a url at all")
         assert r.platform == Platform.UNSUPPORTED
+
+
+class TestXParsing:
+    def test_x_tweet_url(self):
+        r = parse_url("https://x.com/elonmusk/status/1234567890")
+        assert r.platform == Platform.X
+        assert r.kind == "tweet"
+
+    def test_twitter_tweet_url(self):
+        r = parse_url("https://twitter.com/user/status/1234567890")
+        assert r.platform == Platform.X
+        assert r.kind == "tweet"
+
+    def test_x_i_status_url(self):
+        r = parse_url("https://x.com/i/status/1234567890")
+        assert r.platform == Platform.X
+        assert r.kind == "tweet"
+
+    def test_no_scheme(self):
+        r = parse_url("x.com/user/status/1234567890")
+        assert r.platform == Platform.X
+        assert r.url.startswith("https://")
