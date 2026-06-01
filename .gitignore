@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+*.egg
+cookies.txt
+.getvp/
+config.json
+*.mhtml
+*.part
+www.instagram.com_cookies.txt
+.claude/

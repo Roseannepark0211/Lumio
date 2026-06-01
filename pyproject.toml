@@ -1,0 +1,22 @@
+[project]
+name = "getvp"
+version = "0.1.0"
+description = "Download videos/images from Instagram and YouTube via share links"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6",
+    "yt-dlp>=2024.1.0",
+    "instaloader>=4.10",
+    "requests>=2.28",
+    "imageio-ffmpeg>=0.4.9",
+]
+
+[project.scripts]
+getvp = "getvp.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
