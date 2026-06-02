@@ -595,6 +595,41 @@ QLabel#tag_chip {
     padding: 1px 8px;
 }
 
+QPushButton#tag_add_btn {
+    background: transparent;
+    border: 1px solid #3e4460;
+    border-radius: 8px;
+    color: #6b7084;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 0;
+}
+QPushButton#tag_add_btn:hover {
+    border-color: #7c8fff;
+    color: #7c8fff;
+}
+
+QPushButton#tag_del_btn {
+    background: transparent;
+    border: none;
+    color: #6b7084;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0;
+}
+QPushButton#tag_del_btn:hover {
+    color: #ef4444;
+}
+
+QLineEdit#tag_input {
+    background-color: #161822;
+    border: 1px solid #3e4460;
+    border-radius: 4px;
+    color: #e0e0e6;
+    font-size: 11px;
+    padding: 1px 4px;
+}
+
 /* ---- Media Type Badges ---- */
 QLabel#media_video {
     background-color: #7c3aed;
@@ -1547,6 +1582,41 @@ QLabel#tag_chip {
     font-weight: 600;
     border-radius: 8px;
     padding: 1px 8px;
+}
+
+QPushButton#tag_add_btn {
+    background: transparent;
+    border: 1px solid #d4d4dc;
+    border-radius: 8px;
+    color: #8e8ea0;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 0;
+}
+QPushButton#tag_add_btn:hover {
+    border-color: #2563eb;
+    color: #2563eb;
+}
+
+QPushButton#tag_del_btn {
+    background: transparent;
+    border: none;
+    color: #8e8ea0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0;
+}
+QPushButton#tag_del_btn:hover {
+    color: #ef4444;
+}
+
+QLineEdit#tag_input {
+    background-color: #ffffff;
+    border: 1px solid #d4d4dc;
+    border-radius: 4px;
+    color: #1a1a2e;
+    font-size: 11px;
+    padding: 1px 4px;
 }
 
 /* ---- History Filter ---- */

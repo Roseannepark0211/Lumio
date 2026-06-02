@@ -136,9 +136,7 @@ class QueueTaskWidget(QFrame):
             return "Video", "media_video"
         if ft == "image":
             return "Image", "media_image"
-        # IG carousels: treat as mixed
-        if qt.platform == "instagram":
-            return "Mixed", "media_mixed"
+        # IG: format_type is empty, can't determine type until download
         return "", ""
 
     def _status_text(self, status: str) -> str:

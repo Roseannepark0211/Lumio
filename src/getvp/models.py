@@ -34,6 +34,7 @@ class LibraryItem(Base):
 
     # Relationships
     item_tags = relationship("ItemTag", back_populates="item", cascade="all, delete-orphan")
+    item_collections = relationship("ItemCollection", back_populates="item", cascade="all, delete-orphan")
 
     def get_tag_names(self) -> list[str]:
         try:
@@ -64,3 +65,28 @@ class ItemTag(Base):
     tag = relationship("Tag", back_populates="item_tags")
 
     __table_args__ = (UniqueConstraint("item_id", "tag_id"),)
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False)
+    icon = Column(String, default="📁")
+    created_at = Column(DateTime, default=func.now())
+
+    # Relationships
+    item_collections = relationship("ItemCollection", back_populates="collection", cascade="all, delete-orphan")
+
+
+class ItemCollection(Base):
+    __tablename__ = "item_collections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_id = Column(String, ForeignKey("library_items.id", ondelete="CASCADE"), nullable=False)
+    collection_id = Column(Integer, ForeignKey("collections.id", ondelete="CASCADE"), nullable=False)
+
+    item = relationship("LibraryItem", back_populates="item_collections")
+    collection = relationship("Collection", back_populates="item_collections")
+
+    __table_args__ = (UniqueConstraint("item_id", "collection_id"),)

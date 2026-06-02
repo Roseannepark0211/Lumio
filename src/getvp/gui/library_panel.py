@@ -153,6 +153,12 @@ class LibraryItemWidget(QFrame):
         dir_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "open_dir"))
         btn_row.addWidget(dir_btn)
 
+        col_btn = QPushButton(t("collection_add_to"))
+        col_btn.setObjectName("task_btn")
+        col_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        col_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "show_collections"))
+        btn_row.addWidget(col_btn)
+
         del_btn = QPushButton(t("library_delete"))
         del_btn.setObjectName("task_btn_danger")
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -161,20 +167,6 @@ class LibraryItemWidget(QFrame):
 
         top.addLayout(btn_row)
         root.addLayout(top)
-
-        # Tag chips row
-        tag_names = item.get_tag_names()
-        if tag_names:
-            tag_row = QHBoxLayout()
-            tag_row.setContentsMargins(48, 2, 0, 0)
-            tag_row.setSpacing(4)
-            for tag in tag_names:
-                chip = QLabel(tag)
-                chip.setObjectName("tag_chip")
-                chip.setFixedHeight(18)
-                tag_row.addWidget(chip)
-            tag_row.addStretch()
-            root.addLayout(tag_row)
 
         # Detail row (hidden by default)
         self._detail = QWidget()

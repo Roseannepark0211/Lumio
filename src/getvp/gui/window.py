@@ -116,8 +116,15 @@ class MainWindow(QMainWindow):
         # Library: new item added -> update library page
         self._manager.library_record_added.connect(self._library_page.on_item_added)
 
+        # Collections: sidebar selection + creation
+        self._sidebar.collection_selected.connect(self._on_collection_selected)
+        self._sidebar.collection_create_requested.connect(self._on_create_collection)
+
         # Settings: restart
         self._settings_page.restart_requested.connect(self._restart_app)
+
+        # Load existing collections into sidebar
+        self._refresh_sidebar_collections()
 
     def _on_nav(self, page_id: str):
         page_map = {
@@ -133,6 +140,25 @@ class MainWindow(QMainWindow):
         # Refresh stats when switching to stats page
         if page_id == "stats":
             self._stats_page.refresh()
+        # Clear collection filter when switching to library via nav
+        if page_id == "library":
+            self._library_page.set_collection_filter(None)
+
+    def _on_collection_selected(self, collection_id: int):
+        self._stack.setCurrentIndex(3)  # Library page
+        self._library_page.set_collection_filter(collection_id)
+
+    def _on_create_collection(self):
+        from PySide6.QtWidgets import QInputDialog
+        from ..i18n import t
+        name, ok = QInputDialog.getText(self, t("collection_create"), t("collection_name_label"))
+        if ok and name.strip():
+            self._library_manager.create_collection(name.strip())
+            self._refresh_sidebar_collections()
+
+    def _refresh_sidebar_collections(self):
+        for col in self._library_manager.get_all_collections():
+            self._sidebar.add_collection_nav(col.id, col.name, col.icon)
 
     def _on_theme_toggle(self):
         self._theme = "light" if self._theme == "dark" else "dark"

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from .models import ItemTag, LibraryItem, Tag
+from .models import Collection, ItemCollection, ItemTag, LibraryItem, Tag
 from .utils.config import get_history_path
 from .utils.database import get_session_factory, init_db
 from .utils.media_utils import infer_media_type
@@ -218,6 +218,105 @@ class LibraryManager:
         finally:
             session.close()
 
+    # ---- Collections ----
+
+    def create_collection(self, name: str, icon: str = "📁") -> int:
+        session = self._session()
+        try:
+            col = Collection(name=name, icon=icon)
+            session.add(col)
+            session.commit()
+            return col.id
+        finally:
+            session.close()
+
+    def delete_collection(self, collection_id: int):
+        session = self._session()
+        try:
+            col = session.get(Collection, collection_id)
+            if col:
+                session.delete(col)
+                session.commit()
+        finally:
+            session.close()
+
+    def rename_collection(self, collection_id: int, new_name: str):
+        session = self._session()
+        try:
+            col = session.get(Collection, collection_id)
+            if col:
+                col.name = new_name
+                session.commit()
+        finally:
+            session.close()
+
+    def get_all_collections(self) -> list[Collection]:
+        session = self._session()
+        try:
+            cols = session.query(Collection).order_by(Collection.name).all()
+            session.expunge_all()
+            return cols
+        finally:
+            session.close()
+
+    def add_item_to_collection(self, item_id: str, collection_id: int):
+        session = self._session()
+        try:
+            existing = session.query(ItemCollection).filter_by(
+                item_id=item_id, collection_id=collection_id
+            ).first()
+            if not existing:
+                session.add(ItemCollection(item_id=item_id, collection_id=collection_id))
+                session.commit()
+        finally:
+            session.close()
+
+    def remove_item_from_collection(self, item_id: str, collection_id: int):
+        session = self._session()
+        try:
+            assoc = session.query(ItemCollection).filter_by(
+                item_id=item_id, collection_id=collection_id
+            ).first()
+            if assoc:
+                session.delete(assoc)
+                session.commit()
+        finally:
+            session.close()
+
+    def get_collection_items(self, collection_id: int) -> list[LibraryItem]:
+        session = self._session()
+        try:
+            items = (
+                session.query(LibraryItem)
+                .join(ItemCollection)
+                .filter(ItemCollection.collection_id == collection_id)
+                .order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc())
+                .all()
+            )
+            session.expunge_all()
+            return items
+        finally:
+            session.close()
+
+    def get_item_collections(self, item_id: str) -> list[Collection]:
+        session = self._session()
+        try:
+            assocs = session.query(ItemCollection).filter_by(item_id=item_id).all()
+            cols = [a.collection for a in assocs]
+            session.expunge_all()
+            return cols
+        finally:
+            session.close()
+
+    def is_item_in_collection(self, item_id: str, collection_id: int) -> bool:
+        session = self._session()
+        try:
+            return session.query(ItemCollection).filter_by(
+                item_id=item_id, collection_id=collection_id
+            ).first() is not None
+        finally:
+            session.close()
+
     # ---- Search ----
 
     def search(
@@ -227,6 +326,7 @@ class LibraryManager:
         media_type: str = "",
         favorites_only: bool = False,
         tag_name: str = "",
+        collection_id: int | None = None,
     ) -> list[LibraryItem]:
         session = self._session()
         try:
@@ -246,6 +346,8 @@ class LibraryManager:
                 q = q.filter(LibraryItem.is_favorite.is_(True))
             if tag_name:
                 q = q.join(ItemTag).join(Tag).filter(Tag.name == tag_name)
+            if collection_id is not None:
+                q = q.join(ItemCollection).filter(ItemCollection.collection_id == collection_id)
             items = q.order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc()).all()
             session.expunge_all()
             return items

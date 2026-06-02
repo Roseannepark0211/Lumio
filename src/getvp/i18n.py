@@ -170,10 +170,17 @@ _TRANSLATIONS = {
         "library_toggle_fav": "收藏",
         "library_toggle_pin": "置顶",
         "library_add_tag": "添加标签",
-        "library_filter_tag": "按标签筛选",
+        "library_filter_tag": "全部标签",
+        "library_tag_placeholder": "输入标签，回车确认",
         "library_open_file": "打开文件",
         "library_open_dir": "打开目录",
         "library_delete": "删除",
+        # Collections
+        "collections": "分类",
+        "collection_create": "新建分类",
+        "collection_name_label": "分类名称",
+        "collection_add_to": "添加到分类",
+        "collection_remove": "从分类移除",
     },
     "en": {
         "app_title": "Lumio",
@@ -342,10 +349,17 @@ _TRANSLATIONS = {
         "library_toggle_fav": "Favorite",
         "library_toggle_pin": "Pin",
         "library_add_tag": "Add Tag",
-        "library_filter_tag": "Filter by Tag",
+        "library_filter_tag": "All Tags",
+        "library_tag_placeholder": "Enter tags, press Enter",
         "library_open_file": "Open File",
         "library_open_dir": "Open Dir",
         "library_delete": "Delete",
+        # Collections
+        "collections": "Collections",
+        "collection_create": "New Collection",
+        "collection_name_label": "Collection name",
+        "collection_add_to": "Add to Collection",
+        "collection_remove": "Remove from Collection",
     },
 }
 

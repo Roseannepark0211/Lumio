@@ -27,6 +27,7 @@ class LibraryPage(QWidget):
         self.setObjectName("library_page")
         self._lm = library_manager
         self._item_widgets: dict[str, LibraryItemWidget] = {}
+        self._collection_filter: int | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -149,6 +150,7 @@ class LibraryPage(QWidget):
             platform=platform_filter if platform_filter != "all" else "",
             media_type=type_filter if type_filter != "all" else "",
             favorites_only=favorites_only,
+            collection_id=self._collection_filter,
         )
 
         visible_ids = {item.id for item in items}
@@ -186,9 +188,79 @@ class LibraryPage(QWidget):
             widget = self._item_widgets.get(item_id)
             if widget:
                 widget.update_pinned(new_state)
+        elif action == "show_collections":
+            self._show_collection_dialog(item_id)
 
     def on_item_added(self, item: LibraryItem):
         """Slot connected to DownloadManager.library_record_added."""
         self._add_item_widget(item)
         self._update_empty()
         self._apply_filter()
+
+    def set_collection_filter(self, collection_id: int | None):
+        self._collection_filter = collection_id
+        self._apply_filter()
+
+    def _show_collection_dialog(self, item_id: str):
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QHBoxLayout
+        collections = self._lm.get_all_collections()
+        if not collections:
+            return
+        item_cols = {c.id for c in self._lm.get_item_collections(item_id)}
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t("collection_add_to"))
+        dlg.setMinimumWidth(220)
+        layout = QVBoxLayout(dlg)
+
+        checks: dict[int, QCheckBox] = {}
+        for col in collections:
+            cb = QCheckBox(f"{col.icon} {col.name}")
+            cb.setChecked(col.id in item_cols)
+            checks[col.id] = cb
+            layout.addWidget(cb)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("accent_btn")
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("secondary")
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        cancel_btn.clicked.connect(dlg.reject)
+        ok_btn.clicked.connect(dlg.accept)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            for cid, cb in checks.items():
+                was_in = cid in item_cols
+                is_in = cb.isChecked()
+                if is_in and not was_in:
+                    self._lm.add_item_to_collection(item_id, cid)
+                elif not is_in and was_in:
+                    self._lm.remove_item_from_collection(item_id, cid)
+            self._apply_filter()
+
+    def _on_collection_action(self, item_id: str, action: str):
+        """Handle 'add_to_collection:cid' and 'remove_from_collection:cid'."""
+        if action.startswith("add_to_collection:"):
+            cid = int(action[18:])
+            self._lm.add_item_to_collection(item_id, cid)
+        elif action.startswith("remove_from_collection:"):
+            cid = int(action[23:])
+            self._lm.remove_item_from_collection(item_id, cid)
+        self._apply_filter()
+
+    def _on_create_collection(self):
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, t("collection_create"), t("collection_name_label"))
+        if ok and name.strip():
+            self._lm.create_collection(name.strip())
+            self._refresh_collections()
+
+    def _refresh_collections(self):
+        """Notify parent (window) to refresh sidebar collections."""
+        # This is called via window's wiring
+        pass
