@@ -58,6 +58,7 @@ class DownloadsPage(QWidget):
             (t("start_all"), "start_all"),
             (t("pause_all"), "pause_all"),
             (t("resume_all"), "resume_all"),
+            (t("resume_interrupted"), "resume_interrupted"),
             (t("clear_completed"), "clear_completed"),
         ]:
             btn = QPushButton(text)
@@ -150,13 +151,19 @@ class DownloadsPage(QWidget):
     def _on_task_finished(self, task_id: str, success: bool, error: str):
         widget = self._task_widgets.get(task_id)
         if widget:
-            widget.update_finished(success, error)
+            task = self._manager.get_task(task_id)
+            category = task.error_category if task and not success else ""
+            widget.update_finished(success, error, category)
 
     @Slot(str, str)
     def _on_task_status_changed(self, task_id: str, status: str):
         widget = self._task_widgets.get(task_id)
         if widget:
-            widget.update_status(status)
+            task = self._manager.get_task(task_id)
+            retry_info = ""
+            if task and status == TaskStatus.RETRYING.value:
+                retry_info = f" ({task.retry_count}/{task.max_retries})"
+            widget.update_status(status, retry_info)
 
     def _on_task_action(self, task_id: str, action: str):
         mgr = self._manager
@@ -194,6 +201,8 @@ class DownloadsPage(QWidget):
             mgr.pause_all()
         elif action == "resume_all":
             mgr.resume_all()
+        elif action == "resume_interrupted":
+            mgr.resume_interrupted()
         elif action == "clear_completed":
             mgr.clear_completed()
             to_remove = [

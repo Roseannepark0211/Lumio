@@ -131,6 +131,10 @@ class SettingsPage(QWidget):
 
         import_row = QHBoxLayout()
         import_row.addStretch()
+        check_btn = QPushButton(t("cookie_check"))
+        check_btn.setObjectName("secondary")
+        check_btn.clicked.connect(self._on_check_cookies)
+        import_row.addWidget(check_btn)
         self._import_btn = QPushButton(t("cookie_import"))
         self._import_btn.setObjectName("secondary")
         self._import_btn.clicked.connect(self._on_import_cookie)
@@ -150,7 +154,7 @@ class SettingsPage(QWidget):
 
         ver_row = QHBoxLayout()
         ver_row.addWidget(QLabel(t("settings_version") + ":"))
-        ver_val = QLabel("1.5.0")
+        ver_val = QLabel("2.1.0")
         ver_val.setObjectName("muted")
         ver_row.addWidget(ver_val)
         ver_row.addStretch()
@@ -162,44 +166,38 @@ class SettingsPage(QWidget):
 
     # ---- Cookie status ----
 
+    def _set_cookie_label(self, label: QLabel, status: str):
+        if status == "已配置":
+            label.setText(f"🟢 {t('cookie_valid')}")
+            label.setStyleSheet("color: #10b981; font-weight: 600;")
+        elif status == "即将失效":
+            label.setText(f"🟡 {t('cookie_warning')}")
+            label.setStyleSheet("color: #f59e0b; font-weight: 600;")
+        elif status == "已失效":
+            label.setText(f"🔴 {t('cookie_expired')}")
+            label.setStyleSheet("color: #f87171; font-weight: 600;")
+        else:
+            label.setText(f"🔴 {t('cookie_missing')}")
+            label.setStyleSheet("color: #f87171; font-weight: 600;")
+
     def _update_ig_cookie_status(self):
         from .cookie_checker import check_ig_cookie_status
-        status = check_ig_cookie_status()
-        if status == "已配置":
-            self._ig_cookie_status.setText(t("cookie_valid"))
-            self._ig_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
-            self._ig_cookie_status.setText(t("cookie_expired"))
-            self._ig_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
-        else:
-            self._ig_cookie_status.setText(t("cookie_missing"))
-            self._ig_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
+        self._set_cookie_label(self._ig_cookie_status, check_ig_cookie_status())
 
     def _update_x_cookie_status(self):
         from .cookie_checker import check_x_cookie_status
-        status = check_x_cookie_status()
-        if status == "已配置":
-            self._x_cookie_status.setText(t("cookie_valid"))
-            self._x_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
-            self._x_cookie_status.setText(t("cookie_expired"))
-            self._x_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
-        else:
-            self._x_cookie_status.setText(t("cookie_missing"))
-            self._x_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
+        self._set_cookie_label(self._x_cookie_status, check_x_cookie_status())
 
     def _update_yt_cookie_status(self):
         from .cookie_checker import check_yt_cookie_status
-        status = check_yt_cookie_status()
-        if status == "已配置":
-            self._yt_cookie_status.setText(t("cookie_valid"))
-            self._yt_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
-            self._yt_cookie_status.setText(t("cookie_expired"))
-            self._yt_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
-        else:
-            self._yt_cookie_status.setText(t("cookie_missing"))
-            self._yt_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
+        self._set_cookie_label(self._yt_cookie_status, check_yt_cookie_status())
+
+    def _on_check_cookies(self):
+        self._update_ig_cookie_status()
+        self._update_x_cookie_status()
+        self._update_yt_cookie_status()
+        self._hint_label.setText(t("cookie_check_done"))
+        self._hint_label.setStyleSheet("color: #10b981;")
 
     # ---- Actions ----
 

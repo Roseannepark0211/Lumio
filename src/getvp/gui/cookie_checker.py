@@ -7,9 +7,12 @@ from PySide6.QtCore import QThread, Signal
 
 from ..utils.config import get_cookie_path
 
+# Seconds in 7 days
+_WARNING_THRESHOLD = 7 * 24 * 3600
 
-def check_ig_cookie_status() -> str:
-    """Return one of: '未配置', '已失效', '已配置'."""
+
+def _check_cookie_expiry(domains: list[str], required_names: list[str]) -> str:
+    """Return one of: '未配置', '已失效', '即将失效', '已配置'."""
     cookie_path = get_cookie_path()
     if cookie_path is None:
         return "未配置"
@@ -19,93 +22,59 @@ def check_ig_cookie_status() -> str:
     except Exception:
         return "未配置"
 
-    if "sessionid" not in text:
+    has_any = any(name in text for name in required_names)
+    if not has_any:
         return "未配置"
 
-    # Check sessionid expiry from Netscape cookie file
     now = time.time()
+    soonest_expiry = float("inf")
+
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split("\t")
-        if len(parts) >= 5 and parts[0].endswith("instagram.com"):
+        if len(parts) >= 5:
+            domain = parts[0]
+            if not any(d in domain for d in domains):
+                continue
             name = parts[5] if len(parts) > 5 else ""
-            if name == "sessionid":
-                try:
-                    expiry = float(parts[4])
-                    if expiry > 0 and expiry < now:
+            if name not in required_names:
+                continue
+            try:
+                expiry = float(parts[4])
+                if expiry > 0:
+                    if expiry < now:
                         return "已失效"
-                except (ValueError, IndexError):
-                    pass
+                    soonest_expiry = min(soonest_expiry, expiry)
+            except (ValueError, IndexError):
+                pass
+
+    if soonest_expiry < now + _WARNING_THRESHOLD:
+        return "即将失效"
 
     return "已配置"
+
+
+def check_ig_cookie_status() -> str:
+    return _check_cookie_expiry(["instagram.com"], ["sessionid"])
 
 
 def check_x_cookie_status() -> str:
-    """Return one of: '未配置', '已失效', '已配置'."""
-    cookie_path = get_cookie_path()
-    if cookie_path is None:
-        return "未配置"
-
-    try:
-        text = cookie_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return "未配置"
-
-    if "auth_token" not in text and "ct0" not in text:
-        return "未配置"
-
-    now = time.time()
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 5 and ("x.com" in parts[0] or "twitter.com" in parts[0]):
-            name = parts[5] if len(parts) > 5 else ""
-            if name in ("auth_token", "ct0"):
-                try:
-                    expiry = float(parts[4])
-                    if expiry > 0 and expiry < now:
-                        return "已失效"
-                except (ValueError, IndexError):
-                    pass
-
-    return "已配置"
+    return _check_cookie_expiry(["x.com", "twitter.com"], ["auth_token", "ct0"])
 
 
 def check_yt_cookie_status() -> str:
-    """Return one of: '未配置', '已失效', '已配置'."""
-    cookie_path = get_cookie_path()
-    if cookie_path is None:
-        return "未配置"
+    return _check_cookie_expiry(["youtube.com"], ["LOGIN_INFO"])
 
-    try:
-        text = cookie_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return "未配置"
 
-    if "LOGIN_INFO" not in text:
-        return "未配置"
-
-    now = time.time()
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 5 and "youtube.com" in parts[0]:
-            name = parts[5] if len(parts) > 5 else ""
-            if name == "LOGIN_INFO":
-                try:
-                    expiry = float(parts[4])
-                    if expiry > 0 and expiry < now:
-                        return "已失效"
-                except (ValueError, IndexError):
-                    pass
-
-    return "已配置"
+def check_all_cookies() -> dict[str, str]:
+    """Return status for all platforms."""
+    return {
+        "instagram": check_ig_cookie_status(),
+        "x": check_x_cookie_status(),
+        "youtube": check_yt_cookie_status(),
+    }
 
 
 class CookieCheckWorker(QThread):

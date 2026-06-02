@@ -423,6 +423,24 @@ QLabel#badge_waiting {
     padding: 1px 6px;
 }
 
+QLabel#badge_retrying {
+    background-color: #451a03;
+    color: #f59e0b;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+QLabel#badge_interrupted {
+    background-color: #1e1b4b;
+    color: #a78bfa;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
 QLabel#badge_downloading {
     background-color: #1e3a5f;
     color: #60a5fa;
@@ -1230,6 +1248,24 @@ QLabel#task_speed {
 QLabel#badge_waiting {
     background-color: #e8e8ee;
     color: #555568;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+QLabel#badge_retrying {
+    background-color: #fef3c7;
+    color: #b45309;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+QLabel#badge_interrupted {
+    background-color: #ede9fe;
+    color: #7c3aed;
     font-size: 10px;
     font-weight: 600;
     border-radius: 3px;

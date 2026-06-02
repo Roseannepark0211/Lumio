@@ -175,7 +175,13 @@ class HomePage(QWidget):
         if not text:
             return
 
-        first_line = text.splitlines()[0].strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+        if len(lines) > 1:
+            self._batch_parse(lines)
+            return
+
+        first_line = lines[0]
         parsed = parse_url(first_line)
 
         if parsed.platform == Platform.UNSUPPORTED:
@@ -272,10 +278,85 @@ class HomePage(QWidget):
 
         self._download_btn.setEnabled(True)
 
+    def _batch_parse(self, urls: list[str]):
+        """Parse multiple URLs and add all to queue."""
+        valid = []
+        invalid = []
+        for url in urls:
+            parsed = parse_url(url)
+            if parsed.platform == Platform.UNSUPPORTED:
+                invalid.append(url[:40])
+            else:
+                valid.append(parsed.url)
+
+        if invalid:
+            QMessageBox.warning(
+                self, t("unsupported"),
+                t("batch_invalid", count=len(invalid), urls="\n".join(invalid[:5]))
+            )
+        if not valid:
+            return
+
+        reply = QMessageBox.question(
+            self, t("batch_title"),
+            t("batch_confirm", count=len(valid)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._batch_urls = valid
+        self._batch_index = 0
+        self._batch_added = 0
+        self._parse_btn.setEnabled(False)
+        self._parse_btn.setText("...")
+        self._title_label.setText(t("batch_processing", current=1, total=len(valid)))
+        self._start_batch_extract()
+
+    def _start_batch_extract(self):
+        if self._batch_index >= len(self._batch_urls):
+            self._finish_batch()
+            return
+        url = self._batch_urls[self._batch_index]
+        self._title_label.setText(t("batch_processing", current=self._batch_index + 1, total=len(self._batch_urls)))
+        self._extract_worker = _ExtractWorker(url)
+        self._extract_worker.finished.connect(self._on_batch_extract_done)
+        self._extract_worker.start()
+
+    @Slot(object)
+    def _on_batch_extract_done(self, result):
+        if not isinstance(result, Exception):
+            info: VideoInfo = result
+            self._manager.add_task_from_info(
+                info=info,
+                format_id="best",
+                format_type="combined",
+                custom_name="",
+                output_dir=self._download_dir,
+            )
+            self._batch_added += 1
+        self._batch_index += 1
+        self._start_batch_extract()
+
+    def _finish_batch(self):
+        self._parse_btn.setEnabled(True)
+        self._parse_btn.setText(t("parse"))
+        self._title_label.setText(t("batch_done", count=self._batch_added))
+        self._url_input.clear()
+
     @Slot()
     def _on_add_to_queue(self):
         if not self._current_info:
             return
+
+        # Dedup check
+        if self._manager.check_url_duplicate(self._current_info.url):
+            reply = QMessageBox.question(
+                self, t("dup_title"), t("dup_message"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
 
         fmt_data = self._format_combo.currentData()
         if isinstance(fmt_data, tuple):

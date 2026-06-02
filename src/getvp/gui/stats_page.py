@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -75,21 +77,41 @@ class StatsPage(QWidget):
         ig_count = sum(1 for r in records if r.platform == "instagram")
         x_count = sum(1 for r in records if r.platform == "x")
         total_size = sum(r.file_size for r in records)
+        success_count = sum(1 for r in records if getattr(r, "success", True))
+        success_rate = f"{success_count / total * 100:.1f}%" if total > 0 else "—"
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_count = sum(1 for r in records if r.download_time.startswith(today))
+        last_activity = ""
+        if records:
+            last_activity = records[0].download_time[:16].replace("T", " ")
 
         self._total_card = _stat_card(t("stats_total"), str(total), "#7c8fff")
         self._size_card = _stat_card(t("stats_size"), _format_total_size(total_size), "#10b981")
+        self._success_card = _stat_card(t("stats_success_rate"), success_rate, "#f59e0b")
+        self._today_card = _stat_card(t("stats_today"), str(today_count), "#10b981")
+        self._last_card = _stat_card(t("stats_last_activity"), last_activity, "#8b5cf6")
+
+        row1.addWidget(self._total_card)
+        row1.addWidget(self._size_card)
+        row1.addWidget(self._success_card)
+        row1.addWidget(self._today_card)
+        row1.addWidget(self._last_card)
+
+        # Row 2: platform breakdown
+        row2 = QHBoxLayout()
+        row2.setSpacing(16)
+
         self._yt_card = _stat_card("YouTube", str(yt_count), "#2563eb")
         self._ig_card = _stat_card("Instagram", str(ig_count), "#e1306c")
         self._x_card = _stat_card("X (Twitter)", str(x_count), "#1d9bf0")
 
-        row1.addWidget(self._total_card)
-        row1.addWidget(self._size_card)
-        row1.addWidget(self._yt_card)
-        row1.addWidget(self._ig_card)
-        row1.addWidget(self._x_card)
-        row1.addStretch()
+        row2.addWidget(self._yt_card)
+        row2.addWidget(self._ig_card)
+        row2.addWidget(self._x_card)
+        row2.addStretch()
 
         root.addLayout(row1)
+        root.addLayout(row2)
 
         root.addStretch()
 
@@ -100,11 +122,20 @@ class StatsPage(QWidget):
         ig_count = sum(1 for r in records if r.platform == "instagram")
         x_count = sum(1 for r in records if r.platform == "x")
         total_size = sum(r.file_size for r in records)
+        success_count = sum(1 for r in records if getattr(r, "success", True))
+        success_rate = f"{success_count / total * 100:.1f}%" if total > 0 else "—"
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_count = sum(1 for r in records if r.download_time.startswith(today))
+        last_activity = ""
+        if records:
+            last_activity = records[0].download_time[:16].replace("T", " ")
 
-        # Update values by finding the value label in each card
         for card, val in [
             (self._total_card, str(total)),
             (self._size_card, _format_total_size(total_size)),
+            (self._success_card, success_rate),
+            (self._today_card, str(today_count)),
+            (self._last_card, last_activity),
             (self._yt_card, str(yt_count)),
             (self._ig_card, str(ig_count)),
             (self._x_card, str(x_count)),

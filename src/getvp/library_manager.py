@@ -317,6 +317,15 @@ class LibraryManager:
         finally:
             session.close()
 
+    # ---- Dedup ----
+
+    def url_exists(self, url: str) -> bool:
+        session = self._session()
+        try:
+            return session.query(LibraryItem).filter_by(url=url).first() is not None
+        finally:
+            session.close()
+
     # ---- Search ----
 
     def search(

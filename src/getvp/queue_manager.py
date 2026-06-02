@@ -21,9 +21,14 @@ class TaskStatus(str, Enum):
     WAITING = "等待中"
     DOWNLOADING = "下载中"
     PAUSED = "暂停中"
+    RETRYING = "重试中"
+    INTERRUPTED = "已中断"
     COMPLETED = "已完成"
     FAILED = "失败"
     CANCELLED = "已取消"
+
+
+_RETRY_INTERVALS = [5, 15, 30]  # exponential backoff in seconds
 
 
 @dataclass
@@ -48,6 +53,7 @@ class QueueTask:
     speed: str = ""
     filename: str = ""
     error: str = ""
+    error_category: str = ""
 
     # Scheduling
     retry_count: int = 0
@@ -97,13 +103,15 @@ class QueueTask:
         for k, v in d.items():
             if hasattr(qt, k):
                 setattr(qt, k, v)
-        # Reset downloading tasks to waiting on restore
+        # Reset downloading tasks to interrupted on restore
         if qt.status == TaskStatus.DOWNLOADING.value:
-            qt.status = TaskStatus.WAITING.value
+            qt.status = TaskStatus.INTERRUPTED.value
         qt.progress = 0.0
         qt.speed = ""
         qt.filename = ""
         qt.error = ""
+        qt.error_category = ""
+        qt.retry_count = 0  # reset retry count on restore
         return qt
 
 
@@ -139,6 +147,11 @@ class DownloadManager(QObject):
 
     def set_library_manager(self, lm):
         self._library_manager = lm
+
+    def check_url_duplicate(self, url: str) -> bool:
+        if self._library_manager:
+            return self._library_manager.url_exists(url)
+        return False
 
     def set_max_workers(self, n: int):
         self._max_workers = max(1, min(10, n))
@@ -200,10 +213,16 @@ class DownloadManager(QObject):
         if event:
             event.set()
         qt = self._tasks.get(task_id)
-        if qt and qt.status == TaskStatus.PAUSED.value:
+        if not qt:
+            return
+        if qt.status == TaskStatus.PAUSED.value:
             qt.status = TaskStatus.DOWNLOADING.value
             self.task_status_changed.emit(task_id, qt.status)
             self._launch_download(qt)
+        elif qt.status == TaskStatus.INTERRUPTED.value:
+            qt.status = TaskStatus.WAITING.value
+            self.task_status_changed.emit(task_id, qt.status)
+            self._schedule()
 
     def cancel_task(self, task_id: str):
         dt = self._download_tasks.get(task_id)
@@ -256,6 +275,11 @@ class DownloadManager(QObject):
     def resume_all(self):
         for qt in self._tasks.values():
             if qt.status == TaskStatus.PAUSED.value:
+                self.resume_task(qt.task_id)
+
+    def resume_interrupted(self):
+        for qt in self._tasks.values():
+            if qt.status == TaskStatus.INTERRUPTED.value:
                 self.resume_task(qt.task_id)
 
     def clear_completed(self):
@@ -341,16 +365,19 @@ class DownloadManager(QObject):
             else:
                 qt.retry_count += 1
                 if qt.retry_count < qt.max_retries:
-                    qt.status = TaskStatus.WAITING.value
+                    qt.status = TaskStatus.RETRYING.value
                     qt.progress = 0.0
                     self.task_status_changed.emit(qt.task_id, qt.status)
-                    timer = threading.Timer(qt.retry_interval, self._schedule)
+                    delay = _RETRY_INTERVALS[min(qt.retry_count - 1, len(_RETRY_INTERVALS) - 1)]
+                    timer = threading.Timer(delay, self._schedule)
                     timer.daemon = True
                     timer.start()
                     return  # don't count as finished yet
                 else:
+                    from .utils.error_types import classify_error
                     qt.status = TaskStatus.FAILED.value
                     qt.error = t.error
+                    qt.error_category = classify_error(t.error).value
                     self.task_finished.emit(qt.task_id, False, t.error)
             self._emit_batch_progress()
 
@@ -438,7 +465,7 @@ class DownloadManager(QObject):
     def _next_waiting_task(self) -> QueueTask | None:
         candidates = [
             qt for qt in self._tasks.values()
-            if qt.status == TaskStatus.WAITING.value
+            if qt.status in (TaskStatus.WAITING.value, TaskStatus.RETRYING.value)
             and qt.task_id not in self._active
         ]
         if not candidates:

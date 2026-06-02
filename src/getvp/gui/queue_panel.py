@@ -20,11 +20,21 @@ from PySide6.QtWidgets import (
 from ..i18n import t
 from ..queue_manager import DownloadManager, QueueTask, TaskStatus
 
+_ERROR_MESSAGES = {
+    "cookie_expired": "error_cookie",
+    "network": "error_network",
+    "rate_limited": "error_rate_limited",
+    "content_removed": "error_content_removed",
+    "parse_failed": "error_parse_failed",
+}
+
 
 _STATUS_BADGE_MAP = {
     TaskStatus.WAITING.value: "badge_waiting",
     TaskStatus.DOWNLOADING.value: "badge_downloading",
     TaskStatus.PAUSED.value: "badge_paused",
+    TaskStatus.RETRYING.value: "badge_retrying",
+    TaskStatus.INTERRUPTED.value: "badge_interrupted",
     TaskStatus.COMPLETED.value: "badge_completed",
     TaskStatus.FAILED.value: "badge_failed",
     TaskStatus.CANCELLED.value: "badge_cancelled",
@@ -144,6 +154,8 @@ class QueueTaskWidget(QFrame):
             TaskStatus.WAITING.value: t("status_waiting"),
             TaskStatus.DOWNLOADING.value: t("status_downloading"),
             TaskStatus.PAUSED.value: t("status_paused"),
+            TaskStatus.RETRYING.value: t("status_retrying"),
+            TaskStatus.INTERRUPTED.value: t("status_interrupted"),
             TaskStatus.COMPLETED.value: t("status_completed"),
             TaskStatus.FAILED.value: t("status_failed"),
             TaskStatus.CANCELLED.value: t("status_cancelled"),
@@ -172,6 +184,12 @@ class QueueTaskWidget(QFrame):
         elif status == TaskStatus.DOWNLOADING.value:
             self._add_btn(t("pause"), "pause")
             self._add_btn(t("cancel"), "cancel", danger=True)
+        elif status == TaskStatus.RETRYING.value:
+            self._add_btn(t("cancel"), "cancel", danger=True)
+        elif status == TaskStatus.INTERRUPTED.value:
+            self._add_btn(t("resume"), "resume")
+            self._add_btn(t("cancel"), "cancel")
+            self._add_btn(t("delete"), "delete", danger=True)
         elif status == TaskStatus.PAUSED.value:
             self._add_btn(t("resume"), "resume")
             self._add_btn(t("cancel"), "cancel")
@@ -191,21 +209,26 @@ class QueueTaskWidget(QFrame):
         if speed:
             self._speed_label.setText(speed)
 
-    def update_status(self, status: str):
-        self._badge.setText(self._status_text(status))
+    def update_status(self, status: str, retry_info: str = ""):
+        text = self._status_text(status) + retry_info
+        self._badge.setText(text)
         badge_obj = _STATUS_BADGE_MAP.get(status, "badge_waiting")
         self._badge.setObjectName(badge_obj)
         self._badge.style().unpolish(self._badge)
         self._badge.style().polish(self._badge)
         self._update_buttons(status)
 
-    def update_finished(self, success: bool, error: str):
+    def update_finished(self, success: bool, error: str, error_category: str = ""):
         if success:
             self.update_status(TaskStatus.COMPLETED.value)
             self._speed_label.setText(t("pct_done"))
         else:
             self.update_status(TaskStatus.FAILED.value)
-            self._speed_label.setText(f"{t('error')}: {error[:40]}")
+            friendly = _ERROR_MESSAGES.get(error_category, "")
+            if friendly:
+                self._speed_label.setText(t(friendly))
+            else:
+                self._speed_label.setText(f"{t('error')}: {error[:40]}")
 
 
 class QueueDrawer(QWidget):

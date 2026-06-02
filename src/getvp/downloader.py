@@ -67,7 +67,13 @@ class DownloadTask:
 # ---- YouTube ----
 
 def _yt_opts(cookie_file: Path | None = None) -> dict:
-    opts: dict = {"quiet": True, "no_warnings": True, "noprogress": True}
+    opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "continuedl": True,
+        "keep_fragments": True,
+    }
     if cookie_file and cookie_file.exists():
         opts["cookiefile"] = str(cookie_file)
     ffmpeg = _find_ffmpeg()
@@ -531,7 +537,7 @@ def extract_info(url: str) -> VideoInfo:
 
 def _build_format_options(info: VideoInfo) -> list[dict]:
     """Build a clean, user-friendly format list for YouTube videos."""
-    options: list[dict] = [{"id": "best", "label": "Best quality (auto)", "_type": "combined"}]
+    options: list[dict] = [{"id": "best", "label": "Best Quality", "_type": "combined"}]
 
     seen_res: set[int] = set()
     video_opts: list[dict] = []
@@ -556,13 +562,13 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
         has_video = vcodec != "none"
         has_audio = acodec != "none"
 
-        # Combined stream (video+audio in one) — rare on modern YouTube
+        # Combined stream (video+audio in one)
         if has_video and has_audio and height:
             if height not in seen_res:
                 seen_res.add(height)
                 video_opts.append({
                     "id": fid,
-                    "label": f"{height}p {ext} (~{int(vbr)}kbps) [merged]" if vbr else f"{height}p {ext} [merged]",
+                    "label": f"{height}P",
                     "_type": "combined",
                     "_height": height,
                     "_vbr": vbr,
@@ -575,13 +581,13 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
                     if opt.get("_height") == height and vbr > opt.get("_vbr", 0):
                         opt["id"] = fid
                         opt["_vbr"] = vbr
-                        opt["label"] = f"{height}p {ext} (~{int(vbr)}kbps)"
+                        opt["label"] = f"{height}P"
                     break
                 continue
             seen_res.add(height)
             video_opts.append({
                 "id": fid,
-                "label": f"{height}p {ext} (~{int(vbr)}kbps)" if vbr else f"{height}p {ext}",
+                "label": f"{height}P",
                 "_type": "video",
                 "_height": height,
                 "_vbr": vbr,
@@ -589,7 +595,7 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
 
         # Audio-only stream
         elif has_audio and not has_video:
-            label = f"Audio only {int(abr)}kbps ({ext})" if abr else f"Audio only ({ext})"
+            label = f"Audio ({ext})" if not abr else f"Audio {int(abr)}kbps"
             audio_opts.append({"id": fid, "label": label, "_type": "audio"})
 
     video_opts.sort(key=lambda o: o.get("_height", 0), reverse=True)
@@ -597,9 +603,11 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
         o.pop("_height", None)
         o.pop("_vbr", None)
 
-    options.extend(video_opts)
+    if video_opts or audio_opts:
+        options.append({"id": "___sep1", "label": "─────────", "disabled": True})
+        options.extend(video_opts)
     if audio_opts:
-        options.append({"id": "___sep", "label": "─────────", "disabled": True})
+        options.append({"id": "___sep2", "label": "─────────", "disabled": True})
         options.extend(audio_opts)
 
     return options

@@ -20,6 +20,8 @@ class HistoryRecord:
     file_size: int = 0
     thumbnail_url: str = ""
     download_time: str = ""
+    success: bool = True
+    duration_seconds: float = 0.0
 
     def __post_init__(self):
         if not self.record_id:
