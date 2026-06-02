@@ -26,11 +26,25 @@ class TestYouTubeParsing:
         r = parse_url("https://www.youtube.com/@MrBeast")
         assert r.platform == Platform.YOUTUBE
         assert r.kind == "channel"
+        assert r.tab == ""
 
     def test_no_scheme(self):
         r = parse_url("youtube.com/watch?v=dQw4w9WgXcQ")
         assert r.platform == Platform.YOUTUBE
         assert r.url.startswith("https://")
+
+    def test_channel_videos_tab(self):
+        r = parse_url("https://www.youtube.com/@mkbhd/videos")
+        assert r.platform == Platform.YOUTUBE
+        assert r.kind == "channel"
+        assert r.tab == "videos"
+        assert "@mkbhd" in r.url
+
+    def test_channel_shorts_tab(self):
+        r = parse_url("https://www.youtube.com/@mkbhd/shorts")
+        assert r.platform == Platform.YOUTUBE
+        assert r.kind == "channel"
+        assert r.tab == "shorts"
 
 
 class TestInstagramParsing:
@@ -48,6 +62,38 @@ class TestInstagramParsing:
         r = parse_url("https://www.instagram.com/stories/someuser/123456789/")
         assert r.platform == Platform.INSTAGRAM
         assert r.kind == "story"
+
+
+class TestInstagramProfileParsing:
+    def test_bare_at_username(self):
+        r = parse_url("@natgeo")
+        assert r.platform == Platform.INSTAGRAM
+        assert r.kind == "profile"
+        assert "natgeo" in r.url
+
+    def test_bare_at_with_dots(self):
+        r = parse_url("@user.name")
+        assert r.platform == Platform.INSTAGRAM
+        assert r.kind == "profile"
+        assert "user.name" in r.url
+
+    def test_bare_at_short(self):
+        r = parse_url("@a")
+        assert r.platform == Platform.INSTAGRAM
+        assert r.kind == "profile"
+
+    def test_profile_url(self):
+        r = parse_url("instagram.com/natgeo")
+        assert r.platform == Platform.INSTAGRAM
+        assert r.kind == "profile"
+        assert r.url.startswith("https://")
+
+    def test_profile_url_with_params(self):
+        r = parse_url("https://www.instagram.com/jujingyi_kikuuu?utm_source=ig_web_button_share_sheet&igsh=abc")
+        assert r.platform == Platform.INSTAGRAM
+        assert r.kind == "profile"
+        assert "?" not in r.url
+        assert "jujingyi_kikuuu" in r.url
 
 
 class TestUnsupported:

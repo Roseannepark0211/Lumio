@@ -70,12 +70,20 @@ class QueueTaskWidget(QFrame):
         title_row.addWidget(self._title, 1)
 
         # Platform badge
-        plat = QLabel("YT" if qt.platform == "youtube" else "IG")
-        plat.setObjectName(
-            "platform_yt" if qt.platform == "youtube" else "platform_ig"
-        )
+        plat_text, plat_obj = self._platform_info(qt.platform)
+        plat = QLabel(plat_text)
+        plat.setObjectName(plat_obj)
         plat.setFixedHeight(16)
         title_row.addWidget(plat)
+
+        # Media type badge
+        media_label, media_obj = self._media_type_info(qt)
+        if media_label:
+            media_badge = QLabel(media_label)
+            media_badge.setObjectName(media_obj)
+            media_badge.setFixedHeight(16)
+            title_row.addWidget(media_badge)
+
         info_layout.addLayout(title_row)
 
         self._speed_label = QLabel("")
@@ -108,6 +116,28 @@ class QueueTaskWidget(QFrame):
         self._btn_row.addStretch()
         self._update_buttons(qt.status)
         root.addLayout(self._btn_row)
+
+    @staticmethod
+    def _platform_info(platform: str) -> tuple[str, str]:
+        if platform == "youtube":
+            return "YT", "platform_yt"
+        if platform == "instagram":
+            return "IG", "platform_ig"
+        if platform == "x":
+            return "X", "platform_x"
+        return platform[:2].upper(), ""
+
+    @staticmethod
+    def _media_type_info(qt: QueueTask) -> tuple[str, str]:
+        ft = qt.format_type
+        if ft == "audio":
+            return "MP3", "media_audio"
+        if ft in ("video", "combined"):
+            return "MP4", "media_video"
+        # IG: check URL for /reel/ (video) vs /p/ (could be either)
+        if qt.platform == "instagram":
+            return "", ""
+        return "", ""
 
     def _status_text(self, status: str) -> str:
         mapping = {
@@ -207,6 +237,12 @@ class QueueDrawer(QWidget):
         self._badge_label.setObjectName("queue_badge")
         header_layout.addWidget(self._badge_label)
 
+        self._batch_label = QLabel("")
+        self._batch_label.setObjectName("muted")
+        self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px;")
+        self._batch_label.hide()
+        header_layout.addWidget(self._batch_label)
+
         header_layout.addStretch()
 
         # Global action buttons
@@ -273,6 +309,21 @@ class QueueDrawer(QWidget):
         mgr.task_finished.connect(self._on_task_finished)
         mgr.task_status_changed.connect(self._on_task_status_changed)
         mgr.queue_changed.connect(self._update_badge)
+        mgr.batch_progress.connect(self._on_batch_progress)
+
+    @Slot(int, int, int)
+    def _on_batch_progress(self, completed: int, failed: int, total: int):
+        done = completed + failed
+        if total > 0 and done < total:
+            self._batch_label.setText(f"{completed}/{total}")
+            self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px; color: #a0a8c8;")
+            self._batch_label.show()
+        elif total > 0 and done >= total:
+            self._batch_label.setText(t("batch_done", n=completed, total=total))
+            self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px; color: #10b981;")
+            self._batch_label.show()
+        else:
+            self._batch_label.hide()
 
     def _toggle(self):
         self._expanded = not self._expanded
@@ -302,6 +353,14 @@ class QueueDrawer(QWidget):
 
         if not self._expanded:
             self._toggle()
+
+        # Show batch progress when multiple tasks exist
+        total = len(self._manager.get_all_tasks())
+        if total > 1:
+            completed = sum(1 for t in self._manager.get_all_tasks()
+                           if t.status == TaskStatus.COMPLETED.value)
+            self._batch_label.setText(f"{completed}/{total}")
+            self._batch_label.show()
 
     @Slot(str, float, str, str)
     def _on_task_progress(self, task_id: str, progress: float, speed: str, filename: str):

@@ -35,6 +35,9 @@ def _show_main(app, cfg):
 
     window = MainWindow(manager)
     window.show()
+    # Prevent GC: store references on the app object
+    app._lumio_manager = manager
+    app._lumio_window = window
 
 
 def _show_init(app, cfg):
@@ -59,6 +62,10 @@ def _show_init(app, cfg):
         window = MainWindow(manager)
         window.show()
         init_page.close()
+        # Prevent GC
+        app._lumio_manager = manager
+        app._lumio_window = window
+        app._lumio_init_page = init_page
 
     init_page.check_completed.connect(on_init_done)
     init_page.start_checks()

@@ -75,6 +75,39 @@ def check_x_cookie_status() -> str:
     return "已配置"
 
 
+def check_yt_cookie_status() -> str:
+    """Return one of: '未配置', '已失效', '已配置'."""
+    cookie_path = get_cookie_path()
+    if cookie_path is None:
+        return "未配置"
+
+    try:
+        text = cookie_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return "未配置"
+
+    if "LOGIN_INFO" not in text:
+        return "未配置"
+
+    now = time.time()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 5 and "youtube.com" in parts[0]:
+            name = parts[5] if len(parts) > 5 else ""
+            if name == "LOGIN_INFO":
+                try:
+                    expiry = float(parts[4])
+                    if expiry > 0 and expiry < now:
+                        return "已失效"
+                except (ValueError, IndexError):
+                    pass
+
+    return "已配置"
+
+
 class CookieCheckWorker(QThread):
     """Background thread for non-blocking cookie status check."""
 

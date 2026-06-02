@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import threading
 from dataclasses import dataclass, field
@@ -132,24 +133,9 @@ def _ig_session():
     return L
 
 
-def _ig_extract_info(url: str) -> VideoInfo:
-    import instaloader
-    shortcode = url.rstrip("/").split("/")[-1]
-    parts = url.rstrip("/").split("/")
-    for i, p in enumerate(parts):
-        if p in ("reel", "p") and i + 1 < len(parts):
-            shortcode = parts[i + 1]
-            break
-
-    L = _ig_session()
-    post = instaloader.Post.from_shortcode(L.context, shortcode)
-
-    title = (post.caption or "Instagram post")[:80]
-    thumb = str(post.url) if not post.is_video else None
-    post_time = post.date_utc.strftime("%Y%m%d_%H%M%S") if post.date_utc else ""
-    author = post.owner_username or ""
+def _ig_build_items(post) -> list[MediaItem]:
+    """Extract MediaItems from an instaloader.Post."""
     items: list[MediaItem] = []
-
     if post.typename == "GraphSidecar":
         for i, node in enumerate(post.get_sidecar_nodes()):
             url_str = str(node.video_url) if node.is_video else str(node.display_url)
@@ -158,6 +144,328 @@ def _ig_extract_info(url: str) -> VideoInfo:
         items.append(MediaItem(url=str(post.video_url), is_video=True, index=0))
     else:
         items.append(MediaItem(url=str(post.url), is_video=False, index=0))
+    return items
+
+
+def _ig_shortcode_to_media_id(shortcode: str) -> str:
+    """Convert Instagram shortcode to numeric media_id."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    media_id = 0
+    for ch in shortcode:
+        media_id = media_id * 64 + alphabet.index(ch)
+    return str(media_id)
+
+
+def _ig_get_media_info(shortcode: str) -> dict:
+    """Fetch post info via mobile API, return media dict."""
+    session = _ig_api_session()
+    media_id = _ig_shortcode_to_media_id(shortcode)
+    url = f"https://i.instagram.com/api/v1/media/{media_id}/info/"
+    resp = session.get(url, timeout=15)
+    if resp.status_code == 429:
+        import time
+        time.sleep(3)
+        resp = session.get(url, timeout=15)
+    resp.raise_for_status()
+    return resp.json().get("items", [{}])[0]
+
+
+def _ig_best_video_url(video_versions: list[dict]) -> str:
+    """Pick the highest resolution video URL from Instagram's video_versions."""
+    if not video_versions:
+        return ""
+    best = max(video_versions, key=lambda v: v.get("width", 0))
+    return best.get("url", "")
+
+
+def _ig_best_image_url(candidates: list[dict]) -> str:
+    """Pick the highest resolution image URL from Instagram's image candidates."""
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda c: c.get("width", 0))
+    return best.get("url", "")
+
+
+def _ig_media_to_items(media: dict) -> list[MediaItem]:
+    """Convert mobile API media dict to MediaItem list."""
+    items: list[MediaItem] = []
+    carousel = media.get("carousel_media")
+    if carousel:
+        for i, cm in enumerate(carousel):
+            if cm.get("video_versions"):
+                url_str = _ig_best_video_url(cm["video_versions"])
+                items.append(MediaItem(url=url_str, is_video=True, index=i))
+            else:
+                candidates = cm.get("image_versions2", {}).get("candidates", [])
+                url_str = _ig_best_image_url(candidates)
+                items.append(MediaItem(url=url_str, is_video=False, index=i))
+    elif media.get("video_versions"):
+        url_str = _ig_best_video_url(media["video_versions"])
+        items.append(MediaItem(url=url_str, is_video=True, index=0))
+    else:
+        candidates = media.get("image_versions2", {}).get("candidates", [])
+        url_str = _ig_best_image_url(candidates)
+        items.append(MediaItem(url=url_str, is_video=False, index=0))
+    return items
+
+
+def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retries: int = 3):
+    """Create QueueTask from Instagram API post dict (mobile or GraphQL format)."""
+    from .queue_manager import QueueTask
+    # Mobile API format
+    shortcode = post_data.get("code", post_data.get("shortcode", ""))
+    is_video = post_data.get("video", post_data.get("is_video", False))
+    caption_obj = post_data.get("caption", {})
+    caption = caption_obj.get("text", "") if isinstance(caption_obj, dict) else ""
+    title = caption[:80] or "Instagram post"
+    owner = post_data.get("user", {}).get("username", post_data.get("owner", {}).get("username", ""))
+    ts = post_data.get("taken_at_timestamp", post_data.get("taken_at", 0))
+    post_time = ""
+    if ts:
+        from datetime import datetime, timezone
+        post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # Thumbnail: mobile API uses image_versions2, GraphQL uses display_url
+    thumb = ""
+    if "image_versions2" in post_data:
+        candidates = post_data["image_versions2"].get("candidates", [])
+        if candidates:
+            thumb = candidates[0].get("url", "")
+    if not thumb:
+        thumb = post_data.get("display_url", "")
+    url = f"https://www.instagram.com/p/{shortcode}/"
+    return QueueTask(
+        url=url,
+        output_dir=str(output_dir),
+        custom_name=custom_name,
+        title=title,
+        platform="instagram",
+        author=owner,
+        post_time=post_time,
+        thumbnail_url=thumb,
+        max_retries=max_retries,
+    )
+
+
+def _ig_api_session() -> requests.Session:
+    """Create a requests.Session with cookies and standard IG headers."""
+    session = requests.Session()
+    cookie_path = get_cookie_path()
+    csrf_token = ""
+    if cookie_path and Path(cookie_path).exists():
+        cj = http.cookiejar.MozillaCookieJar(str(cookie_path))
+        cj.load(ignore_discard=True, ignore_expires=True)
+        session.cookies = cj
+        for c in cj:
+            if c.name == "csrftoken":
+                csrf_token = c.value
+                break
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "X-IG-App-ID": "936619743392459",
+        "X-CSRFToken": csrf_token,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "*/*",
+    })
+    return session
+
+
+def _ig_search_user(session: requests.Session, username: str) -> dict:
+    """Search for user via GraphQL, return first exact-match user dict."""
+    data = {
+        "variables": json.dumps({"hasQuery": True, "query": username}),
+        "doc_id": "26347858941511777",
+    }
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": f"https://www.instagram.com/{username}/",
+    }
+    resp = session.post("https://www.instagram.com/graphql/query", headers=headers, data=data, timeout=15)
+    resp.raise_for_status()
+    result = resp.json()
+    users = result.get("data", {}).get("xdt_api__v1__fbsearch__non_profiled_serp", {}).get("users", [])
+    for u in users:
+        if u.get("username") == username:
+            return u
+    raise ValueError(f"User @{username} not found")
+
+
+def fetch_profile_info(username: str) -> dict:
+    """Return profile metadata via GraphQL search API."""
+    session = _ig_api_session()
+    user = _ig_search_user(session, username)
+    return {
+        "username": user["username"],
+        "full_name": user.get("full_name", ""),
+        "profile_pic_url": user.get("profile_pic_url"),
+        "post_count": 0,  # not available from search API
+        "user_id": str(user["pk"]),
+    }
+
+
+def enumerate_profile_posts(username: str, limit: int, callback=None, cancel_event=None) -> list:
+    """Return up to `limit` post dicts via mobile feed API with pagination."""
+    session = _ig_api_session()
+
+    # Get user_id from search
+    user = _ig_search_user(session, username)
+    user_id = str(user["pk"])
+
+    # Fetch posts via mobile feed API
+    all_posts = []
+    max_id = None
+
+    while len(all_posts) < limit:
+        if cancel_event and cancel_event.is_set():
+            break
+        url = f"https://i.instagram.com/api/v1/feed/user/{user_id}/?count=12"
+        if max_id:
+            url += f"&max_id={max_id}"
+        resp = session.get(url, timeout=15)
+        if resp.status_code == 429:
+            import time
+            time.sleep(5)
+            resp = session.get(url, timeout=15)
+        if resp.status_code != 200:
+            break
+        data = resp.json()
+        items = data.get("items", [])
+        if not items:
+            break
+        for item in items:
+            if cancel_event and cancel_event.is_set():
+                break
+            if len(all_posts) >= limit:
+                break
+            all_posts.append(item)
+            if callback:
+                callback(len(all_posts), limit)
+        if not data.get("more_available", False):
+            break
+        max_id = data.get("next_max_id")
+        if not max_id:
+            break
+
+    return all_posts
+
+
+# ---- YouTube batch scraping ----
+
+def fetch_yt_channel_info(url: str) -> dict:
+    """Fetch channel/playlist title via yt-dlp flat extraction."""
+    from .utils.config import get_cookie_path
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1, "ignoreerrors": True}
+    cookie = get_cookie_path()
+    if cookie and cookie.exists():
+        opts["cookiefile"] = str(cookie)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        raise ValueError("Could not fetch channel info")
+    return {
+        "title": info.get("title", ""),
+        "channel": info.get("uploader", info.get("channel", "")),
+        "url": url,
+    }
+
+
+def enumerate_yt_videos(url: str, limit: int, callback=None, cancel_event=None) -> list:
+    """Return up to `limit` video entries via yt-dlp flat extraction."""
+    from .utils.config import get_cookie_path
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": limit, "ignoreerrors": True}
+    cookie = get_cookie_path()
+    if cookie and cookie.exists():
+        opts["cookiefile"] = str(cookie)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        return []
+    entries = [e for e in (info.get("entries") or []) if e]
+
+    # Channel URLs return tab entries (Videos/Live/Shorts) instead of actual videos.
+    # Detect this and re-extract with /videos appended.
+    if entries and entries[0].get("id", "").startswith("UC"):
+        url_videos = url.rstrip("/") + "/videos"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url_videos, download=False)
+        if info:
+            entries = [e for e in (info.get("entries") or []) if e]
+
+    if callback:
+        for i, e in enumerate(entries):
+            if cancel_event and cancel_event.is_set():
+                break
+            callback(i + 1, len(entries))
+    return entries[:limit]
+
+
+def _yt_entry_to_queue_task(entry: dict, custom_name: str, output_dir, max_retries: int = 3,
+                            format_id: str = "best", format_type: str = "combined"):
+    """Create QueueTask from yt-dlp flat entry dict."""
+    from .queue_manager import QueueTask
+    video_id = entry.get("id", "")
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    title = entry.get("title", "YouTube video")
+    author = entry.get("channel", entry.get("uploader", ""))
+
+    # Default save name: author_short_title (timestamp appended by _effective_name)
+    if not custom_name:
+        short_title = title[:30].strip()
+        for ch in '\\/:*?"<>|':
+            short_title = short_title.replace(ch, "_")
+        safe_author = author[:30].strip()
+        for ch in '\\/:*?"<>|':
+            safe_author = safe_author.replace(ch, "_")
+        custom_name = f"{safe_author}_{short_title}" if safe_author else short_title
+
+    post_time = ""
+    ts = entry.get("timestamp")
+    if ts:
+        from datetime import datetime, timezone
+        post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
+    thumbnail = ""
+    thumbs = entry.get("thumbnails", [])
+    if thumbs:
+        thumbnail = thumbs[-1].get("url", "")
+    return QueueTask(
+        url=url,
+        format_id=format_id,
+        format_type=format_type,
+        output_dir=str(output_dir),
+        custom_name=custom_name,
+        title=title,
+        platform="youtube",
+        author=author,
+        post_time=post_time,
+        thumbnail_url=thumbnail,
+        max_retries=max_retries,
+    )
+
+
+def _ig_extract_info(url: str) -> VideoInfo:
+    shortcode = url.rstrip("/").split("/")[-1]
+    parts = url.rstrip("/").split("/")
+    for i, p in enumerate(parts):
+        if p in ("reel", "p") and i + 1 < len(parts):
+            shortcode = parts[i + 1]
+            break
+
+    media = _ig_get_media_info(shortcode)
+    items = _ig_media_to_items(media)
+
+    caption_obj = media.get("caption", {})
+    caption = caption_obj.get("text", "") if isinstance(caption_obj, dict) else ""
+    title = caption[:80] or "Instagram post"
+    owner = media.get("user", {}).get("username", "")
+    ts = media.get("taken_at", 0)
+    post_time = ""
+    if ts:
+        from datetime import datetime, timezone
+        post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    thumb = ""
+    if not media.get("video_versions"):
+        candidates = media.get("image_versions2", {}).get("candidates", [])
+        if candidates:
+            thumb = candidates[0].get("url", "")
 
     return VideoInfo(
         title=title,
@@ -166,7 +474,7 @@ def _ig_extract_info(url: str) -> VideoInfo:
         duration=None,
         formats=[],
         platform="instagram",
-        author=author,
+        author=owner,
         items=items,
         post_time=post_time,
     )
@@ -358,7 +666,7 @@ def _yt_download(
         if task.format_type == "video":
             opts["format"] = f"{task.format_id}+bestaudio"
         elif task.format_type == "audio":
-            opts["format"] = f"bestvideo+{task.format_id}"
+            opts["format"] = task.format_id
         else:
             opts["format"] = task.format_id
     else:
@@ -386,7 +694,6 @@ def _ig_download(
     on_progress: ProgressCallback | None,
     on_done: Callable[[DownloadTask], None] | None,
 ):
-    import instaloader
     parts = task.url.rstrip("/").split("/")
     shortcode = parts[-1]
     for i, p in enumerate(parts):
@@ -394,37 +701,21 @@ def _ig_download(
             shortcode = parts[i + 1]
             break
 
-    L = _ig_session()
-    post = instaloader.Post.from_shortcode(L.context, shortcode)
+    media = _ig_get_media_info(shortcode)
 
     task.status = "downloading"
     if on_progress:
         on_progress(task)
 
-    # Folder name: custom_name > author > shortcode, always append timestamp
-    if task.custom_name:
-        folder_name = task.custom_name
-    elif task.author:
-        folder_name = task.author
-    else:
-        folder_name = shortcode
-    if task.post_time:
-        folder_name = f"{folder_name}_{task.post_time}"
-    out_dir = task.output_dir / folder_name
+    out_dir = Path(task.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    items: list[MediaItem] = []
-    if post.typename == "GraphSidecar":
-        for i, node in enumerate(post.get_sidecar_nodes()):
-            url_str = str(node.video_url) if node.is_video else str(node.display_url)
-            items.append(MediaItem(url=url_str, is_video=node.is_video, index=i))
-    elif post.is_video:
-        items.append(MediaItem(url=str(post.video_url), is_video=True, index=0))
-    else:
-        items.append(MediaItem(url=str(post.url), is_video=False, index=0))
+    items = _ig_media_to_items(media)
 
-    # Filename stem: custom > author > shortcode
+    # Build a unique stem: author_postTime (or custom_name, or shortcode)
     name_stem = task.custom_name or task.author or shortcode
+    if task.post_time:
+        name_stem = f"{name_stem}_{task.post_time}"
 
     total = len(items)
     pad = len(str(total))
@@ -555,7 +846,7 @@ def _yt_download_with_pause(task, pause_event, on_progress, on_done):
         if task.format_type == "video":
             opts["format"] = f"{task.format_id}+bestaudio"
         elif task.format_type == "audio":
-            opts["format"] = f"bestvideo+{task.format_id}"
+            opts["format"] = task.format_id
         else:
             opts["format"] = task.format_id
     else:
@@ -579,7 +870,6 @@ def _yt_download_with_pause(task, pause_event, on_progress, on_done):
 
 
 def _ig_download_with_pause(task, pause_event, on_progress, on_done):
-    import instaloader
     parts = task.url.rstrip("/").split("/")
     shortcode = parts[-1]
     for i, p in enumerate(parts):
@@ -587,35 +877,21 @@ def _ig_download_with_pause(task, pause_event, on_progress, on_done):
             shortcode = parts[i + 1]
             break
 
-    L = _ig_session()
-    post = instaloader.Post.from_shortcode(L.context, shortcode)
+    media = _ig_get_media_info(shortcode)
 
     task.status = "downloading"
     if on_progress:
         on_progress(task)
 
-    if task.custom_name:
-        folder_name = task.custom_name
-    elif task.author:
-        folder_name = task.author
-    else:
-        folder_name = shortcode
-    if task.post_time:
-        folder_name = f"{folder_name}_{task.post_time}"
-    out_dir = task.output_dir / folder_name
+    out_dir = Path(task.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    items: list[MediaItem] = []
-    if post.typename == "GraphSidecar":
-        for i, node in enumerate(post.get_sidecar_nodes()):
-            url_str = str(node.video_url) if node.is_video else str(node.display_url)
-            items.append(MediaItem(url=url_str, is_video=node.is_video, index=i))
-    elif post.is_video:
-        items.append(MediaItem(url=str(post.video_url), is_video=True, index=0))
-    else:
-        items.append(MediaItem(url=str(post.url), is_video=False, index=0))
+    items = _ig_media_to_items(media)
 
+    # Build a unique stem: author_postTime (or custom_name, or shortcode)
     name_stem = task.custom_name or task.author or shortcode
+    if task.post_time:
+        name_stem = f"{name_stem}_{task.post_time}"
     total = len(items)
     pad = len(str(total))
     for idx, item in enumerate(items):

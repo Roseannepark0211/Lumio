@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import uuid
@@ -12,6 +13,7 @@ from typing import Callable
 from PySide6.QtCore import QObject, Signal
 
 from .downloader import DownloadTask, start_download_with_pause
+from .history_manager import HistoryManager, HistoryRecord
 from .utils.config import get_queue_path, load_config
 
 
@@ -112,20 +114,26 @@ class DownloadManager(QObject):
     task_finished = Signal(str, bool, str)           # task_id, success, error
     task_status_changed = Signal(str, str)           # task_id, new_status
     queue_changed = Signal()
+    batch_progress = Signal(int, int, int)           # completed, failed, total
+    history_record_added = Signal(object)            # HistoryRecord
 
-    def __init__(self, parent=None):
+    def __init__(self, history_manager: HistoryManager | None = None, parent=None):
         super().__init__(parent)
         self._tasks: dict[str, QueueTask] = {}
         self._active: dict[str, threading.Thread] = {}
         self._download_tasks: dict[str, DownloadTask] = {}
         self._paused_events: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
+        self._history_manager = history_manager
 
         cfg = load_config()
         self._max_workers: int = cfg.get("max_concurrent", 3)
         self._max_retries: int = cfg.get("max_retries", 3)
 
     # ---- Public API ----
+
+    def set_history_manager(self, hm: HistoryManager):
+        self._history_manager = hm
 
     def set_max_workers(self, n: int):
         self._max_workers = max(1, min(10, n))
@@ -323,6 +331,7 @@ class DownloadManager(QObject):
             if success:
                 qt.status = TaskStatus.COMPLETED.value
                 qt.progress = 100
+                self._record_history(qt)
                 self.task_finished.emit(qt.task_id, True, "")
             else:
                 qt.retry_count += 1
@@ -333,10 +342,12 @@ class DownloadManager(QObject):
                     timer = threading.Timer(qt.retry_interval, self._schedule)
                     timer.daemon = True
                     timer.start()
+                    return  # don't count as finished yet
                 else:
                     qt.status = TaskStatus.FAILED.value
                     qt.error = t.error
                     self.task_finished.emit(qt.task_id, False, t.error)
+            self._emit_batch_progress()
 
         thread = start_download_with_pause(dt, event, on_progress=on_progress, on_done=on_done)
         self._active[qt.task_id] = thread
@@ -347,6 +358,31 @@ class DownloadManager(QObject):
         self._active.pop(task_id, None)
         self._download_tasks.pop(task_id, None)
         self._paused_events.pop(task_id, None)
+
+    def _record_history(self, qt: QueueTask):
+        if not self._history_manager:
+            return
+        file_size = 0
+        if qt.filename:
+            try:
+                p = Path(qt.filename)
+                if p.is_file():
+                    file_size = p.stat().st_size
+                elif p.is_dir():
+                    file_size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+            except OSError:
+                pass
+        record = HistoryRecord(
+            title=qt.title,
+            author=qt.author,
+            platform=qt.platform,
+            url=qt.url,
+            file_path=qt.filename,
+            file_size=file_size,
+            thumbnail_url=qt.thumbnail_url or "",
+        )
+        self._history_manager.add(record)
+        self.history_record_added.emit(record)
 
     def _schedule(self):
         # Phase 1: under lock, just collect which tasks to launch
@@ -373,3 +409,9 @@ class DownloadManager(QObject):
         if not candidates:
             return None
         return min(candidates, key=lambda q: q.created_at)
+
+    def _emit_batch_progress(self):
+        total = len(self._tasks)
+        completed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.COMPLETED.value)
+        failed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.FAILED.value)
+        self.batch_progress.emit(completed, failed, total)

@@ -4,10 +4,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QProcess, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
-    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -23,63 +23,31 @@ from ..i18n import get_lang, set_lang, t
 from ..utils.config import get_cookie_path, load_config, save_config
 
 
-class SettingsDialog(QDialog):
+class SettingsPage(QWidget):
     restart_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(t("settings"))
-        self.setMinimumWidth(420)
-        self.setModal(True)
+        self.setObjectName("settings_page")
         self._build_ui()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
-        root.setSpacing(16)
+        root.setContentsMargins(32, 24, 32, 24)
+        root.setSpacing(20)
 
-        # ---- Cookie section ----
-        cookie_group = QGroupBox(t("cookie_mgmt"))
-        cg = QVBoxLayout(cookie_group)
+        # Title
+        title = QLabel(t("settings"))
+        title.setObjectName("page_title")
+        root.addWidget(title)
 
-        # Instagram cookie status
-        ig_row = QHBoxLayout()
-        ig_row.addWidget(QLabel("Instagram:"))
-        self._ig_cookie_status = QLabel()
-        self._update_ig_cookie_status()
-        ig_row.addWidget(self._ig_cookie_status)
-        ig_row.addStretch()
-        cg.addLayout(ig_row)
+        # ---- General section ----
+        general_group = QGroupBox(t("settings_general"))
+        gg = QVBoxLayout(general_group)
 
-        # X cookie status
-        x_row = QHBoxLayout()
-        x_row.addWidget(QLabel("X (Twitter):"))
-        self._x_cookie_status = QLabel()
-        self._update_x_cookie_status()
-        x_row.addWidget(self._x_cookie_status)
-        x_row.addStretch()
-        cg.addLayout(x_row)
-
-        # YouTube cookie status
-        yt_row = QHBoxLayout()
-        yt_row.addWidget(QLabel("YouTube:"))
-        self._yt_cookie_status = QLabel()
-        self._update_yt_cookie_status()
-        yt_row.addWidget(self._yt_cookie_status)
-        yt_row.addStretch()
-        cg.addLayout(yt_row)
-
-        self._import_btn = QPushButton(t("cookie_import"))
-        self._import_btn.clicked.connect(self._on_import_cookie)
-        cg.addWidget(self._import_btn)
-
-        root.addWidget(cookie_group)
-
-        # ---- Language section ----
-        lang_group = QGroupBox(t("language"))
-        lg = QHBoxLayout(lang_group)
-
-        lg.addWidget(QLabel(t("language") + ":"))
+        # Language
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel(t("language") + ":"))
         self._lang_combo = QComboBox()
         self._lang_combo.addItem("中文", "zh")
         self._lang_combo.addItem("English", "en")
@@ -88,11 +56,13 @@ class SettingsDialog(QDialog):
         if idx >= 0:
             self._lang_combo.setCurrentIndex(idx)
         self._lang_combo.currentIndexChanged.connect(self._on_lang_changed)
-        lg.addWidget(self._lang_combo, 1)
+        lang_row.addWidget(self._lang_combo, 1)
+        lang_row.addStretch()
+        gg.addLayout(lang_row)
 
-        root.addWidget(lang_group)
+        root.addWidget(general_group)
 
-        # ---- Download settings section ----
+        # ---- Download section ----
         dl_group = QGroupBox(t("download_settings"))
         dg = QVBoxLayout(dl_group)
 
@@ -116,21 +86,81 @@ class SettingsDialog(QDialog):
         mr_row.addStretch()
         dg.addLayout(mr_row)
 
+        # Save button
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        save_btn = QPushButton(t("settings_save"))
+        save_btn.setObjectName("accent_btn")
+        save_btn.setFixedHeight(32)
+        save_btn.clicked.connect(self._on_save)
+        save_row.addWidget(save_btn)
+        dg.addLayout(save_row)
+
         root.addWidget(dl_group)
+
+        # ---- Cookie section ----
+        cookie_group = QGroupBox(t("cookie_mgmt"))
+        cg = QVBoxLayout(cookie_group)
+
+        # Instagram
+        ig_row = QHBoxLayout()
+        ig_row.addWidget(QLabel("Instagram:"))
+        self._ig_cookie_status = QLabel()
+        self._update_ig_cookie_status()
+        ig_row.addWidget(self._ig_cookie_status)
+        ig_row.addStretch()
+        cg.addLayout(ig_row)
+
+        # X
+        x_row = QHBoxLayout()
+        x_row.addWidget(QLabel("X (Twitter):"))
+        self._x_cookie_status = QLabel()
+        self._update_x_cookie_status()
+        x_row.addWidget(self._x_cookie_status)
+        x_row.addStretch()
+        cg.addLayout(x_row)
+
+        # YouTube
+        yt_row = QHBoxLayout()
+        yt_row.addWidget(QLabel("YouTube:"))
+        self._yt_cookie_status = QLabel()
+        self._update_yt_cookie_status()
+        yt_row.addWidget(self._yt_cookie_status)
+        yt_row.addStretch()
+        cg.addLayout(yt_row)
+
+        import_row = QHBoxLayout()
+        import_row.addStretch()
+        self._import_btn = QPushButton(t("cookie_import"))
+        self._import_btn.setObjectName("secondary")
+        self._import_btn.clicked.connect(self._on_import_cookie)
+        import_row.addWidget(self._import_btn)
+        cg.addLayout(import_row)
 
         self._hint_label = QLabel("")
         self._hint_label.setObjectName("muted")
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._hint_label)
+        cg.addWidget(self._hint_label)
 
-        # Close button
-        close_row = QHBoxLayout()
-        close_row.addStretch()
-        self._close_btn = QPushButton(t("close"))
-        self._close_btn.setObjectName("secondary")
-        self._close_btn.clicked.connect(self._on_close)
-        close_row.addWidget(self._close_btn)
-        root.addLayout(close_row)
+        root.addWidget(cookie_group)
+
+        # ---- About section ----
+        about_group = QGroupBox("About")
+        ag = QVBoxLayout(about_group)
+
+        ver_row = QHBoxLayout()
+        ver_row.addWidget(QLabel(t("settings_version") + ":"))
+        ver_val = QLabel("1.5.0")
+        ver_val.setObjectName("muted")
+        ver_row.addWidget(ver_val)
+        ver_row.addStretch()
+        ag.addLayout(ver_row)
+
+        root.addWidget(about_group)
+
+        root.addStretch()
+
+    # ---- Cookie status ----
 
     def _update_ig_cookie_status(self):
         from .cookie_checker import check_ig_cookie_status
@@ -171,31 +201,30 @@ class SettingsDialog(QDialog):
             self._yt_cookie_status.setText(t("cookie_missing"))
             self._yt_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
 
-    def _on_close(self):
+    # ---- Actions ----
+
+    def _on_save(self):
         cfg = load_config()
         cfg["max_concurrent"] = self._concurrent_spin.value()
         cfg["max_retries"] = self._retry_spin.value()
         save_config(cfg)
-        self.accept()
+        self._hint_label.setText(t("settings_saved"))
+        self._hint_label.setStyleSheet("color: #10b981;")
 
     @Slot()
     def _on_import_cookie(self):
         path, _ = QFileDialog.getOpenFileName(
-            self,
-            t("cookie_import"),
-            "",
+            self, t("cookie_import"), "",
             "Cookie Files (*.txt);;All Files (*)",
         )
         if not path:
             return
-
         try:
             cfg = load_config()
             dest = Path(cfg["cookie_file"])
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, dest)
 
-            # Validate after import
             from .cookie_checker import check_ig_cookie_status, check_x_cookie_status
             ig_status = check_ig_cookie_status()
             x_status = check_x_cookie_status()
@@ -212,9 +241,7 @@ class SettingsDialog(QDialog):
             self._update_x_cookie_status()
             self._update_yt_cookie_status()
         except Exception as e:
-            QMessageBox.critical(
-                self, t("error"), t("cookie_import_fail", err=str(e))
-            )
+            QMessageBox.critical(self, t("error"), t("cookie_import_fail", err=str(e)))
 
     @Slot(int)
     def _on_lang_changed(self, index: int):
@@ -235,5 +262,9 @@ class SettingsDialog(QDialog):
         box.setIcon(QMessageBox.Icon.Question)
 
         if box.exec() == QMessageBox.StandardButton.Yes:
-            self.accept()
             self.restart_requested.emit()
+
+    def refresh_cookie_status(self):
+        self._update_ig_cookie_status()
+        self._update_x_cookie_status()
+        self._update_yt_cookie_status()

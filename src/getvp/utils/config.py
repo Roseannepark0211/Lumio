@@ -5,6 +5,7 @@ from pathlib import Path
 _APP_DIR = Path.home() / ".getvp"
 _CONFIG_FILE = _APP_DIR / "config.json"
 _QUEUE_FILE = _APP_DIR / "queue.json"
+_HISTORY_FILE = _APP_DIR / "history.json"
 
 DEFAULTS = {
     "download_dir": str(Path.home() / "Downloads" / "Lumio"),
@@ -14,6 +15,7 @@ DEFAULTS = {
     "max_concurrent": 3,
     "max_retries": 3,
     "lang": "zh",
+    "theme": "dark",
 }
 
 
@@ -46,3 +48,7 @@ def get_download_dir() -> Path:
 
 def get_queue_path() -> Path:
     return _QUEUE_FILE
+
+
+def get_history_path() -> Path:
+    return _HISTORY_FILE

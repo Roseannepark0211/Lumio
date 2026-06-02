@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..history_manager import HistoryManager, HistoryRecord
+from ..i18n import t
+from .history_panel import HistoryRecordWidget, _format_size
+
+
+class HistoryPage(QWidget):
+    def __init__(self, history_manager: HistoryManager, parent=None):
+        super().__init__(parent)
+        self.setObjectName("history_page")
+        self._hm = history_manager
+        self._record_widgets: dict[str, HistoryRecordWidget] = {}
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Header bar
+        header = QHBoxLayout()
+        header.setContentsMargins(32, 20, 32, 12)
+        header.setSpacing(10)
+
+        title = QLabel(t("history_title"))
+        title.setObjectName("page_title")
+        header.addWidget(title)
+
+        self._badge = QLabel(str(len(self._hm.records)))
+        self._badge.setObjectName("history_badge")
+        self._badge.setVisible(len(self._hm.records) > 0)
+        header.addWidget(self._badge)
+
+        header.addStretch()
+
+        # Platform filter
+        self._filter_combo = QComboBox()
+        self._filter_combo.setObjectName("history_filter")
+        self._filter_combo.setFixedWidth(120)
+        self._filter_combo.addItem(t("history_filter_all"), "all")
+        self._filter_combo.addItem("YouTube", "youtube")
+        self._filter_combo.addItem("Instagram", "instagram")
+        self._filter_combo.addItem("X (Twitter)", "x")
+        self._filter_combo.currentIndexChanged.connect(self._apply_filter)
+        header.addWidget(self._filter_combo)
+
+        # Search box
+        self._search = QLineEdit()
+        self._search.setObjectName("history_search")
+        self._search.setPlaceholderText(t("history_search"))
+        self._search.setFixedWidth(200)
+        self._search.setFixedHeight(30)
+        self._search.textChanged.connect(self._apply_filter)
+        header.addWidget(self._search)
+
+        # Clear button
+        self._clear_btn = QPushButton(t("history_clear"))
+        self._clear_btn.setObjectName("task_btn_danger")
+        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_btn.setFixedHeight(30)
+        self._clear_btn.clicked.connect(self._on_clear)
+        header.addWidget(self._clear_btn)
+
+        root.addLayout(header)
+
+        # Scrollable list
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+
+        self._list_widget = QWidget()
+        self._list_layout = QVBoxLayout(self._list_widget)
+        self._list_layout.setContentsMargins(32, 8, 32, 16)
+        self._list_layout.setSpacing(4)
+        self._list_layout.addStretch()
+
+        self._scroll.setWidget(self._list_widget)
+        root.addWidget(self._scroll, 1)
+
+        # Empty state
+        self._empty_label = QLabel(t("history_empty"))
+        self._empty_label.setObjectName("muted")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet("padding: 40px; font-size: 14px;")
+        self._list_layout.insertWidget(0, self._empty_label)
+
+        # Load existing records
+        for rec in self._hm.records:
+            self._add_record_widget(rec)
+
+        self._update_empty()
+
+    def _add_record_widget(self, rec: HistoryRecord):
+        widget = HistoryRecordWidget(rec)
+        widget.action_requested.connect(self._on_action)
+        self._record_widgets[rec.record_id] = widget
+        self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
+
+    def _update_empty(self):
+        has_records = len(self._record_widgets) > 0
+        self._empty_label.setVisible(not has_records)
+        visible_count = sum(1 for w in self._record_widgets.values() if w.isVisible())
+        self._badge.setText(str(visible_count))
+        self._badge.setVisible(visible_count > 0)
+
+    @Slot()
+    def _apply_filter(self):
+        search_text = self._search.text().lower().strip()
+        platform_filter = self._filter_combo.currentData()
+
+        for rid, widget in self._record_widgets.items():
+            rec = next((r for r in self._hm.records if r.record_id == rid), None)
+            if not rec:
+                widget.setVisible(False)
+                continue
+
+            # Platform filter
+            if platform_filter != "all" and rec.platform != platform_filter:
+                widget.setVisible(False)
+                continue
+
+            # Text search
+            if search_text:
+                searchable = f"{rec.title} {rec.author} {rec.platform} {rec.url}".lower()
+                widget.setVisible(search_text in searchable)
+            else:
+                widget.setVisible(True)
+
+        self._update_empty()
+
+    def _on_clear(self):
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, t("history_title"), t("history_confirm_clear"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._hm.clear()
+        for widget in self._record_widgets.values():
+            widget.deleteLater()
+        self._record_widgets.clear()
+        self._update_empty()
+
+    def _on_action(self, record_id: str, action: str):
+        rec = next((r for r in self._hm.records if r.record_id == record_id), None)
+        if not rec:
+            return
+        if action == "open_file":
+            if rec.file_path and Path(rec.file_path).exists():
+                os.startfile(rec.file_path)
+        elif action == "open_dir":
+            if rec.file_path:
+                parent = Path(rec.file_path).parent
+                if parent.exists():
+                    os.startfile(str(parent))
+        elif action == "delete":
+            widget = self._record_widgets.pop(record_id, None)
+            if widget:
+                widget.deleteLater()
+            self._hm.delete(record_id)
+            self._update_empty()
+
+    @Slot(HistoryRecord)
+    def on_history_added(self, record: HistoryRecord):
+        self._add_record_widget(record)
+        self._update_empty()
+        self._apply_filter()
