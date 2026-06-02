@@ -9,6 +9,8 @@ dependencies = [
     "instaloader>=4.10",
     "requests>=2.28",
     "imageio-ffmpeg>=0.4.9",
+    "sqlalchemy>=2.0",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]

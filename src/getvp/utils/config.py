@@ -52,3 +52,13 @@ def get_queue_path() -> Path:
 
 def get_history_path() -> Path:
     return _HISTORY_FILE
+
+
+def get_library_db_path() -> Path:
+    return _APP_DIR / "library.db"
+
+
+def get_thumbs_dir() -> Path:
+    d = _APP_DIR / "thumbs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

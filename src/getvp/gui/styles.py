@@ -6,9 +6,12 @@ QMainWindow {
 
 QWidget {
     color: #e0e0e6;
-    background-color: #0f1117;
     font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
     font-size: 13px;
+}
+
+QScrollArea > QWidget > QWidget {
+    background-color: #0f1117;
 }
 
 /* ---- Labels ---- */
@@ -537,6 +540,61 @@ QFrame#history_card:hover {
     border-color: #3e4460;
 }
 
+/* ---- Library Card ---- */
+QFrame#library_card {
+    background-color: #161822;
+    border: 1px solid #22253a;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QFrame#library_card:hover {
+    border-color: #3e4460;
+}
+
+QLabel#library_card_thumb {
+    background-color: #12141c;
+    border: 1px solid #1e2130;
+    border-radius: 6px;
+    color: #6b7084;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+QPushButton#fav_btn {
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    padding: 2px 4px;
+    color: #6b7084;
+}
+QPushButton#fav_btn:hover {
+    color: #ef4444;
+}
+QPushButton#fav_btn:checked {
+    color: #ef4444;
+}
+
+QPushButton#pin_btn {
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    padding: 2px 4px;
+    color: #6b7084;
+}
+QPushButton#pin_btn:hover {
+    color: #f59e0b;
+}
+
+QLabel#tag_chip {
+    background-color: #22253a;
+    color: #a0a4b8;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 1px 8px;
+}
+
 /* ---- Media Type Badges ---- */
 QLabel#media_video {
     background-color: #7c3aed;
@@ -631,7 +689,7 @@ QStackedWidget#content_area {
 }
 
 QWidget#home_page, QWidget#downloads_page, QWidget#history_page,
-QWidget#stats_page, QWidget#settings_page {
+QWidget#stats_page, QWidget#settings_page, QWidget#library_page {
     background-color: #0f1117;
 }
 
@@ -752,9 +810,12 @@ QMainWindow {
 
 QWidget {
     color: #1a1a2e;
-    background-color: #f5f5f7;
     font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
     font-size: 13px;
+}
+
+QScrollArea > QWidget > QWidget {
+    background-color: #f5f5f7;
 }
 
 /* ---- Labels ---- */
@@ -1307,7 +1368,7 @@ QStackedWidget#content_area {
 }
 
 QWidget#home_page, QWidget#downloads_page, QWidget#history_page,
-QWidget#stats_page, QWidget#settings_page {
+QWidget#stats_page, QWidget#settings_page, QWidget#library_page {
     background-color: #f5f5f7;
 }
 
@@ -1431,6 +1492,61 @@ QFrame#history_card {
 
 QFrame#history_card:hover {
     border-color: #2563eb;
+}
+
+/* ---- Library Card (Light) ---- */
+QFrame#library_card {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e6;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QFrame#library_card:hover {
+    border-color: #2563eb;
+}
+
+QLabel#library_card_thumb {
+    background-color: #f0f0f5;
+    border: 1px solid #d4d4dc;
+    border-radius: 6px;
+    color: #8e8ea0;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+QPushButton#fav_btn {
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    padding: 2px 4px;
+    color: #8e8ea0;
+}
+QPushButton#fav_btn:hover {
+    color: #ef4444;
+}
+QPushButton#fav_btn:checked {
+    color: #ef4444;
+}
+
+QPushButton#pin_btn {
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    padding: 2px 4px;
+    color: #8e8ea0;
+}
+QPushButton#pin_btn:hover {
+    color: #f59e0b;
+}
+
+QLabel#tag_chip {
+    background-color: #e8e8f0;
+    color: #555568;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 1px 8px;
 }
 
 /* ---- History Filter ---- */

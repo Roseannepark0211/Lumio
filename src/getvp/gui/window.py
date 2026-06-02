@@ -17,12 +17,14 @@ from PySide6.QtWidgets import (
 
 from ..history_manager import HistoryManager
 from ..i18n import t
+from ..library_manager import LibraryManager
 from ..queue_manager import DownloadManager
 from ..utils.config import load_config, save_config
 from .cookie_checker import CookieCheckWorker
 from .downloads_page import DownloadsPage
 from .history_page import HistoryPage
 from .home_page import HomePage
+from .library_page import LibraryPage
 from .settings_page import SettingsPage
 from .sidebar import SidebarWidget
 from .stats_page import StatsPage
@@ -50,6 +52,8 @@ class MainWindow(QMainWindow):
         self._manager = manager
         self._history_manager = HistoryManager()
         self._manager.set_history_manager(self._history_manager)
+        self._library_manager = LibraryManager()
+        self._manager.set_library_manager(self._library_manager)
 
         self._build_ui()
         self._connect_signals()
@@ -85,12 +89,14 @@ class MainWindow(QMainWindow):
         self._history_page = HistoryPage(self._history_manager)
         self._stats_page = StatsPage(self._history_manager)
         self._settings_page = SettingsPage()
+        self._library_page = LibraryPage(self._library_manager)
 
         self._stack.addWidget(self._home_page)      # index 0
         self._stack.addWidget(self._downloads_page)  # index 1
         self._stack.addWidget(self._history_page)    # index 2
-        self._stack.addWidget(self._stats_page)      # index 3
-        self._stack.addWidget(self._settings_page)   # index 4
+        self._stack.addWidget(self._library_page)    # index 3
+        self._stack.addWidget(self._stats_page)      # index 4
+        self._stack.addWidget(self._settings_page)   # index 5
 
         root.addWidget(self._stack, 1)
 
@@ -107,6 +113,9 @@ class MainWindow(QMainWindow):
         # History: new record added -> update history page + stats
         self._manager.history_record_added.connect(self._history_page.on_history_added)
 
+        # Library: new item added -> update library page
+        self._manager.library_record_added.connect(self._library_page.on_item_added)
+
         # Settings: restart
         self._settings_page.restart_requested.connect(self._restart_app)
 
@@ -115,8 +124,9 @@ class MainWindow(QMainWindow):
             "home": 0,
             "downloads": 1,
             "history": 2,
-            "stats": 3,
-            "settings": 4,
+            "library": 3,
+            "stats": 4,
+            "settings": 5,
         }
         idx = page_map.get(page_id, 0)
         self._stack.setCurrentIndex(idx)

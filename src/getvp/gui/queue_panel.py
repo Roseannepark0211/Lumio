@@ -131,12 +131,14 @@ class QueueTaskWidget(QFrame):
     def _media_type_info(qt: QueueTask) -> tuple[str, str]:
         ft = qt.format_type
         if ft == "audio":
-            return "MP3", "media_audio"
+            return "Audio", "media_audio"
         if ft in ("video", "combined"):
-            return "MP4", "media_video"
-        # IG: check URL for /reel/ (video) vs /p/ (could be either)
+            return "Video", "media_video"
+        if ft == "image":
+            return "Image", "media_image"
+        # IG carousels: treat as mixed
         if qt.platform == "instagram":
-            return "", ""
+            return "Mixed", "media_mixed"
         return "", ""
 
     def _status_text(self, status: str) -> str:

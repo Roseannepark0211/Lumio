@@ -25,12 +25,12 @@ class SidebarWidget(QFrame):
         ("⌂", "home", "home"),
         ("↓", "downloads", "downloads"),
         ("🕘", "history", "history"),
+        ("◻", "library", "library"),
         ("☰", "stats", "stats"),
         ("⚙", "settings", "settings"),
     ]
 
     PLACEHOLDER_ITEMS = [
-        ("☐", "library", "library"),
         ("☐", "workspace", "workspace"),
     ]
 

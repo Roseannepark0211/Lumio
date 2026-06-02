@@ -116,6 +116,7 @@ class DownloadManager(QObject):
     queue_changed = Signal()
     batch_progress = Signal(int, int, int)           # completed, failed, total
     history_record_added = Signal(object)            # HistoryRecord
+    library_record_added = Signal(object)            # LibraryItem
 
     def __init__(self, history_manager: HistoryManager | None = None, parent=None):
         super().__init__(parent)
@@ -125,6 +126,7 @@ class DownloadManager(QObject):
         self._paused_events: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._history_manager = history_manager
+        self._library_manager = None
 
         cfg = load_config()
         self._max_workers: int = cfg.get("max_concurrent", 3)
@@ -134,6 +136,9 @@ class DownloadManager(QObject):
 
     def set_history_manager(self, hm: HistoryManager):
         self._history_manager = hm
+
+    def set_library_manager(self, lm):
+        self._library_manager = lm
 
     def set_max_workers(self, n: int):
         self._max_workers = max(1, min(10, n))
@@ -360,8 +365,6 @@ class DownloadManager(QObject):
         self._paused_events.pop(task_id, None)
 
     def _record_history(self, qt: QueueTask):
-        if not self._history_manager:
-            return
         file_size = 0
         if qt.filename:
             try:
@@ -372,17 +375,49 @@ class DownloadManager(QObject):
                     file_size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
             except OSError:
                 pass
-        record = HistoryRecord(
-            title=qt.title,
-            author=qt.author,
-            platform=qt.platform,
-            url=qt.url,
-            file_path=qt.filename,
-            file_size=file_size,
-            thumbnail_url=qt.thumbnail_url or "",
-        )
-        self._history_manager.add(record)
-        self.history_record_added.emit(record)
+
+        # History (JSON)
+        if self._history_manager:
+            record = HistoryRecord(
+                title=qt.title,
+                author=qt.author,
+                platform=qt.platform,
+                url=qt.url,
+                file_path=qt.filename,
+                file_size=file_size,
+                thumbnail_url=qt.thumbnail_url or "",
+            )
+            self._history_manager.add(record)
+            self.history_record_added.emit(record)
+
+        # Library (SQLite) — auto-ingest
+        if self._library_manager:
+            from .utils.media_utils import infer_media_type_from_format
+            media_type = infer_media_type_from_format(qt.format_type, qt.platform)
+            item_id = self._library_manager.add_item(
+                title=qt.title,
+                author=qt.author,
+                platform=qt.platform,
+                url=qt.url,
+                file_path=qt.filename,
+                file_size=file_size,
+                media_type=media_type,
+                post_time=qt.post_time,
+                thumbnail_url=qt.thumbnail_url or "",
+            )
+            item = self._library_manager.get_item(item_id)
+            if item:
+                self.library_record_added.emit(item)
+                # Schedule async thumbnail generation
+                from .thumbnail_engine import generate_thumbnail_async
+                generate_thumbnail_async(
+                    item_id, qt.filename, media_type, qt.thumbnail_url or "",
+                    self._on_thumbnail_ready,
+                )
+
+    def _on_thumbnail_ready(self, item_id: str, local_path: str):
+        if self._library_manager:
+            self._library_manager.set_local_thumbnail(item_id, local_path)
 
     def _schedule(self):
         # Phase 1: under lock, just collect which tasks to launch

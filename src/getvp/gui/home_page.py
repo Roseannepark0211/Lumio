@@ -89,6 +89,11 @@ class HomePage(QWidget):
         self._parse_btn.setMinimumWidth(100)
         btn_row.addWidget(self._parse_btn)
 
+        self._reset_btn = QPushButton(t("reset"))
+        self._reset_btn.setObjectName("secondary")
+        self._reset_btn.clicked.connect(self._on_reset)
+        btn_row.addWidget(self._reset_btn)
+
         self._path_btn = QPushButton(t("save_to"))
         self._path_btn.setObjectName("secondary")
         self._path_btn.clicked.connect(self._on_choose_dir)
@@ -152,9 +157,6 @@ class HomePage(QWidget):
         self._download_btn.clicked.connect(self._on_add_to_queue)
         fmt_row.addWidget(self._download_btn)
         root.addLayout(fmt_row)
-
-        # Stretch preview area
-        root.setStretch(4, 1)
 
     # ---- Slots ----
 
@@ -292,6 +294,9 @@ class HomePage(QWidget):
         )
 
         # Clear preview
+        self._reset_preview()
+
+    def _reset_preview(self):
         self._current_info = None
         self._download_btn.setEnabled(False)
         self._format_combo.clear()
@@ -301,3 +306,7 @@ class HomePage(QWidget):
         self._thumb_label.setText("")
         self._name_input.clear()
         self._url_input.clear()
+
+    @Slot()
+    def _on_reset(self):
+        self._reset_preview()

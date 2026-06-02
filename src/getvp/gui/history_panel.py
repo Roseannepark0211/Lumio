@@ -58,20 +58,20 @@ def _media_badge(rec: HistoryRecord) -> tuple[str, str]:
             if has_video and has_image:
                 return "Mixed", "media_mixed"
             if has_video:
-                return "MP4", "media_video"
+                return "Video", "media_video"
             if has_image:
-                return "JPG", "media_image"
+                return "Image", "media_image"
         except OSError:
             pass
         return "", ""
     # Single file
     ext = Path(fp).suffix
     if ext in _VIDEO_EXTS:
-        return "MP4", "media_video"
+        return "Video", "media_video"
     if ext in _IMAGE_EXTS:
-        return "JPG", "media_image"
+        return "Image", "media_image"
     if ext in (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"):
-        return "MP3", "media_audio"
+        return "Audio", "media_audio"
     return "", ""
 
 
