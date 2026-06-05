@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _restart_app(self):
         program = sys.executable
-        args = ["-m", "getvp.main"]
+        args = ["-m", "lumio.main"]
         import os
         QProcess.startDetached(program, args, os.getcwd())
         QApplication.instance().quit()

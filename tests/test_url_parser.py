@@ -1,4 +1,4 @@
-from getvp.utils.url_parser import Platform, parse_url
+from lumio.utils.url_parser import Platform, parse_url
 
 
 class TestYouTubeParsing:

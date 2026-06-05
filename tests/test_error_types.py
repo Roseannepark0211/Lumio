@@ -1,6 +1,6 @@
 """Tests for utils/error_types.py"""
 import pytest
-from getvp.utils.error_types import ErrorCategory, classify_error
+from lumio.utils.error_types import ErrorCategory, classify_error
 
 
 class TestClassifyCookieErrors:

@@ -5,9 +5,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-import getvp.utils.database as db_mod
-import getvp.library_manager as lm_mod
-from getvp.library_manager import LibraryManager
+import lumio.utils.database as db_mod
+import lumio.library_manager as lm_mod
+from lumio.library_manager import LibraryManager
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ def _fresh_db(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lm_mod, "_MIGRATED_MARKER", marker)
     monkeypatch.setattr(
-        "getvp.library_manager.get_history_path",
+        "lumio.library_manager.get_history_path",
         lambda: tmp_path / "history.json",
     )
     yield

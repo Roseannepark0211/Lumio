@@ -10,7 +10,7 @@ from .utils.config import get_history_path
 from .utils.database import get_session_factory, init_db
 from .utils.media_utils import infer_media_type
 
-_MIGRATED_MARKER = Path.home() / ".getvp" / ".library_migrated"
+_MIGRATED_MARKER = Path.home() / ".lumio" / ".library_migrated"
 
 
 class LibraryManager:
@@ -348,6 +348,40 @@ class LibraryManager:
         finally:
             session.close()
 
+    # ---- Batch info ----
+
+    def get_all_batch_ids(self) -> list[str]:
+        """Return distinct non-empty batch_ids."""
+        session = self._session()
+        try:
+            rows = (
+                session.query(LibraryItem.batch_id)
+                .filter(LibraryItem.batch_id != "")
+                .distinct()
+                .all()
+            )
+            return [r[0] for r in rows]
+        finally:
+            session.close()
+
+    def batch_toggle_favorite(self, item_ids: list[str], state: bool):
+        session = self._session()
+        try:
+            for item in session.query(LibraryItem).filter(LibraryItem.id.in_(item_ids)).all():
+                item.is_favorite = state
+            session.commit()
+        finally:
+            session.close()
+
+    def batch_delete(self, item_ids: list[str]):
+        session = self._session()
+        try:
+            for item in session.query(LibraryItem).filter(LibraryItem.id.in_(item_ids)).all():
+                session.delete(item)
+            session.commit()
+        finally:
+            session.close()
+
     # ---- Search ----
 
     def search(
@@ -358,6 +392,9 @@ class LibraryManager:
         favorites_only: bool = False,
         tag_name: str = "",
         collection_id: int | None = None,
+        date_from: str = "",
+        date_to: str = "",
+        batch_id: str = "",
     ) -> list[LibraryItem]:
         session = self._session()
         try:
@@ -381,6 +418,12 @@ class LibraryManager:
                 q = q.join(ItemTag).join(Tag).filter(Tag.name == tag_name)
             if collection_id is not None:
                 q = q.join(ItemCollection).filter(ItemCollection.collection_id == collection_id)
+            if date_from:
+                q = q.filter(LibraryItem.post_time >= date_from)
+            if date_to:
+                q = q.filter(LibraryItem.post_time <= date_to + "z")
+            if batch_id:
+                q = q.filter(LibraryItem.batch_id == batch_id)
             items = q.order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc()).all()
             session.expunge_all()
             return items

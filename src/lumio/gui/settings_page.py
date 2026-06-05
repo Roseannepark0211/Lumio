@@ -376,7 +376,7 @@ class SettingsPage(QWidget):
             return
         try:
             cfg = load_config()
-            cookie_file = cfg.get("cookie_file") or str(Path.home() / ".getvp" / "cookies.txt")
+            cookie_file = cfg.get("cookie_file") or str(Path.home() / ".lumio" / "cookies.txt")
             dest = Path(cookie_file)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, dest)

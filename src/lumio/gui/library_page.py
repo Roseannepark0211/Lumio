@@ -6,9 +6,11 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QComboBox,
+    QDateEdit,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -28,6 +30,8 @@ class LibraryPage(QWidget):
         self._lm = library_manager
         self._item_widgets: dict[str, LibraryItemWidget] = {}
         self._collection_filter: int | None = None
+        self._select_mode = False
+        self._selected: set[str] = set()
         self._build_ui()
 
     def _build_ui(self):
@@ -35,7 +39,7 @@ class LibraryPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header bar
+        # --- Header bar (filters) ---
         header = QHBoxLayout()
         header.setContentsMargins(32, 20, 32, 12)
         header.setSpacing(10)
@@ -83,6 +87,14 @@ class LibraryPage(QWidget):
         self._type_combo.currentIndexChanged.connect(self._apply_filter)
         header.addWidget(self._type_combo)
 
+        # Batch filter
+        self._batch_combo = QComboBox()
+        self._batch_combo.setObjectName("history_filter")
+        self._batch_combo.setFixedWidth(140)
+        self._batch_combo.addItem(t("library_filter_all_batch"), "all")
+        self._batch_combo.currentIndexChanged.connect(self._apply_filter)
+        header.addWidget(self._batch_combo)
+
         # Search box
         self._search = QLineEdit()
         self._search.setObjectName("history_search")
@@ -94,7 +106,73 @@ class LibraryPage(QWidget):
 
         root.addLayout(header)
 
-        # Scrollable list
+        # --- Date range row ---
+        date_row = QHBoxLayout()
+        date_row.setContentsMargins(32, 0, 32, 8)
+        date_row.setSpacing(8)
+
+        from_label = QLabel(t("library_date_from") + ":")
+        from_label.setObjectName("muted")
+        date_row.addWidget(from_label)
+        self._date_from = QDateEdit()
+        self._date_from.setCalendarPopup(True)
+        self._date_from.setDisplayFormat("yyyy-MM-dd")
+        from PySide6.QtCore import QDate
+        self._date_from.setDate(QDate(2020, 1, 1))
+        self._date_from.setFixedWidth(120)
+        self._date_from.setFixedHeight(28)
+        self._date_from.dateChanged.connect(self._apply_filter)
+        date_row.addWidget(self._date_from)
+
+        to_label = QLabel(t("library_date_to") + ":")
+        to_label.setObjectName("muted")
+        date_row.addWidget(to_label)
+        self._date_to = QDateEdit()
+        self._date_to.setCalendarPopup(True)
+        self._date_to.setDisplayFormat("yyyy-MM-dd")
+        self._date_to.setDate(QDate.currentDate())
+        self._date_to.setFixedWidth(120)
+        self._date_to.setFixedHeight(28)
+        self._date_to.dateChanged.connect(self._apply_filter)
+        date_row.addWidget(self._date_to)
+
+        # Select mode toggle
+        date_row.addStretch()
+        self._select_btn = QPushButton(t("library_batch_select"))
+        self._select_btn.setObjectName("secondary")
+        self._select_btn.setFixedHeight(28)
+        self._select_btn.clicked.connect(self._toggle_select_mode)
+        date_row.addWidget(self._select_btn)
+
+        root.addLayout(date_row)
+
+        # --- Batch action bar (hidden by default) ---
+        self._batch_bar = QWidget()
+        self._batch_bar.setObjectName("batch_bar")
+        batch_layout = QHBoxLayout(self._batch_bar)
+        batch_layout.setContentsMargins(32, 6, 32, 6)
+        batch_layout.setSpacing(10)
+
+        self._batch_label = QLabel("")
+        self._batch_label.setObjectName("muted")
+        batch_layout.addWidget(self._batch_label)
+
+        batch_layout.addStretch()
+
+        batch_fav_btn = QPushButton(t("library_batch_fav"))
+        batch_fav_btn.setObjectName("secondary")
+        batch_fav_btn.clicked.connect(self._batch_favorite)
+        batch_layout.addWidget(batch_fav_btn)
+
+        batch_del_btn = QPushButton(t("library_batch_delete"))
+        batch_del_btn.setObjectName("task_btn_danger")
+        batch_del_btn.clicked.connect(self._batch_delete)
+        batch_layout.addWidget(batch_del_btn)
+
+        self._batch_bar.setVisible(False)
+        root.addWidget(self._batch_bar)
+
+        # --- Scrollable list ---
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -123,11 +201,15 @@ class LibraryPage(QWidget):
         for item in self._lm.get_all_items():
             self._add_item_widget(item)
 
+        self._refresh_batch_combo()
         self._update_empty()
+
+    # ---- Item widgets ----
 
     def _add_item_widget(self, item: LibraryItem):
         widget = LibraryItemWidget(item)
         widget.action_requested.connect(self._on_action)
+        widget.selection_changed.connect(self._on_selection_changed)
         self._item_widgets[item.id] = widget
         self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
 
@@ -138,12 +220,41 @@ class LibraryPage(QWidget):
         self._badge.setText(str(visible_count))
         self._badge.setVisible(visible_count > 0)
 
+    # ---- Filters ----
+
+    def _refresh_batch_combo(self):
+        """Rebuild batch_id combo with human-readable labels."""
+        current = self._batch_combo.currentData()
+        self._batch_combo.blockSignals(True)
+        self._batch_combo.clear()
+        self._batch_combo.addItem(t("library_filter_all_batch"), "all")
+        for bid in self._lm.get_all_batch_ids():
+            items = self._lm.search(batch_id=bid)
+            if items:
+                first = items[0]
+                platform = first.platform.upper() if first.platform else "?"
+                author = first.author[:12] if first.platform else ""
+                count = len(items)
+                label = f"{platform} {author} ({count})".strip()
+            else:
+                label = bid[:12]
+            self._batch_combo.addItem(label, bid)
+        # Restore previous selection
+        idx = self._batch_combo.findData(current)
+        if idx >= 0:
+            self._batch_combo.setCurrentIndex(idx)
+        self._batch_combo.blockSignals(False)
+
     @Slot()
     def _apply_filter(self):
         search_text = self._search.text().strip()
         platform_filter = self._platform_combo.currentData()
         type_filter = self._type_combo.currentData()
+        batch_filter = self._batch_combo.currentData()
         favorites_only = self._fav_toggle.isChecked()
+
+        date_from = self._date_from.date().toString("yyyyMMdd")
+        date_to = self._date_to.date().toString("yyyyMMdd")
 
         items = self._lm.search(
             query=search_text,
@@ -151,6 +262,9 @@ class LibraryPage(QWidget):
             media_type=type_filter if type_filter != "all" else "",
             favorites_only=favorites_only,
             collection_id=self._collection_filter,
+            date_from=date_from,
+            date_to=date_to,
+            batch_id=batch_filter if batch_filter != "all" else "",
         )
 
         visible_ids = {item.id for item in items}
@@ -158,6 +272,58 @@ class LibraryPage(QWidget):
             widget.setVisible(item_id in visible_ids)
 
         self._update_empty()
+
+    # ---- Select mode / batch operations ----
+
+    def _toggle_select_mode(self):
+        self._select_mode = not self._select_mode
+        self._selected.clear()
+        for w in self._item_widgets.values():
+            w.set_checkable(self._select_mode)
+        self._batch_bar.setVisible(self._select_mode)
+        self._select_btn.setText(t("library_batch_cancel") if self._select_mode else t("library_batch_select"))
+        self._update_batch_label()
+
+    def _on_selection_changed(self, item_id: str, checked: bool):
+        if checked:
+            self._selected.add(item_id)
+        else:
+            self._selected.discard(item_id)
+        self._update_batch_label()
+
+    def _update_batch_label(self):
+        self._batch_label.setText(t("library_batch_selected", n=len(self._selected)))
+
+    def _batch_favorite(self):
+        if not self._selected:
+            return
+        self._lm.batch_toggle_favorite(list(self._selected), True)
+        for item_id in self._selected:
+            w = self._item_widgets.get(item_id)
+            if w:
+                w.update_favorite(True)
+        self._toggle_select_mode()
+
+    def _batch_delete(self):
+        if not self._selected:
+            return
+        reply = QMessageBox.question(
+            self, t("library_title"),
+            t("library_batch_delete_confirm", n=len(self._selected)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        ids = list(self._selected)
+        self._lm.batch_delete(ids)
+        for item_id in ids:
+            w = self._item_widgets.pop(item_id, None)
+            if w:
+                w.deleteLater()
+        self._toggle_select_mode()
+        self._update_empty()
+
+    # ---- Actions ----
 
     def _on_action(self, item_id: str, action: str):
         item = self._lm.get_item(item_id)
@@ -171,10 +337,6 @@ class LibraryPage(QWidget):
                 parent = Path(item.file_path).parent
                 if parent.exists():
                     os.startfile(str(parent))
-        elif action == "open_task_dir":
-            folder = getattr(item, "folder_path", "") or ""
-            if folder and Path(folder).exists():
-                os.startfile(folder)
         elif action == "delete":
             widget = self._item_widgets.pop(item_id, None)
             if widget:
@@ -198,6 +360,7 @@ class LibraryPage(QWidget):
     def on_item_added(self, item: LibraryItem):
         """Slot connected to DownloadManager.library_record_added."""
         self._add_item_widget(item)
+        self._refresh_batch_combo()
         self._update_empty()
         self._apply_filter()
 
@@ -248,7 +411,6 @@ class LibraryPage(QWidget):
             self._apply_filter()
 
     def _on_collection_action(self, item_id: str, action: str):
-        """Handle 'add_to_collection:cid' and 'remove_from_collection:cid'."""
         if action.startswith("add_to_collection:"):
             cid = int(action[18:])
             self._lm.add_item_to_collection(item_id, cid)
@@ -265,6 +427,4 @@ class LibraryPage(QWidget):
             self._refresh_collections()
 
     def _refresh_collections(self):
-        """Notify parent (window) to refresh sidebar collections."""
-        # This is called via window's wiring
         pass

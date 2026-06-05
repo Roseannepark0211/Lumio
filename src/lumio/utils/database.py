@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..models import Base
 
-_DB_PATH = Path.home() / ".getvp" / "library.db"
+_DB_PATH = Path.home() / ".lumio" / "library.db"
 
 _engine = None
 _session_factory = None

@@ -1,6 +1,6 @@
 """Tests for utils/media_utils.py"""
 import pytest
-from getvp.utils.media_utils import infer_media_type, infer_media_type_from_format
+from lumio.utils.media_utils import infer_media_type, infer_media_type_from_format
 
 
 class TestInferMediaTypeFromFormat:

@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from getvp.history_manager import HistoryManager, HistoryRecord
+from lumio.history_manager import HistoryManager, HistoryRecord
 
 
 @pytest.fixture(autouse=True)
@@ -12,7 +12,7 @@ def _redirect_history(tmp_path, monkeypatch):
     """Redirect history.json to a tmp dir so tests don't touch real data."""
     fake_path = tmp_path / "history.json"
     monkeypatch.setattr(
-        "getvp.history_manager.get_history_path", lambda: fake_path
+        "lumio.history_manager.get_history_path", lambda: fake_path
     )
     return fake_path
 

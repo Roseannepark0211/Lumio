@@ -6,7 +6,7 @@
 
 ```powershell
 pip install -e .
-python -m getvp.main
+python -m lumio.main
 ```
 
 ## 功能

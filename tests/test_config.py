@@ -5,13 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
-import getvp.utils.config as cfg_mod
+import lumio.utils.config as cfg_mod
 
 
 @pytest.fixture(autouse=True)
 def _reset_cache(tmp_path, monkeypatch):
     """Redirect config files to tmp and reset global cache."""
-    fake_dir = tmp_path / ".getvp"
+    fake_dir = tmp_path / ".lumio"
     fake_dir.mkdir()
     fake_config = fake_dir / "config.json"
     fake_queue = fake_dir / "queue.json"

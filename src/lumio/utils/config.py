@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-_APP_DIR = Path.home() / ".getvp"
+_APP_DIR = Path.home() / ".lumio"
 _CONFIG_FILE = _APP_DIR / "config.json"
 _QUEUE_FILE = _APP_DIR / "queue.json"
 _HISTORY_FILE = _APP_DIR / "history.json"

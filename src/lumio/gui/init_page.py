@@ -112,7 +112,7 @@ class _CheckWorker(QThread):
             all_ok = False
 
         # 9. File write permission
-        test_file = dl_dir / ".getvp_write_test"
+        test_file = dl_dir / ".lumio_write_test"
         try:
             test_file.write_text("test", encoding="utf-8")
             test_file.unlink()

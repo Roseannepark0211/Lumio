@@ -3,7 +3,7 @@ import json
 import pytest
 from pathlib import Path
 
-from getvp.queue_manager import QueueTask, TaskStatus
+from lumio.queue_manager import QueueTask, TaskStatus
 
 
 class TestQueueTaskDefaults:

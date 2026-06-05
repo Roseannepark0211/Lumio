@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -30,11 +31,11 @@ def _media_label(media_type: str) -> tuple[str, str]:
 
 class LibraryItemWidget(QFrame):
     action_requested = Signal(str, str)  # item_id, action
+    selection_changed = Signal(str, bool)  # item_id, checked
 
     def __init__(self, item: LibraryItem, parent=None):
         super().__init__(parent)
         self.item_id = item.id
-        self._folder_path = getattr(item, "folder_path", "") or ""
         self.setObjectName("library_card")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expanded = False
@@ -48,6 +49,12 @@ class LibraryItemWidget(QFrame):
         # Main row
         top = QHBoxLayout()
         top.setSpacing(8)
+
+        # Selection checkbox (hidden by default)
+        self._checkbox = QCheckBox()
+        self._checkbox.setVisible(False)
+        self._checkbox.toggled.connect(lambda checked: self.selection_changed.emit(self.item_id, checked))
+        top.addWidget(self._checkbox)
 
         # Thumbnail placeholder
         self._thumb = QLabel()
@@ -128,6 +135,8 @@ class LibraryItemWidget(QFrame):
 
         fav_btn = QPushButton("♥" if item.is_favorite else "♡")
         fav_btn.setObjectName("fav_btn")
+        fav_btn.setCheckable(True)
+        fav_btn.setChecked(item.is_favorite)
         fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         fav_btn.setFixedSize(28, 28)
         fav_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "toggle_favorite"))
@@ -153,13 +162,6 @@ class LibraryItemWidget(QFrame):
         dir_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         dir_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "open_dir"))
         btn_row.addWidget(dir_btn)
-
-        if self._folder_path:
-            task_dir_btn = QPushButton(t("library_open_task_dir"))
-            task_dir_btn.setObjectName("task_btn")
-            task_dir_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            task_dir_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "open_task_dir"))
-            btn_row.addWidget(task_dir_btn)
 
         col_btn = QPushButton(t("collection_add_to"))
         col_btn.setObjectName("task_btn")
@@ -199,14 +201,20 @@ class LibraryItemWidget(QFrame):
         root.addWidget(self._detail)
 
     def update_favorite(self, is_favorite: bool):
+        self._fav_btn.setChecked(is_favorite)
         self._fav_btn.setText("♥" if is_favorite else "♡")
 
     def update_pinned(self, is_pinned: bool):
         self._pin_btn.setText("📌" if is_pinned else " ")
 
+    def set_checkable(self, enabled: bool):
+        self._checkbox.setVisible(enabled)
+        if not enabled:
+            self._checkbox.setChecked(False)
+
     def mousePressEvent(self, event):
         child = self.childAt(event.position().toPoint())
-        if isinstance(child, QPushButton):
+        if isinstance(child, (QPushButton, QCheckBox)):
             super().mousePressEvent(event)
             return
         self._expanded = not self._expanded
