@@ -17,6 +17,7 @@ class LibraryManager:
     def __init__(self):
         init_db()
         self._migrate_from_history_json()
+        self._migrate_add_storage_fields()
         self._backfill_media_types()
 
     def _session(self):
@@ -39,6 +40,20 @@ class LibraryManager:
         finally:
             session.close()
 
+    def _migrate_add_storage_fields(self):
+        """Add folder_path and batch_id columns if missing."""
+        from sqlalchemy import text
+        session = self._session()
+        try:
+            existing = {row[1] for row in session.execute(text("PRAGMA table_info(library_items)")).fetchall()}
+            if "folder_path" not in existing:
+                session.execute(text("ALTER TABLE library_items ADD COLUMN folder_path TEXT DEFAULT ''"))
+            if "batch_id" not in existing:
+                session.execute(text("ALTER TABLE library_items ADD COLUMN batch_id TEXT DEFAULT ''"))
+            session.commit()
+        finally:
+            session.close()
+
     # ---- CRUD ----
 
     def add_item(
@@ -53,6 +68,8 @@ class LibraryManager:
         duration: int | None = None,
         post_time: str = "",
         thumbnail_url: str = "",
+        folder_path: str = "",
+        batch_id: str = "",
     ) -> str:
         session = self._session()
         try:
@@ -68,6 +85,8 @@ class LibraryManager:
                 duration=duration,
                 post_time=post_time,
                 thumbnail_url=thumbnail_url,
+                folder_path=folder_path,
+                batch_id=batch_id,
             )
             session.add(item)
             session.commit()
@@ -81,7 +100,10 @@ class LibraryManager:
     def get_item(self, item_id: str) -> LibraryItem | None:
         session = self._session()
         try:
-            return session.get(LibraryItem, item_id)
+            item = session.get(LibraryItem, item_id)
+            if item:
+                session.expunge(item)
+            return item
         finally:
             session.close()
 
@@ -346,6 +368,8 @@ class LibraryManager:
                     (LibraryItem.title.ilike(like))
                     | (LibraryItem.author.ilike(like))
                     | (LibraryItem.url.ilike(like))
+                    | (LibraryItem.file_path.ilike(like))
+                    | (LibraryItem.post_time.ilike(like))
                 )
             if platform:
                 q = q.filter(LibraryItem.platform == platform)

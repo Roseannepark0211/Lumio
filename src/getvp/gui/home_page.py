@@ -5,7 +5,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -24,6 +23,23 @@ from ..i18n import t
 from ..queue_manager import DownloadManager
 from ..utils.config import get_download_dir
 from ..utils.url_parser import Platform, parse_url
+from .widgets import NoWheelComboBox
+
+
+class _ThumbWorker(QThread):
+    finished = Signal(bytes)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self._url = url
+
+    def run(self):
+        try:
+            from urllib.request import urlopen
+            data = urlopen(self._url, timeout=10).read()
+            self.finished.emit(data)
+        except Exception:
+            self.finished.emit(b"")
 
 
 class _ExtractWorker(QThread):
@@ -145,7 +161,7 @@ class HomePage(QWidget):
         fmt_row.setSpacing(10)
         self._fmt_label = QLabel(t("format_label"))
         fmt_row.addWidget(self._fmt_label)
-        self._format_combo = QComboBox()
+        self._format_combo = NoWheelComboBox()
         self._format_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -206,6 +222,13 @@ class HomePage(QWidget):
         self._title_label.setText(t("loading"))
         self._thumb_label.setText("")
 
+        # Disconnect old worker if still running
+        if hasattr(self, "_extract_worker") and self._extract_worker:
+            try:
+                self._extract_worker.finished.disconnect()
+            except RuntimeError:
+                pass
+
         self._extract_worker = _ExtractWorker(parsed.url)
         self._extract_worker.finished.connect(self._on_extract_done)
         self._extract_worker.start()
@@ -230,8 +253,9 @@ class HomePage(QWidget):
             dur = f"  ({m}:{s:02d})"
         time_str = f"  [{info.post_time}]" if info.post_time else ""
         author_str = f"  @{info.author}" if info.author else ""
-        self._title_label.setStyleSheet("color: #e0e0e6; font-size: 14px;")
         self._title_label.setText(f"{info.title}{dur}{time_str}{author_str}")
+        self._title_label.style().unpolish(self._title_label)
+        self._title_label.style().polish(self._title_label)
 
         raw_name = info.author if info.author else info.title
         safe_name = raw_name[:60].strip()
@@ -240,17 +264,10 @@ class HomePage(QWidget):
         self._name_input.setText(safe_name)
 
         if info.thumbnail:
-            from urllib.request import urlopen
-            try:
-                data = urlopen(info.thumbnail).read()
-                pix = QPixmap()
-                pix.loadFromData(data)
-                target_h = min(276, max(120, int(pix.height() * 0.6)))
-                self._thumb_label.setPixmap(
-                    pix.scaledToHeight(target_h, Qt.TransformationMode.SmoothTransformation)
-                )
-            except Exception:
-                self._thumb_label.setText(t("thumbnail_unavail"))
+            self._thumb_label.setText(t("loading"))
+            self._thumb_worker = _ThumbWorker(info.thumbnail)
+            self._thumb_worker.finished.connect(self._on_thumb_loaded)
+            self._thumb_worker.start()
         else:
             self._thumb_label.setText(t("no_thumbnail"))
 
@@ -277,6 +294,18 @@ class HomePage(QWidget):
             self._format_combo.setEnabled(True)
 
         self._download_btn.setEnabled(True)
+
+    @Slot(bytes)
+    def _on_thumb_loaded(self, data: bytes):
+        if data:
+            pix = QPixmap()
+            pix.loadFromData(data)
+            target_h = min(276, max(120, int(pix.height() * 0.6)))
+            self._thumb_label.setPixmap(
+                pix.scaledToHeight(target_h, Qt.TransformationMode.SmoothTransformation)
+            )
+        else:
+            self._thumb_label.setText(t("thumbnail_unavail"))
 
     def _batch_parse(self, urls: list[str]):
         """Parse multiple URLs and add all to queue."""
@@ -382,7 +411,9 @@ class HomePage(QWidget):
         self._download_btn.setEnabled(False)
         self._format_combo.clear()
         self._title_label.setText(t("paste_hint"))
-        self._title_label.setStyleSheet("color: #6b7084; font-size: 13px;")
+        self._title_label.setObjectName("muted")
+        self._title_label.style().unpolish(self._title_label)
+        self._title_label.style().polish(self._title_label)
         self._thumb_label.clear()
         self._thumb_label.setText("")
         self._name_input.clear()

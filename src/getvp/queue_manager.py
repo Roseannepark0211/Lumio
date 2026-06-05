@@ -39,6 +39,7 @@ class QueueTask:
     format_type: str = ""
     output_dir: str = ""
     custom_name: str = ""
+    batch_id: str = ""
 
     # Display metadata (frozen at enqueue time)
     title: str = ""
@@ -86,6 +87,7 @@ class QueueTask:
             "format_type": self.format_type,
             "output_dir": self.output_dir,
             "custom_name": self.custom_name,
+            "batch_id": self.batch_id,
             "title": self.title,
             "platform": self.platform,
             "author": self.author,
@@ -157,13 +159,14 @@ class DownloadManager(QObject):
         self._max_workers = max(1, min(10, n))
         self._schedule()
 
-    def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir) -> str:
+    def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir, batch_id="") -> str:
         qt = QueueTask(
             url=info.url,
             format_id=format_id,
             format_type=format_type,
             output_dir=str(output_dir),
             custom_name=custom_name,
+            batch_id=batch_id,
             title=info.title,
             platform=info.platform,
             author=info.author,
@@ -182,70 +185,90 @@ class DownloadManager(QObject):
         return qt.task_id
 
     def get_task(self, task_id: str) -> QueueTask | None:
-        return self._tasks.get(task_id)
+        with self._lock:
+            return self._tasks.get(task_id)
 
     def get_all_tasks(self) -> list[QueueTask]:
         with self._lock:
             return list(self._tasks.values())
 
     def start_task(self, task_id: str):
-        qt = self._tasks.get(task_id)
-        if not qt or qt.status not in (
-            TaskStatus.WAITING.value, TaskStatus.PAUSED.value
-        ):
-            return
-        qt.status = TaskStatus.DOWNLOADING.value
-        self.task_status_changed.emit(task_id, qt.status)
-        self._launch_download(qt)
+        qt_to_launch = None
+        with self._lock:
+            qt = self._tasks.get(task_id)
+            if not qt:
+                return
+            # PAUSED with active thread → just unblock, don't spawn a second thread
+            if qt.status == TaskStatus.PAUSED.value and task_id in self._active:
+                event = self._paused_events.get(task_id)
+                if event:
+                    event.set()
+                qt.status = TaskStatus.DOWNLOADING.value
+                self.task_status_changed.emit(task_id, qt.status)
+                return
+            if qt.status not in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
+                return
+            qt.status = TaskStatus.DOWNLOADING.value
+            qt_to_launch = qt
+        self.task_status_changed.emit(task_id, qt_to_launch.status)
+        self._launch_download(qt_to_launch)
 
     def pause_task(self, task_id: str):
-        event = self._paused_events.get(task_id)
-        if event:
-            event.clear()
-        qt = self._tasks.get(task_id)
+        with self._lock:
+            event = self._paused_events.get(task_id)
+            if event:
+                event.clear()
+            qt = self._tasks.get(task_id)
+            if qt:
+                qt.status = TaskStatus.PAUSED.value
         if qt:
-            qt.status = TaskStatus.PAUSED.value
-            self.task_status_changed.emit(task_id, qt.status)
+            self.task_status_changed.emit(task_id, TaskStatus.PAUSED.value)
             self.queue_changed.emit()
 
     def resume_task(self, task_id: str):
-        event = self._paused_events.get(task_id)
-        if event:
-            event.set()
-        qt = self._tasks.get(task_id)
-        if not qt:
-            return
-        if qt.status == TaskStatus.PAUSED.value:
-            qt.status = TaskStatus.DOWNLOADING.value
-            self.task_status_changed.emit(task_id, qt.status)
-            self._launch_download(qt)
-        elif qt.status == TaskStatus.INTERRUPTED.value:
-            qt.status = TaskStatus.WAITING.value
-            self.task_status_changed.emit(task_id, qt.status)
-            self._schedule()
+        with self._lock:
+            qt = self._tasks.get(task_id)
+            if not qt:
+                return
+            if qt.status == TaskStatus.PAUSED.value:
+                # Thread is alive but blocked — just unblock it
+                event = self._paused_events.get(task_id)
+                if event:
+                    event.set()
+                qt.status = TaskStatus.DOWNLOADING.value
+                self.task_status_changed.emit(task_id, qt.status)
+            elif qt.status == TaskStatus.INTERRUPTED.value:
+                # Thread is dead — schedule a fresh download
+                qt.status = TaskStatus.WAITING.value
+                self.task_status_changed.emit(task_id, qt.status)
+                self._schedule()
 
     def cancel_task(self, task_id: str):
-        dt = self._download_tasks.get(task_id)
-        if dt:
-            dt._cancelled = True
-        qt = self._tasks.get(task_id)
+        qt = None
+        with self._lock:
+            dt = self._download_tasks.get(task_id)
+            if dt:
+                dt._cancelled = True
+            qt = self._tasks.get(task_id)
+            if qt:
+                qt.status = TaskStatus.CANCELLED.value
+            self._do_cleanup(task_id)
         if qt:
-            qt.status = TaskStatus.CANCELLED.value
-            self.task_status_changed.emit(task_id, qt.status)
-        self._cleanup_task(task_id)
+            self.task_status_changed.emit(task_id, TaskStatus.CANCELLED.value)
         self.queue_changed.emit()
 
     def retry_task(self, task_id: str):
-        qt = self._tasks.get(task_id)
-        if not qt:
-            return
-        qt.retry_count = 0
-        qt.progress = 0.0
-        qt.speed = ""
-        qt.error = ""
-        qt.status = TaskStatus.DOWNLOADING.value
-        self.task_status_changed.emit(task_id, qt.status)
-        self._launch_download(qt)
+        with self._lock:
+            qt = self._tasks.get(task_id)
+            if not qt:
+                return
+            qt.retry_count = 0
+            qt.progress = 0.0
+            qt.speed = ""
+            qt.error = ""
+            qt.status = TaskStatus.WAITING.value
+        self.task_status_changed.emit(task_id, TaskStatus.WAITING.value)
+        self._schedule()
 
     def delete_task(self, task_id: str):
         self.cancel_task(task_id)
@@ -254,59 +277,82 @@ class DownloadManager(QObject):
         self.queue_changed.emit()
 
     def start_all(self):
-        for qt in self._tasks.values():
-            if qt.status in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
-                if qt.status == TaskStatus.PAUSED.value:
+        need_schedule = False
+        to_emit = []
+        with self._lock:
+            for qt in self._tasks.values():
+                if qt.status == TaskStatus.PAUSED.value and qt.task_id in self._active:
+                    # Thread alive but paused — just unblock it
                     event = self._paused_events.get(qt.task_id)
                     if event:
                         event.set()
-                qt.status = TaskStatus.WAITING.value
-        self._schedule()
+                    qt.status = TaskStatus.DOWNLOADING.value
+                    to_emit.append((qt.task_id, qt.status))
+                elif qt.status in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
+                    qt.status = TaskStatus.WAITING.value
+                    need_schedule = True
+        if need_schedule:
+            self._schedule()
         # Update UI for any tasks that didn't get launched (not enough slots)
-        for qt in self._tasks.values():
-            if qt.status == TaskStatus.WAITING.value:
-                self.task_status_changed.emit(qt.task_id, qt.status)
+        with self._lock:
+            for qt in self._tasks.values():
+                if qt.status == TaskStatus.WAITING.value:
+                    to_emit.append((qt.task_id, qt.status))
+        for tid, status in to_emit:
+            self.task_status_changed.emit(tid, status)
 
     def pause_all(self):
-        for qt in self._tasks.values():
-            if qt.status == TaskStatus.DOWNLOADING.value:
-                self.pause_task(qt.task_id)
+        to_pause = []
+        with self._lock:
+            for qt in self._tasks.values():
+                if qt.status == TaskStatus.DOWNLOADING.value:
+                    to_pause.append(qt.task_id)
+        for tid in to_pause:
+            self.pause_task(tid)
 
     def resume_all(self):
-        for qt in self._tasks.values():
-            if qt.status == TaskStatus.PAUSED.value:
-                self.resume_task(qt.task_id)
+        to_resume = []
+        with self._lock:
+            for qt in self._tasks.values():
+                if qt.status == TaskStatus.PAUSED.value:
+                    to_resume.append(qt.task_id)
+        for tid in to_resume:
+            self.resume_task(tid)
 
     def resume_interrupted(self):
-        for qt in self._tasks.values():
-            if qt.status == TaskStatus.INTERRUPTED.value:
-                self.resume_task(qt.task_id)
+        to_resume = []
+        with self._lock:
+            for qt in self._tasks.values():
+                if qt.status == TaskStatus.INTERRUPTED.value:
+                    to_resume.append(qt.task_id)
+        for tid in to_resume:
+            self.resume_task(tid)
 
     def clear_completed(self):
-        to_remove = [
-            tid for tid, qt in self._tasks.items()
-            if qt.status == TaskStatus.COMPLETED.value
-        ]
-        for tid in to_remove:
-            with self._lock:
+        with self._lock:
+            to_remove = [
+                tid for tid, qt in self._tasks.items()
+                if qt.status == TaskStatus.COMPLETED.value
+            ]
+            for tid in to_remove:
                 self._tasks.pop(tid, None)
         self.queue_changed.emit()
 
     # ---- Persistence ----
 
     def save_queue(self):
+        with self._lock:
+            tasks_to_save = [
+                qt.to_dict() for qt in self._tasks.values()
+                if qt.status in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value)
+            ]
         path = get_queue_path()
-        tasks_to_save = []
-        for qt in self._tasks.values():
-            # Only save tasks that can be resumed
-            if qt.status not in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
-                continue
-            tasks_to_save.append(qt.to_dict())
-
         data = {"version": 1, "tasks": tasks_to_save}
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
 
     def load_queue(self):
         path = get_queue_path()
@@ -319,18 +365,20 @@ class DownloadManager(QObject):
         except Exception:
             return
 
-        for d in data.get("tasks", []):
-            qt = QueueTask.from_dict(d)
-            if qt.status not in (TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value):
-                self._tasks[qt.task_id] = qt
+        with self._lock:
+            for d in data.get("tasks", []):
+                qt = QueueTask.from_dict(d)
+                if qt.status not in (TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value):
+                    self._tasks[qt.task_id] = qt
 
         self.queue_changed.emit()
 
     def shutdown(self):
-        for tid in list(self._active.keys()):
-            dt = self._download_tasks.get(tid)
-            if dt:
-                dt._cancelled = True
+        with self._lock:
+            for tid in list(self._active.keys()):
+                dt = self._download_tasks.get(tid)
+                if dt:
+                    dt._cancelled = True
         self.save_queue()
 
     # ---- Internal ----
@@ -382,11 +430,16 @@ class DownloadManager(QObject):
             self._emit_batch_progress()
 
         thread = start_download_with_pause(dt, event, on_progress=on_progress, on_done=on_done)
-        self._active[qt.task_id] = thread
+        with self._lock:
+            self._active[qt.task_id] = thread
         self.task_status_changed.emit(qt.task_id, qt.status)
         self.task_started.emit(qt.task_id)
 
     def _cleanup_task(self, task_id: str):
+        with self._lock:
+            self._do_cleanup(task_id)
+
+    def _do_cleanup(self, task_id: str):
         self._active.pop(task_id, None)
         self._download_tasks.pop(task_id, None)
         self._paused_events.pop(task_id, None)
@@ -413,6 +466,7 @@ class DownloadManager(QObject):
                 file_path=qt.filename,
                 file_size=file_size,
                 thumbnail_url=qt.thumbnail_url or "",
+                batch_id=qt.batch_id or "",
             )
             self._history_manager.add(record)
             self.history_record_added.emit(record)
@@ -431,6 +485,8 @@ class DownloadManager(QObject):
                 media_type=media_type,
                 post_time=qt.post_time,
                 thumbnail_url=qt.thumbnail_url or "",
+                folder_path=qt.output_dir,
+                batch_id=qt.batch_id,
             )
             item = self._library_manager.get_item(item_id)
             if item:
@@ -447,7 +503,7 @@ class DownloadManager(QObject):
             self._library_manager.set_local_thumbnail(item_id, local_path)
 
     def _schedule(self):
-        # Phase 1: under lock, just collect which tasks to launch
+        # Phase 1: under lock, collect which tasks to launch
         to_launch = []
         with self._lock:
             while len(self._active) < self._max_workers:
@@ -473,7 +529,8 @@ class DownloadManager(QObject):
         return min(candidates, key=lambda q: q.created_at)
 
     def _emit_batch_progress(self):
-        total = len(self._tasks)
-        completed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.COMPLETED.value)
-        failed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.FAILED.value)
+        with self._lock:
+            total = len(self._tasks)
+            completed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.COMPLETED.value)
+            failed = sum(1 for qt in self._tasks.values() if qt.status == TaskStatus.FAILED.value)
         self.batch_progress.emit(completed, failed, total)

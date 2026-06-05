@@ -1,4 +1,3 @@
-import os
 import json
 from pathlib import Path
 
@@ -16,7 +15,11 @@ DEFAULTS = {
     "max_retries": 3,
     "lang": "zh",
     "theme": "dark",
+    "storage_mode": "simple",
+    "file_conflict_policy": "rename",
 }
+
+_cache: dict | None = None
 
 
 def _ensure_dir() -> None:
@@ -24,26 +27,41 @@ def _ensure_dir() -> None:
 
 
 def load_config() -> dict:
+    global _cache
+    if _cache is not None:
+        return _cache
     cfg = dict(DEFAULTS)
     if _CONFIG_FILE.exists():
         with open(_CONFIG_FILE, encoding="utf-8") as f:
             cfg.update(json.load(f))
+    _cache = cfg
     return cfg
 
 
 def save_config(cfg: dict) -> None:
+    global _cache
     _ensure_dir()
     with open(_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+    _cache = cfg
 
 
 def get_cookie_path() -> Path | None:
-    p = Path(load_config()["cookie_file"])
+    cookie_file = load_config().get("cookie_file") or str(_APP_DIR / "cookies.txt")
+    p = Path(cookie_file)
     return p if p.exists() else None
 
 
 def get_download_dir() -> Path:
     return Path(load_config()["download_dir"])
+
+
+def get_storage_mode() -> str:
+    return load_config().get("storage_mode", "simple")
+
+
+def get_file_conflict_policy() -> str:
+    return load_config().get("file_conflict_policy", "rename")
 
 
 def get_queue_path() -> Path:

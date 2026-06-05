@@ -246,6 +246,7 @@ class MainWindow(QMainWindow):
         toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
         toast.setFixedHeight(36)
         toast.setMinimumWidth(200)
+        toast.adjustSize()
         toast.move(
             (self.width() - toast.width()) // 2,
             self.height() - 100,

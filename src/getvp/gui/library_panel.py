@@ -34,6 +34,7 @@ class LibraryItemWidget(QFrame):
     def __init__(self, item: LibraryItem, parent=None):
         super().__init__(parent)
         self.item_id = item.id
+        self._folder_path = getattr(item, "folder_path", "") or ""
         self.setObjectName("library_card")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._expanded = False
@@ -153,6 +154,13 @@ class LibraryItemWidget(QFrame):
         dir_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "open_dir"))
         btn_row.addWidget(dir_btn)
 
+        if self._folder_path:
+            task_dir_btn = QPushButton(t("library_open_task_dir"))
+            task_dir_btn.setObjectName("task_btn")
+            task_dir_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            task_dir_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "open_task_dir"))
+            btn_row.addWidget(task_dir_btn)
+
         col_btn = QPushButton(t("collection_add_to"))
         col_btn.setObjectName("task_btn")
         col_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -176,8 +184,7 @@ class LibraryItemWidget(QFrame):
 
         if item.url:
             url_lbl = QLabel(item.url)
-            url_lbl.setObjectName("muted")
-            url_lbl.setStyleSheet("font-size: 11px; color: #7c8fff;")
+            url_lbl.setObjectName("url_link")
             url_lbl.setWordWrap(True)
             detail_layout.addWidget(url_lbl)
 

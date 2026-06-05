@@ -236,6 +236,7 @@ QGroupBox {
     font-size: 12px;
     font-weight: 600;
     color: #7c8fff;
+    min-width: 0;
 }
 
 QGroupBox::title {
@@ -249,6 +250,12 @@ QGroupBox::title {
     font-weight: 600;
     letter-spacing: 0.5px;
     background-color: #161822;
+}
+
+QWidget#settings_separator {
+    background-color: #22253a;
+    max-height: 1px;
+    margin: 4px 0;
 }
 
 /* ---- ScrollBar ---- */
@@ -853,6 +860,56 @@ QLabel#stat_label {
     font-size: 12px;
     background: transparent;
 }
+
+/* ---- Settings Card ---- */
+QWidget#settings_card {
+    background-color: #161822;
+    border: 1px solid #22253a;
+    border-radius: 10px;
+}
+
+QLabel#settings_section_title {
+    color: #7c8fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+QSpinBox {
+    background: #161822;
+    border: 1px solid #22253a;
+    border-radius: 4px;
+    color: #c8d6e5;
+    font-size: 12px;
+    padding: 2px 6px;
+}
+QSpinBox:focus {
+    border: 1px solid #7c8fff;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 16px;
+    border: none;
+    background: transparent;
+}
+
+/* ---- URL Link Label ---- */
+QLabel#url_link {
+    color: #7c8fff;
+    font-size: 11px;
+}
+
+/* ---- Batch Progress ---- */
+QLabel#batch_progress {
+    font-size: 11px;
+    margin-left: 4px;
+    color: #a0a8c8;
+}
+
+QLabel#batch_progress_done {
+    font-size: 11px;
+    margin-left: 4px;
+    color: #10b981;
+}
 """
 
 LIGHT_STYLESHEET = """
@@ -1080,6 +1137,12 @@ QGroupBox::title {
     font-weight: 600;
     letter-spacing: 0.5px;
     background-color: #ffffff;
+}
+
+QWidget#settings_separator {
+    background-color: #e0e0e6;
+    max-height: 1px;
+    margin: 4px 0;
 }
 
 /* ---- ScrollBar ---- */
@@ -1683,6 +1746,56 @@ QLabel#stat_label {
     color: #8e8ea0;
     font-size: 12px;
     background: transparent;
+}
+
+/* ---- Settings Card ---- */
+QWidget#settings_card {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e6;
+    border-radius: 10px;
+}
+
+QLabel#settings_section_title {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+QSpinBox {
+    background: #ffffff;
+    border: 1px solid #d4d4dc;
+    border-radius: 4px;
+    color: #1a1a2e;
+    font-size: 12px;
+    padding: 2px 6px;
+}
+QSpinBox:focus {
+    border: 1px solid #2563eb;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 16px;
+    border: none;
+    background: transparent;
+}
+
+/* ---- URL Link Label ---- */
+QLabel#url_link {
+    color: #2563eb;
+    font-size: 11px;
+}
+
+/* ---- Batch Progress ---- */
+QLabel#batch_progress {
+    font-size: 11px;
+    margin-left: 4px;
+    color: #555568;
+}
+
+QLabel#batch_progress_done {
+    font-size: 11px;
+    margin-left: 4px;
+    color: #065f46;
 }
 """
 

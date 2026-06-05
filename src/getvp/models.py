@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -29,8 +30,10 @@ class LibraryItem(Base):
     is_favorite = Column(Boolean, default=False)
     is_pinned = Column(Boolean, default=False)
     tags_json = Column(Text, default="[]")
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    folder_path = Column(String, default="")
+    batch_id = Column(String, default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     item_tags = relationship("ItemTag", back_populates="item", cascade="all, delete-orphan")

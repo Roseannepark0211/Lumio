@@ -119,7 +119,8 @@ class SidebarWidget(QFrame):
         root.addWidget(self._theme_btn)
 
         # Version label
-        ver = QLabel("v2.1")
+        from .. import __version__
+        ver = QLabel(f"v{__version__}")
         ver.setObjectName("sidebar_version")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(ver)

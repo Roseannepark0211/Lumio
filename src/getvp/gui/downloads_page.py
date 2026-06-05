@@ -121,11 +121,15 @@ class DownloadsPage(QWidget):
         done = completed + failed
         if total > 0 and done < total:
             self._batch_label.setText(f"{completed}/{total}")
-            self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px; color: #a0a8c8;")
+            self._batch_label.setObjectName("batch_progress")
+            self._batch_label.style().unpolish(self._batch_label)
+            self._batch_label.style().polish(self._batch_label)
             self._batch_label.show()
         elif total > 0 and done >= total:
             self._batch_label.setText(t("batch_done", n=completed, total=total))
-            self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px; color: #10b981;")
+            self._batch_label.setObjectName("batch_progress_done")
+            self._batch_label.style().unpolish(self._batch_label)
+            self._batch_label.style().polish(self._batch_label)
             self._batch_label.show()
         else:
             self._batch_label.hide()

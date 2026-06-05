@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -22,6 +23,7 @@ class HistoryRecord:
     download_time: str = ""
     success: bool = True
     duration_seconds: float = 0.0
+    batch_id: str = ""
 
     def __post_init__(self):
         if not self.record_id:
@@ -50,8 +52,10 @@ class HistoryManager:
     def save(self):
         path = get_history_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump([asdict(r) for r in self._records], f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
 
     def add(self, record: HistoryRecord):
         self._records.insert(0, record)

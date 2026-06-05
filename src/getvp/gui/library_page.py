@@ -171,6 +171,10 @@ class LibraryPage(QWidget):
                 parent = Path(item.file_path).parent
                 if parent.exists():
                     os.startfile(str(parent))
+        elif action == "open_task_dir":
+            folder = getattr(item, "folder_path", "") or ""
+            if folder and Path(folder).exists():
+                os.startfile(folder)
         elif action == "delete":
             widget = self._item_widgets.pop(item_id, None)
             if widget:

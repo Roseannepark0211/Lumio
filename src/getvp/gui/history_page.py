@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..history_manager import HistoryManager, HistoryRecord
 from ..i18n import t
-from .history_panel import HistoryRecordWidget, _format_size
+from .history_panel import BatchGroupWidget, HistoryRecordWidget, _format_size
 
 
 class HistoryPage(QWidget):
@@ -26,6 +26,7 @@ class HistoryPage(QWidget):
         self.setObjectName("history_page")
         self._hm = history_manager
         self._record_widgets: dict[str, HistoryRecordWidget] = {}
+        self._batch_widgets: list[BatchGroupWidget] = []
         self._build_ui()
 
     def _build_ui(self):
@@ -104,11 +105,37 @@ class HistoryPage(QWidget):
         self._empty_label.setStyleSheet("padding: 40px; font-size: 14px;")
         self._list_layout.insertWidget(0, self._empty_label)
 
-        # Load existing records
+        # Load existing records with batch grouping
+        self._load_records()
+        self._update_empty()
+
+    def _load_records(self):
+        """Group records by batch_id and build widgets."""
+        batches: dict[str, list[HistoryRecord]] = {}
+        singles: list[HistoryRecord] = []
         for rec in self._hm.records:
+            if rec.batch_id:
+                batches.setdefault(rec.batch_id, []).append(rec)
+            else:
+                singles.append(rec)
+
+        # Render batches (sorted by latest download_time desc)
+        for batch_id, items in sorted(
+            batches.items(),
+            key=lambda x: max((r.download_time for r in x[1]), default=""),
+            reverse=True,
+        ):
+            self._add_batch_widget(items)
+
+        # Render singles
+        for rec in singles:
             self._add_record_widget(rec)
 
-        self._update_empty()
+    def _add_batch_widget(self, records: list[HistoryRecord]):
+        widget = BatchGroupWidget(records)
+        widget.action_requested.connect(self._on_action)
+        self._batch_widgets.append(widget)
+        self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
 
     def _add_record_widget(self, rec: HistoryRecord):
         widget = HistoryRecordWidget(rec)
@@ -117,9 +144,12 @@ class HistoryPage(QWidget):
         self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
 
     def _update_empty(self):
-        has_records = len(self._record_widgets) > 0
+        has_records = len(self._record_widgets) > 0 or len(self._batch_widgets) > 0
         self._empty_label.setVisible(not has_records)
-        visible_count = sum(1 for w in self._record_widgets.values() if w.isVisible())
+        visible_count = (
+            sum(1 for w in self._record_widgets.values() if w.isVisible())
+            + sum(1 for w in self._batch_widgets if w.isVisible())
+        )
         self._badge.setText(str(visible_count))
         self._badge.setVisible(visible_count > 0)
 
@@ -128,23 +158,29 @@ class HistoryPage(QWidget):
         search_text = self._search.text().lower().strip()
         platform_filter = self._filter_combo.currentData()
 
+        # Filter individual record widgets
         for rid, widget in self._record_widgets.items():
             rec = next((r for r in self._hm.records if r.record_id == rid), None)
             if not rec:
                 widget.setVisible(False)
                 continue
 
-            # Platform filter
             if platform_filter != "all" and rec.platform != platform_filter:
                 widget.setVisible(False)
                 continue
 
-            # Text search
             if search_text:
-                searchable = f"{rec.title} {rec.author} {rec.platform} {rec.url}".lower()
+                searchable = (
+                    f"{rec.title} {rec.author} {rec.platform} "
+                    f"{rec.url} {rec.file_path} {rec.download_time}"
+                ).lower()
                 widget.setVisible(search_text in searchable)
             else:
                 widget.setVisible(True)
+
+        # Filter batch widgets
+        for bw in self._batch_widgets:
+            bw.setVisible(bw.match_filter(search_text, platform_filter if platform_filter != "all" else ""))
 
         self._update_empty()
 
@@ -160,6 +196,9 @@ class HistoryPage(QWidget):
         for widget in self._record_widgets.values():
             widget.deleteLater()
         self._record_widgets.clear()
+        for bw in self._batch_widgets:
+            bw.deleteLater()
+        self._batch_widgets.clear()
         self._update_empty()
 
     def _on_action(self, record_id: str, action: str):
@@ -179,7 +218,20 @@ class HistoryPage(QWidget):
             if widget:
                 widget.deleteLater()
             self._hm.delete(record_id)
+            # Check if the deleted record was part of a batch and clean up empty batches
+            self._cleanup_empty_batches()
             self._update_empty()
+
+    def _cleanup_empty_batches(self):
+        """Remove batch widgets whose records have all been deleted."""
+        to_remove = []
+        for bw in self._batch_widgets:
+            remaining = [r for r in bw._records if r.record_id in {rec.record_id for rec in self._hm.records}]
+            if not remaining:
+                to_remove.append(bw)
+        for bw in to_remove:
+            bw.deleteLater()
+            self._batch_widgets.remove(bw)
 
     @Slot(HistoryRecord)
     def on_history_added(self, record: HistoryRecord):

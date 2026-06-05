@@ -1,6 +1,6 @@
 from .utils.config import load_config, save_config
 
-_LANG = load_config().get("lang", "zh")
+_LANG: str | None = None  # lazy-loaded on first access
 
 _TRANSLATIONS = {
     "zh": {
@@ -180,6 +180,8 @@ _TRANSLATIONS = {
         "settings_version": "版本号",
         # History filter
         "history_filter_all": "全部平台",
+        "batch_download": "批量下载",
+        "batch_items": "项",
         # Library
         "library_title": "素材库",
         "library_empty": "暂无素材，下载后自动入库",
@@ -204,6 +206,22 @@ _TRANSLATIONS = {
         "collection_name_label": "分类名称",
         "collection_add_to": "添加到分类",
         "collection_remove": "从分类移除",
+        # Storage Mode
+        "storage_mode": "存储模式",
+        "storage_simple": "Simple — 平铺存储",
+        "storage_organized": "Organized — 自动分类存储",
+        "storage_simple_desc": "所有文件保存在同一目录，与当前行为一致",
+        "storage_organized_desc": "自动按平台、作者、帖子创建目录结构",
+        "file_conflict_policy": "文件冲突策略",
+        "conflict_rename": "重命名 — 自动加 (1) (2) 后缀",
+        "conflict_skip": "跳过 — 已存在则不下载",
+        "conflict_overwrite": "覆盖 — 直接替换旧文件",
+        "file_conflict_policy_desc": "重复下载同名文件时的处理方式",
+        "default_download_dir": "默认下载目录",
+        "browse": "浏览",
+        "restore_default": "恢复默认",
+        "open_folder": "打开目录",
+        "library_open_task_dir": "任务目录",
     },
     "en": {
         "app_title": "Lumio",
@@ -382,6 +400,8 @@ _TRANSLATIONS = {
         "settings_version": "Version",
         # History filter
         "history_filter_all": "All Platforms",
+        "batch_download": "Batch Download",
+        "batch_items": "Items",
         # Library
         "library_title": "Library",
         "library_empty": "No assets yet — downloads appear here automatically",
@@ -406,19 +426,43 @@ _TRANSLATIONS = {
         "collection_name_label": "Collection name",
         "collection_add_to": "Add to Collection",
         "collection_remove": "Remove from Collection",
+        # Storage Mode
+        "storage_mode": "Storage Mode",
+        "storage_simple": "Simple — Flat storage",
+        "storage_organized": "Organized — Auto-classify",
+        "storage_simple_desc": "All files in one directory (current behavior)",
+        "storage_organized_desc": "Auto-create directory structure by platform, author, and post",
+        "file_conflict_policy": "File Conflict Policy",
+        "conflict_rename": "Rename — auto-append (1) (2) suffix",
+        "conflict_skip": "Skip — don't download if exists",
+        "conflict_overwrite": "Overwrite — replace existing file",
+        "file_conflict_policy_desc": "How to handle duplicate filenames when re-downloading",
+        "default_download_dir": "Default Download Directory",
+        "browse": "Browse",
+        "restore_default": "Restore Default",
+        "open_folder": "Open Folder",
+        "library_open_task_dir": "Task Folder",
     },
 }
 
 
+def _get_lang() -> str:
+    global _LANG
+    if _LANG is None:
+        _LANG = load_config().get("lang", "zh")
+    return _LANG
+
+
 def t(key: str, **kwargs) -> str:
-    text = _TRANSLATIONS.get(_LANG, _TRANSLATIONS["zh"]).get(key, key)
+    lang = _get_lang()
+    text = _TRANSLATIONS.get(lang, _TRANSLATIONS["zh"]).get(key, key)
     if kwargs:
         text = text.format(**kwargs)
     return text
 
 
 def get_lang() -> str:
-    return _LANG
+    return _get_lang()
 
 
 def set_lang(lang: str) -> None:

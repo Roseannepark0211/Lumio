@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from ..history_manager import HistoryManager, HistoryRecord
+from ..history_manager import HistoryRecord
 from ..i18n import t
 
 
@@ -48,9 +45,16 @@ _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 def _media_badge(rec: HistoryRecord) -> tuple[str, str]:
     """Return (label, objectName) for media type badge based on file path."""
     fp = rec.file_path.lower()
-    # Check all files in the record (may be a directory with multiple files)
-    if Path(rec.file_path).is_dir():
-        # IG carousel: check extensions of files inside
+    ext = Path(fp).suffix
+    # Fast path: single file with known extension — no filesystem I/O
+    if ext in _VIDEO_EXTS:
+        return "Video", "media_video"
+    if ext in _IMAGE_EXTS:
+        return "Image", "media_image"
+    if ext in (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"):
+        return "Audio", "media_audio"
+    # No extension — might be a directory (IG carousel). Check filesystem.
+    if not ext and Path(rec.file_path).is_dir():
         try:
             exts = {f.suffix.lower() for f in Path(rec.file_path).iterdir() if f.is_file()}
             has_video = exts & _VIDEO_EXTS
@@ -63,15 +67,6 @@ def _media_badge(rec: HistoryRecord) -> tuple[str, str]:
                 return "Image", "media_image"
         except OSError:
             pass
-        return "", ""
-    # Single file
-    ext = Path(fp).suffix
-    if ext in _VIDEO_EXTS:
-        return "Video", "media_video"
-    if ext in _IMAGE_EXTS:
-        return "Image", "media_image"
-    if ext in (".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"):
-        return "Audio", "media_audio"
     return "", ""
 
 
@@ -181,8 +176,7 @@ class HistoryRecordWidget(QFrame):
 
         if rec.url:
             url_lbl = QLabel(rec.url)
-            url_lbl.setObjectName("muted")
-            url_lbl.setStyleSheet("font-size: 11px; color: #7c8fff;")
+            url_lbl.setObjectName("url_link")
             url_lbl.setWordWrap(True)
             detail_layout.addWidget(url_lbl)
 
@@ -206,184 +200,139 @@ class HistoryRecordWidget(QFrame):
         self._detail.setVisible(self._expanded)
 
 
-class HistoryDrawer(QWidget):
+class BatchGroupWidget(QFrame):
+    """Collapsible batch group for history records sharing a batch_id."""
+
     action_requested = Signal(str, str)  # record_id, action
 
-    def __init__(self, history_manager: HistoryManager, parent=None):
+    def __init__(self, records: list[HistoryRecord], parent=None):
         super().__init__(parent)
-        self._hm = history_manager
-        self._record_widgets: dict[str, HistoryRecordWidget] = {}
+        self._records = records
         self._expanded = False
+        self.setObjectName("history_card")
         self._build_ui()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setContentsMargins(10, 6, 10, 6)
+        root.setSpacing(2)
 
-        # Header bar
-        self._header = QFrame()
-        self._header.setObjectName("history_header")
-        hdr = QHBoxLayout(self._header)
-        hdr.setContentsMargins(12, 6, 12, 6)
-        hdr.setSpacing(8)
+        # Clickable header area
+        self._header = QWidget()
+        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.mousePressEvent = self._on_header_click
+        header_layout = QHBoxLayout(self._header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
 
-        title = QLabel(t("history_title"))
-        title.setObjectName("queue_title")
-        hdr.addWidget(title)
+        # Platform badge (from first record)
+        rec0 = self._records[0]
+        badge_text, badge_obj = _platform_badge(rec0.platform)
+        badge = QLabel(badge_text)
+        if badge_obj:
+            badge.setObjectName(badge_obj)
+        badge.setFixedSize(32, 20)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(badge)
 
-        self._badge = QLabel(str(len(self._hm.records)))
-        self._badge.setObjectName("history_badge")
-        self._badge.setVisible(len(self._hm.records) > 0)
-        hdr.addWidget(self._badge)
+        # Expand indicator
+        self._arrow = QLabel("▶")
+        self._arrow.setObjectName("muted")
+        self._arrow.setFixedWidth(14)
+        header_layout.addWidget(self._arrow)
 
-        hdr.addStretch()
+        # Info column
+        info = QVBoxLayout()
+        info.setSpacing(1)
 
-        # Search box
-        self._search = QLineEdit()
-        self._search.setObjectName("history_search")
-        self._search.setPlaceholderText(t("history_search"))
-        self._search.setFixedWidth(160)
-        self._search.setFixedHeight(26)
-        self._search.textChanged.connect(self._on_search)
-        hdr.addWidget(self._search)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(6)
+        author_text = f"@{rec0.author}" if rec0.author else ""
+        title = QLabel(f"{t('batch_download')}  {author_text}")
+        title.setObjectName("task_title")
+        title_row.addWidget(title, 1)
 
-        # Clear button
-        self._clear_btn = QPushButton(t("history_clear"))
-        self._clear_btn.setObjectName("task_btn_danger")
-        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._clear_btn.setFixedHeight(26)
-        self._clear_btn.clicked.connect(self._on_clear)
-        hdr.addWidget(self._clear_btn)
+        count_label = QLabel(f"{len(self._records)} {t('batch_items')}")
+        count_label.setObjectName("muted")
+        count_label.setStyleSheet("font-size: 11px;")
+        title_row.addWidget(count_label)
+        info.addLayout(title_row)
 
-        # Toggle arrow
-        self._toggle_btn = QPushButton("▲")
-        self._toggle_btn.setObjectName("task_btn")
-        self._toggle_btn.setFixedSize(28, 28)
-        self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._toggle_btn.clicked.connect(self._toggle)
-        hdr.addWidget(self._toggle_btn)
+        # Meta row: total size + latest time
+        meta_row = QHBoxLayout()
+        meta_row.setSpacing(12)
+        total_size = sum(r.file_size for r in self._records)
+        size_label = QLabel(_format_size(total_size))
+        size_label.setObjectName("muted")
+        size_label.setStyleSheet("font-size: 11px;")
+        meta_row.addWidget(size_label)
 
+        latest_time = max((r.download_time for r in self._records if r.download_time), default="")
+        time_str = latest_time[:16].replace("T", " ") if latest_time else ""
+        time_label = QLabel(time_str)
+        time_label.setObjectName("muted")
+        time_label.setStyleSheet("font-size: 11px;")
+        meta_row.addWidget(time_label)
+        meta_row.addStretch()
+        info.addLayout(meta_row)
+
+        header_layout.addLayout(info, 1)
+
+        # Action buttons (separate from header click area)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+        btn_row.setContentsMargins(0, 0, 0, 0)
+
+        dir_btn = QPushButton(t("history_open_dir"))
+        dir_btn.setObjectName("task_btn")
+        dir_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        dir_btn.clicked.connect(self._open_dir)
+        btn_row.addWidget(dir_btn)
+
+        del_btn = QPushButton(t("history_delete"))
+        del_btn.setObjectName("task_btn_danger")
+        del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        del_btn.clicked.connect(self._delete_batch)
+        btn_row.addWidget(del_btn)
+
+        header_layout.addLayout(btn_row)
         root.addWidget(self._header)
 
-        # Scrollable list (collapsible)
-        self._list_container = QWidget()
-        lc_layout = QVBoxLayout(self._list_container)
-        lc_layout.setContentsMargins(0, 0, 0, 0)
-        lc_layout.setSpacing(0)
+        # Children container (hidden by default)
+        self._children_widget = QWidget()
+        self._children_layout = QVBoxLayout(self._children_widget)
+        self._children_layout.setContentsMargins(44, 2, 0, 0)
+        self._children_layout.setSpacing(2)
 
-        self._empty_label = QLabel(t("history_empty"))
-        self._empty_label.setObjectName("muted")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("padding: 24px; font-size: 13px;")
-        self._empty_label.setVisible(len(self._hm.records) == 0)
-        lc_layout.addWidget(self._empty_label)
+        for rec in self._records:
+            child = HistoryRecordWidget(rec)
+            child.action_requested.connect(self.action_requested)
+            self._children_layout.addWidget(child)
 
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setStyleSheet(
-            "QScrollArea { background: #0f1117; border: none; }"
-        )
-        self._scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self._children_widget.setVisible(False)
+        root.addWidget(self._children_widget)
 
-        self._list_widget = QWidget()
-        self._list_widget.setStyleSheet("background: #0f1117;")
-        self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(4, 4, 4, 4)
-        self._list_layout.setSpacing(3)
-        self._list_layout.addStretch()
-
-        self._scroll.setWidget(self._list_widget)
-        lc_layout.addWidget(self._scroll)
-
-        self._list_container.setMaximumHeight(0)
-        self._list_container.setVisible(False)
-        root.addWidget(self._list_container)
-
-        # Load existing records
-        for rec in self._hm.records:
-            self._add_record_widget(rec, at_end=True)
-
-    def _toggle(self):
+    def _on_header_click(self, event):
         self._expanded = not self._expanded
-        if self._expanded:
-            self._list_container.setVisible(True)
-            self._list_container.setMaximumHeight(520)
-            self._toggle_btn.setText("▼")
-        else:
-            self._list_container.setMaximumHeight(0)
-            self._list_container.setVisible(False)
-            self._toggle_btn.setText("▲")
+        self._children_widget.setVisible(self._expanded)
+        self._arrow.setText("▼" if self._expanded else "▶")
 
-    def _add_record_widget(self, rec: HistoryRecord, at_end: bool = False):
-        widget = HistoryRecordWidget(rec)
-        widget.action_requested.connect(self._on_action)
-        self._record_widgets[rec.record_id] = widget
-        if at_end:
-            self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
-        else:
-            self._list_layout.insertWidget(0, widget)
-        self._update_empty()
+    def _open_dir(self):
+        if self._records:
+            self.action_requested.emit(self._records[0].record_id, "open_dir")
 
-    def _update_empty(self):
-        has_records = len(self._record_widgets) > 0
-        self._empty_label.setVisible(not has_records)
-        self._badge.setText(str(len(self._record_widgets)))
-        self._badge.setVisible(has_records)
+    def _delete_batch(self):
+        for rec in self._records:
+            self.action_requested.emit(rec.record_id, "delete")
 
-    @Slot(str)
-    def _on_search(self, text: str):
-        text = text.lower().strip()
-        for rid, widget in self._record_widgets.items():
-            if not text:
-                widget.setVisible(True)
+    def match_filter(self, query: str, platform: str) -> bool:
+        """Check if any child record matches the filter criteria."""
+        for rec in self._records:
+            if platform and rec.platform != platform:
                 continue
-            rec = next((r for r in self._hm.records if r.record_id == rid), None)
-            if rec:
-                searchable = f"{rec.title} {rec.author} {rec.platform} {rec.url}".lower()
-                widget.setVisible(text in searchable)
-            else:
-                widget.setVisible(False)
-
-    def _on_clear(self):
-        from PySide6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self, t("history_title"), t("history_confirm_clear"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        self._hm.clear()
-        for widget in self._record_widgets.values():
-            widget.deleteLater()
-        self._record_widgets.clear()
-        self._update_empty()
-
-    def _on_action(self, record_id: str, action: str):
-        rec = next((r for r in self._hm.records if r.record_id == record_id), None)
-        if not rec:
-            return
-        if action == "open_file":
-            if rec.file_path and Path(rec.file_path).exists():
-                os.startfile(rec.file_path)
-        elif action == "open_dir":
-            if rec.file_path:
-                parent = Path(rec.file_path).parent
-                if parent.exists():
-                    os.startfile(str(parent))
-        elif action == "delete":
-            widget = self._record_widgets.pop(record_id, None)
-            if widget:
-                widget.deleteLater()
-            self._hm.delete(record_id)
-            self._update_empty()
-
-    @Slot(HistoryRecord)
-    def on_history_added(self, record: HistoryRecord):
-        """Called externally when a new history record is added."""
-        self._add_record_widget(record, at_end=False)
-        if not self._expanded:
-            self._toggle()
+            if query:
+                text = f"{rec.title} {rec.author} {rec.url} {rec.file_path} {rec.download_time}".lower()
+                if query.lower() not in text:
+                    continue
+            return True
+        return False

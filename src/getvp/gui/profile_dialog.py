@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
@@ -21,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from ..downloader import enumerate_profile_posts, fetch_profile_info, _post_to_queue_task
 from ..i18n import t
-from ..utils.config import get_download_dir
+from ..utils.config import get_download_dir, get_storage_mode
 
 
 class _ProfileInfoWorker(QThread):
@@ -298,7 +300,16 @@ class ProfileDialog(QDialog):
 
         custom_name = self._name_input.text().strip() or f"@{self._username}"
         output_dir = Path(get_download_dir())
-        tasks = [_post_to_queue_task(p, custom_name, output_dir) for p in posts]
+        batch_id = uuid.uuid4().hex[:12]
+
+        # Organized mode: create batch-level directory
+        if get_storage_mode() == "organized":
+            date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+            batch_dir = output_dir / f"Instagram_{self._username}_{date_str}"
+            batch_dir.mkdir(parents=True, exist_ok=True)
+            output_dir = batch_dir
+
+        tasks = [_post_to_queue_task(p, custom_name, output_dir, batch_id=batch_id) for p in posts]
 
         self.batch_add_requested.emit(tasks)
         self.accept()

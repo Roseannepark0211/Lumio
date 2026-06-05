@@ -4,7 +4,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -14,13 +14,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QRadioButton,
+    QButtonGroup,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from ..i18n import get_lang, set_lang, t
-from ..utils.config import get_cookie_path, load_config, save_config
+from ..utils.config import get_cookie_path, get_download_dir, load_config, save_config
+from .widgets import NoWheelComboBox
 
 
 class SettingsPage(QWidget):
@@ -33,13 +37,25 @@ class SettingsPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 24, 32, 24)
-        root.setSpacing(20)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Scrollable content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        content.setObjectName("settings_content")
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(32, 24, 32, 24)
+        inner.setSpacing(20)
 
         # Title
         title = QLabel(t("settings"))
         title.setObjectName("page_title")
-        root.addWidget(title)
+        inner.addWidget(title)
 
         # ---- General section ----
         general_group = QGroupBox(t("settings_general"))
@@ -48,7 +64,7 @@ class SettingsPage(QWidget):
         # Language
         lang_row = QHBoxLayout()
         lang_row.addWidget(QLabel(t("language") + ":"))
-        self._lang_combo = QComboBox()
+        self._lang_combo = NoWheelComboBox()
         self._lang_combo.addItem("中文", "zh")
         self._lang_combo.addItem("English", "en")
         current = get_lang()
@@ -60,43 +76,151 @@ class SettingsPage(QWidget):
         lang_row.addStretch()
         gg.addLayout(lang_row)
 
-        root.addWidget(general_group)
+        inner.addWidget(general_group)
 
         # ---- Download section ----
         dl_group = QGroupBox(t("download_settings"))
-        dg = QVBoxLayout(dl_group)
+        dl_inner = QVBoxLayout(dl_group)
+        dl_inner.setSpacing(0)
 
         cfg = load_config()
 
-        mc_row = QHBoxLayout()
-        mc_row.addWidget(QLabel(t("max_concurrent") + ":"))
+        # --- A: 并发 + 重试 ---
+        ab_row = QHBoxLayout()
+        ab_row.setSpacing(24)
+
+        ab_row.addWidget(QLabel(t("max_concurrent") + ":"))
         self._concurrent_spin = QSpinBox()
         self._concurrent_spin.setRange(1, 10)
         self._concurrent_spin.setValue(cfg.get("max_concurrent", 3))
-        mc_row.addWidget(self._concurrent_spin)
-        mc_row.addStretch()
-        dg.addLayout(mc_row)
+        self._concurrent_spin.setFixedWidth(64)
+        ab_row.addWidget(self._concurrent_spin)
 
-        mr_row = QHBoxLayout()
-        mr_row.addWidget(QLabel(t("max_retries") + ":"))
+        ab_row.addSpacing(12)
+        ab_row.addWidget(QLabel(t("max_retries") + ":"))
         self._retry_spin = QSpinBox()
         self._retry_spin.setRange(0, 10)
         self._retry_spin.setValue(cfg.get("max_retries", 3))
-        mr_row.addWidget(self._retry_spin)
-        mr_row.addStretch()
-        dg.addLayout(mr_row)
+        self._retry_spin.setFixedWidth(64)
+        ab_row.addWidget(self._retry_spin)
 
-        # Save button
-        save_row = QHBoxLayout()
-        save_row.addStretch()
+        ab_row.addStretch()
+        dl_inner.addLayout(ab_row)
+        dl_inner.addSpacing(20)
+
+        # --- B: 存储模式 ---
+        dl_inner.addWidget(QLabel(t("storage_mode") + ":"))
+        dl_inner.addSpacing(6)
+
+        self._mode_group = QButtonGroup(self)
+        self._simple_radio = QRadioButton()  # no text — label separate
+        self._organized_radio = QRadioButton()
+        self._mode_group.addButton(self._simple_radio, 0)
+        self._mode_group.addButton(self._organized_radio, 1)
+        current_mode = cfg.get("storage_mode", "simple")
+        if current_mode == "organized":
+            self._organized_radio.setChecked(True)
+        else:
+            self._simple_radio.setChecked(True)
+
+        mode_col = QVBoxLayout()
+        mode_col.setSpacing(2)
+        mode_col.setContentsMargins(8, 0, 0, 0)
+
+        simple_row = QHBoxLayout()
+        simple_row.setSpacing(6)
+        simple_row.addWidget(self._simple_radio)
+        simple_lbl = QLabel(t("storage_simple"))
+        simple_lbl.setObjectName("muted")
+        simple_row.addWidget(simple_lbl)
+        simple_row.addStretch()
+        mode_col.addLayout(simple_row)
+
+        organized_row = QHBoxLayout()
+        organized_row.setSpacing(6)
+        organized_row.addWidget(self._organized_radio)
+        organized_lbl = QLabel(t("storage_organized"))
+        organized_lbl.setObjectName("muted")
+        organized_row.addWidget(organized_lbl)
+        organized_row.addStretch()
+        mode_col.addLayout(organized_row)
+
+        dl_inner.addLayout(mode_col)
+        dl_inner.addSpacing(4)
+
+        sm_desc = QLabel()
+        sm_desc.setObjectName("muted")
+        sm_desc.setWordWrap(True)
+        self._simple_radio.toggled.connect(
+            lambda on: sm_desc.setText(t("storage_simple_desc") if on else t("storage_organized_desc"))
+        )
+        sm_desc.setText(t("storage_simple_desc") if current_mode != "organized" else t("storage_organized_desc"))
+        dl_inner.addWidget(sm_desc)
+        dl_inner.addSpacing(20)
+
+        # --- C: 文件冲突策略 ---
+        cp_row = QHBoxLayout()
+        cp_row.setSpacing(12)
+        cp_row.addWidget(QLabel(t("file_conflict_policy") + ":"))
+        self._conflict_combo = NoWheelComboBox()
+        self._conflict_combo.addItem(t("conflict_rename"), "rename")
+        self._conflict_combo.addItem(t("conflict_skip"), "skip")
+        self._conflict_combo.addItem(t("conflict_overwrite"), "overwrite")
+        current_policy = cfg.get("file_conflict_policy", "rename")
+        idx = self._conflict_combo.findData(current_policy)
+        if idx >= 0:
+            self._conflict_combo.setCurrentIndex(idx)
+        self._conflict_combo.setFixedWidth(200)
+        cp_row.addWidget(self._conflict_combo)
+        cp_row.addStretch()
+        dl_inner.addLayout(cp_row)
+        dl_inner.addSpacing(4)
+
+        cp_desc = QLabel(t("file_conflict_policy_desc"))
+        cp_desc.setObjectName("muted")
+        cp_desc.setWordWrap(True)
+        dl_inner.addWidget(cp_desc)
+        dl_inner.addSpacing(20)
+
+        # --- D: 默认下载目录 ---
+        dl_inner.addWidget(QLabel(t("default_download_dir") + ":"))
+        dl_inner.addSpacing(6)
+
+        self._dir_label = QLabel(str(get_download_dir()))
+        self._dir_label.setObjectName("muted")
+        self._dir_label.setWordWrap(True)
+        dl_inner.addWidget(self._dir_label)
+        dl_inner.addSpacing(10)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        browse_btn = QPushButton(t("browse"))
+        browse_btn.setObjectName("secondary")
+        browse_btn.setMinimumWidth(90)
+        browse_btn.clicked.connect(self._on_browse_dir)
+        btn_row.addWidget(browse_btn)
+        restore_btn = QPushButton(t("restore_default"))
+        restore_btn.setObjectName("secondary")
+        restore_btn.setMinimumWidth(90)
+        restore_btn.clicked.connect(self._on_restore_dir)
+        btn_row.addWidget(restore_btn)
+        open_btn = QPushButton(t("open_folder"))
+        open_btn.setObjectName("secondary")
+        open_btn.setMinimumWidth(90)
+        open_btn.clicked.connect(self._on_open_dir)
+        btn_row.addWidget(open_btn)
+        btn_row.addStretch()
         save_btn = QPushButton(t("settings_save"))
         save_btn.setObjectName("accent_btn")
         save_btn.setFixedHeight(32)
+        save_btn.setMinimumWidth(120)
         save_btn.clicked.connect(self._on_save)
-        save_row.addWidget(save_btn)
-        dg.addLayout(save_row)
+        btn_row.addWidget(save_btn)
+        dl_inner.addLayout(btn_row)
 
-        root.addWidget(dl_group)
+        inner.addWidget(dl_group)
 
         # ---- Cookie section ----
         cookie_group = QGroupBox(t("cookie_mgmt"))
@@ -106,6 +230,8 @@ class SettingsPage(QWidget):
         ig_row = QHBoxLayout()
         ig_row.addWidget(QLabel("Instagram:"))
         self._ig_cookie_status = QLabel()
+        self._ig_cookie_status.setMinimumWidth(150)
+        self._ig_cookie_status.setContentsMargins(4, 0, 4, 0)
         self._update_ig_cookie_status()
         ig_row.addWidget(self._ig_cookie_status)
         ig_row.addStretch()
@@ -115,6 +241,8 @@ class SettingsPage(QWidget):
         x_row = QHBoxLayout()
         x_row.addWidget(QLabel("X (Twitter):"))
         self._x_cookie_status = QLabel()
+        self._x_cookie_status.setMinimumWidth(150)
+        self._x_cookie_status.setContentsMargins(4, 0, 4, 0)
         self._update_x_cookie_status()
         x_row.addWidget(self._x_cookie_status)
         x_row.addStretch()
@@ -124,6 +252,8 @@ class SettingsPage(QWidget):
         yt_row = QHBoxLayout()
         yt_row.addWidget(QLabel("YouTube:"))
         self._yt_cookie_status = QLabel()
+        self._yt_cookie_status.setMinimumWidth(150)
+        self._yt_cookie_status.setContentsMargins(4, 0, 4, 0)
         self._update_yt_cookie_status()
         yt_row.addWidget(self._yt_cookie_status)
         yt_row.addStretch()
@@ -146,7 +276,7 @@ class SettingsPage(QWidget):
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cg.addWidget(self._hint_label)
 
-        root.addWidget(cookie_group)
+        inner.addWidget(cookie_group)
 
         # ---- About section ----
         about_group = QGroupBox("About")
@@ -154,31 +284,37 @@ class SettingsPage(QWidget):
 
         ver_row = QHBoxLayout()
         ver_row.addWidget(QLabel(t("settings_version") + ":"))
-        ver_val = QLabel("2.1.0")
+        from .. import __version__
+        ver_val = QLabel(__version__)
         ver_val.setObjectName("muted")
         ver_row.addWidget(ver_val)
         ver_row.addStretch()
         ag.addLayout(ver_row)
 
-        root.addWidget(about_group)
+        inner.addWidget(about_group)
 
-        root.addStretch()
+        inner.addStretch()
+
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
 
     # ---- Cookie status ----
 
     def _set_cookie_label(self, label: QLabel, status: str):
         if status == "已配置":
             label.setText(f"🟢 {t('cookie_valid')}")
-            label.setStyleSheet("color: #10b981; font-weight: 600;")
+            label.setObjectName("cookie_ok")
         elif status == "即将失效":
             label.setText(f"🟡 {t('cookie_warning')}")
-            label.setStyleSheet("color: #f59e0b; font-weight: 600;")
+            label.setObjectName("cookie_expired")
         elif status == "已失效":
             label.setText(f"🔴 {t('cookie_expired')}")
-            label.setStyleSheet("color: #f87171; font-weight: 600;")
+            label.setObjectName("cookie_missing")
         else:
             label.setText(f"🔴 {t('cookie_missing')}")
-            label.setStyleSheet("color: #f87171; font-weight: 600;")
+            label.setObjectName("cookie_missing")
+        label.style().unpolish(label)
+        label.style().polish(label)
 
     def _update_ig_cookie_status(self):
         from .cookie_checker import check_ig_cookie_status
@@ -197,7 +333,6 @@ class SettingsPage(QWidget):
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
         self._hint_label.setText(t("cookie_check_done"))
-        self._hint_label.setStyleSheet("color: #10b981;")
 
     # ---- Actions ----
 
@@ -205,9 +340,31 @@ class SettingsPage(QWidget):
         cfg = load_config()
         cfg["max_concurrent"] = self._concurrent_spin.value()
         cfg["max_retries"] = self._retry_spin.value()
+        cfg["storage_mode"] = "organized" if self._organized_radio.isChecked() else "simple"
+        cfg["file_conflict_policy"] = self._conflict_combo.currentData()
         save_config(cfg)
         self._hint_label.setText(t("settings_saved"))
-        self._hint_label.setStyleSheet("color: #10b981;")
+
+    def _on_browse_dir(self):
+        d = QFileDialog.getExistingDirectory(self, t("default_download_dir"), str(get_download_dir()))
+        if d:
+            cfg = load_config()
+            cfg["download_dir"] = d
+            save_config(cfg)
+            self._dir_label.setText(d)
+
+    def _on_restore_dir(self):
+        default = str(Path.home() / "Downloads" / "Lumio")
+        cfg = load_config()
+        cfg["download_dir"] = default
+        save_config(cfg)
+        self._dir_label.setText(default)
+
+    def _on_open_dir(self):
+        import os
+        p = str(get_download_dir())
+        os.makedirs(p, exist_ok=True)
+        os.startfile(p)
 
     @Slot()
     def _on_import_cookie(self):
@@ -219,7 +376,8 @@ class SettingsPage(QWidget):
             return
         try:
             cfg = load_config()
-            dest = Path(cfg["cookie_file"])
+            cookie_file = cfg.get("cookie_file") or str(Path.home() / ".getvp" / "cookies.txt")
+            dest = Path(cookie_file)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, dest)
 
@@ -228,13 +386,10 @@ class SettingsPage(QWidget):
             x_status = check_x_cookie_status()
             if ig_status == "已配置" or x_status == "已配置":
                 self._hint_label.setText(t("cookie_imported"))
-                self._hint_label.setStyleSheet("color: #10b981;")
             elif ig_status == "已失效" or x_status == "已失效":
                 self._hint_label.setText(f"{t('cookie_imported')} — {t('cookie_expired')}")
-                self._hint_label.setStyleSheet("color: #fbbf24;")
             else:
                 self._hint_label.setText(t("cookie_imported"))
-                self._hint_label.setStyleSheet("color: #10b981;")
             self._update_ig_cookie_status()
             self._update_x_cookie_status()
             self._update_yt_cookie_status()

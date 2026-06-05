@@ -11,8 +11,48 @@ import http.cookiejar
 import requests
 import yt_dlp
 
-from .utils.config import get_cookie_path, get_download_dir
+from .utils.config import get_cookie_path, get_download_dir, get_file_conflict_policy, get_storage_mode
 from .utils.url_parser import Platform, parse_url
+
+
+def _resolve_conflict_path(path: Path, policy: str) -> Path | None:
+    """Resolve file path based on conflict policy.
+
+    Returns the resolved path, or None if the file should be skipped.
+    """
+    if policy == "overwrite" or not path.exists():
+        return path
+    if policy == "skip":
+        return None
+    # rename (default): append (1), (2), ...
+    stem, suffix = path.stem, path.suffix
+    counter = 1
+    while True:
+        new_path = path.parent / f"{stem} ({counter}){suffix}"
+        if not new_path.exists():
+            return new_path
+        counter += 1
+
+
+def _resolve_conflict_stem(out_dir: Path, stem: str, policy: str) -> str | None:
+    """For yt-dlp outtmpl: check if any file matching stem.* exists.
+
+    Returns the resolved stem, or None if should skip.
+    """
+    if policy == "overwrite":
+        return stem
+    existing = list(out_dir.glob(f"{stem}.*"))
+    if not existing:
+        return stem
+    if policy == "skip":
+        return None
+    # rename
+    counter = 1
+    while True:
+        new_stem = f"{stem} ({counter})"
+        if not list(out_dir.glob(f"{new_stem}.*")):
+            return new_stem
+        counter += 1
 
 
 def _find_ffmpeg() -> str | None:
@@ -215,7 +255,7 @@ def _ig_media_to_items(media: dict) -> list[MediaItem]:
     return items
 
 
-def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retries: int = 3):
+def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retries: int = 3, batch_id: str = ""):
     """Create QueueTask from Instagram API post dict (mobile or GraphQL format)."""
     from .queue_manager import QueueTask
     # Mobile API format
@@ -243,6 +283,7 @@ def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retri
         url=url,
         output_dir=str(output_dir),
         custom_name=custom_name,
+        batch_id=batch_id,
         title=title,
         platform="instagram",
         author=owner,
@@ -405,7 +446,7 @@ def enumerate_yt_videos(url: str, limit: int, callback=None, cancel_event=None) 
 
 
 def _yt_entry_to_queue_task(entry: dict, custom_name: str, output_dir, max_retries: int = 3,
-                            format_id: str = "best", format_type: str = "combined"):
+                            format_id: str = "best", format_type: str = "combined", batch_id: str = ""):
     """Create QueueTask from yt-dlp flat entry dict."""
     from .queue_manager import QueueTask
     video_id = entry.get("id", "")
@@ -438,6 +479,7 @@ def _yt_entry_to_queue_task(entry: dict, custom_name: str, output_dir, max_retri
         format_type=format_type,
         output_dir=str(output_dir),
         custom_name=custom_name,
+        batch_id=batch_id,
         title=title,
         platform="youtube",
         author=author,
@@ -468,10 +510,11 @@ def _ig_extract_info(url: str) -> VideoInfo:
         from datetime import datetime, timezone
         post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
     thumb = ""
-    if not media.get("video_versions"):
-        candidates = media.get("image_versions2", {}).get("candidates", [])
-        if candidates:
-            thumb = candidates[0].get("url", "")
+    candidates = media.get("image_versions2", {}).get("candidates", [])
+    if candidates:
+        thumb = candidates[0].get("url", "")
+    if not thumb:
+        thumb = media.get("display_url", "")
 
     return VideoInfo(
         title=title,
@@ -582,7 +625,7 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
                         opt["id"] = fid
                         opt["_vbr"] = vbr
                         opt["label"] = f"{height}P"
-                    break
+                        break
                 continue
             seen_res.add(height)
             video_opts.append({
@@ -645,12 +688,22 @@ class _CancelledError(Exception):
     pass
 
 
+def _safe_filename(name: str) -> str:
+    """Strip path separators and unsafe sequences to prevent path traversal."""
+    for ch in '\\/:*?"<>|':
+        name = name.replace(ch, "_")
+    # Remove ".." path traversal sequences (preserve single dots)
+    while ".." in name:
+        name = name.replace("..", "_")
+    return name.strip().strip(".") or "_"
+
+
 def _effective_name(task: DownloadTask) -> str:
     """Return the filename stem: custom > author+timestamp > title."""
     if task.custom_name:
-        name = task.custom_name
+        name = _safe_filename(task.custom_name)
     elif task.author:
-        name = task.author
+        name = _safe_filename(task.author)
     else:
         return "%(title)s"
     if task.post_time:
@@ -661,11 +714,21 @@ def _effective_name(task: DownloadTask) -> str:
 def _yt_download(
     task: DownloadTask,
     on_progress: ProgressCallback | None,
-    on_done: Callable[[DownloadTask], None] | None,
 ):
     cookie = get_cookie_path()
     opts = _yt_opts(cookie)
     out_name = _effective_name(task)
+
+    # File conflict handling
+    out_dir = Path(task.output_dir)
+    policy = get_file_conflict_policy()
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        return
+    out_name = resolved_stem
+
     opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook(task, on_progress)]
 
@@ -700,7 +763,6 @@ def _yt_download(
 def _ig_download(
     task: DownloadTask,
     on_progress: ProgressCallback | None,
-    on_done: Callable[[DownloadTask], None] | None,
 ):
     parts = task.url.rstrip("/").split("/")
     shortcode = parts[-1]
@@ -716,41 +778,63 @@ def _ig_download(
         on_progress(task)
 
     out_dir = Path(task.output_dir)
+
+    # Organized mode: create per-post subdirectory
+    if get_storage_mode() == "organized":
+        post_stem = task.author or shortcode
+        if task.post_time:
+            post_stem = f"{post_stem}_{task.post_time}"
+        out_dir = out_dir / post_stem
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     items = _ig_media_to_items(media)
 
     # Build a unique stem: author_postTime (or custom_name, or shortcode)
-    name_stem = task.custom_name or task.author or shortcode
+    name_stem = _safe_filename(task.custom_name or task.author or shortcode)
     if task.post_time:
         name_stem = f"{name_stem}_{task.post_time}"
 
     total = len(items)
     pad = len(str(total))
+    policy = get_file_conflict_policy()
     for idx, item in enumerate(items):
         ext = "mp4" if item.is_video else "jpg"
         suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
         filename = out_dir / f"{name_stem}{suffix}.{ext}"
 
+        # File conflict handling
+        resolved = _resolve_conflict_path(filename, policy)
+        if resolved is None:
+            continue  # skip
+        filename = resolved
+
         resp = requests.get(item.url, stream=True, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
 
-        total_size = int(resp.headers.get("content-length", 0))
-        downloaded = 0
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
 
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(8192):
-                if task._cancelled:
-                    raise _CancelledError()
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total_size:
-                    item_pct = downloaded / total_size * 100
-                    task.progress = (idx + item_pct / 100) / total * 100
-                    task.speed = f"{idx + 1}/{total}"
-                    task.filename = str(filename)
-                    if on_progress:
-                        on_progress(task)
+            try:
+                with open(filename, "wb") as f:
+                    for chunk in resp.iter_content(8192):
+                        if task._cancelled:
+                            raise _CancelledError()
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size:
+                            item_pct = downloaded / total_size * 100
+                            task.progress = (idx + item_pct / 100) / total * 100
+                            task.speed = f"{idx + 1}/{total}"
+                            task.filename = str(filename)
+                            if on_progress:
+                                on_progress(task)
+            except _CancelledError:
+                filename.unlink(missing_ok=True)
+                raise
+        finally:
+            resp.close()
 
     task.status = "done"
     task.progress = 100
@@ -760,11 +844,21 @@ def _ig_download(
 def _x_download(
     task: DownloadTask,
     on_progress: ProgressCallback | None,
-    on_done: Callable[[DownloadTask], None] | None,
 ):
     cookie = get_cookie_path()
     opts = _yt_opts(cookie)
     out_name = _effective_name(task)
+
+    # File conflict handling
+    out_dir = Path(task.output_dir)
+    policy = get_file_conflict_policy()
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        return
+    out_name = resolved_stem
+
     opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook(task, on_progress)]
     opts["format"] = "best[ext=mp4]/best"
@@ -791,11 +885,11 @@ def start_download(
     def _run():
         try:
             if parsed.platform == Platform.YOUTUBE:
-                _yt_download(task, on_progress, on_done)
+                _yt_download(task, on_progress)
             elif parsed.platform == Platform.INSTAGRAM:
-                _ig_download(task, on_progress, on_done)
+                _ig_download(task, on_progress)
             elif parsed.platform == Platform.X:
-                _x_download(task, on_progress, on_done)
+                _x_download(task, on_progress)
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"
@@ -843,10 +937,21 @@ def _download_hook_with_pause(
     return hook
 
 
-def _yt_download_with_pause(task, pause_event, on_progress, on_done):
+def _yt_download_with_pause(task, pause_event, on_progress):
     cookie = get_cookie_path()
     opts = _yt_opts(cookie)
     out_name = _effective_name(task)
+
+    # File conflict handling
+    out_dir = Path(task.output_dir)
+    policy = get_file_conflict_policy()
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        return
+    out_name = resolved_stem
+
     opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
 
@@ -877,7 +982,7 @@ def _yt_download_with_pause(task, pause_event, on_progress, on_done):
     task.progress = 100
 
 
-def _ig_download_with_pause(task, pause_event, on_progress, on_done):
+def _ig_download_with_pause(task, pause_event, on_progress):
     parts = task.url.rstrip("/").split("/")
     shortcode = parts[-1]
     for i, p in enumerate(parts):
@@ -892,53 +997,86 @@ def _ig_download_with_pause(task, pause_event, on_progress, on_done):
         on_progress(task)
 
     out_dir = Path(task.output_dir)
+
+    # Organized mode: create per-post subdirectory
+    if get_storage_mode() == "organized":
+        post_stem = task.author or shortcode
+        if task.post_time:
+            post_stem = f"{post_stem}_{task.post_time}"
+        out_dir = out_dir / post_stem
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     items = _ig_media_to_items(media)
 
     # Build a unique stem: author_postTime (or custom_name, or shortcode)
-    name_stem = task.custom_name or task.author or shortcode
+    name_stem = _safe_filename(task.custom_name or task.author or shortcode)
     if task.post_time:
         name_stem = f"{name_stem}_{task.post_time}"
     total = len(items)
     pad = len(str(total))
+    policy = get_file_conflict_policy()
     for idx, item in enumerate(items):
         ext = "mp4" if item.is_video else "jpg"
         suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
         filename = out_dir / f"{name_stem}{suffix}.{ext}"
 
+        # File conflict handling
+        resolved = _resolve_conflict_path(filename, policy)
+        if resolved is None:
+            continue  # skip
+        filename = resolved
+
         resp = requests.get(item.url, stream=True, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
 
-        total_size = int(resp.headers.get("content-length", 0))
-        downloaded = 0
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
 
-        with open(filename, "wb") as f:
-            for chunk in resp.iter_content(8192):
-                if task._cancelled:
-                    raise _CancelledError()
-                pause_event.wait()  # blocks when paused
-                if task._cancelled:
-                    raise _CancelledError()
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total_size:
-                    item_pct = downloaded / total_size * 100
-                    task.progress = (idx + item_pct / 100) / total * 100
-                    task.speed = f"{idx + 1}/{total}"
-                    task.filename = str(filename)
-                    if on_progress:
-                        on_progress(task)
+            try:
+                with open(filename, "wb") as f:
+                    for chunk in resp.iter_content(8192):
+                        if task._cancelled:
+                            raise _CancelledError()
+                        pause_event.wait()  # blocks when paused
+                        if task._cancelled:
+                            raise _CancelledError()
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size:
+                            item_pct = downloaded / total_size * 100
+                            task.progress = (idx + item_pct / 100) / total * 100
+                            task.speed = f"{idx + 1}/{total}"
+                            task.filename = str(filename)
+                            if on_progress:
+                                on_progress(task)
+            except _CancelledError:
+                filename.unlink(missing_ok=True)
+                raise
+        finally:
+            resp.close()
 
     task.status = "done"
     task.progress = 100
     task.filename = str(out_dir)
 
 
-def _x_download_with_pause(task, pause_event, on_progress, on_done):
+def _x_download_with_pause(task, pause_event, on_progress):
     cookie = get_cookie_path()
     opts = _yt_opts(cookie)
     out_name = _effective_name(task)
+
+    # File conflict handling
+    out_dir = Path(task.output_dir)
+    policy = get_file_conflict_policy()
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        return
+    out_name = resolved_stem
+
     opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
     opts["format"] = "best[ext=mp4]/best"
@@ -966,11 +1104,11 @@ def start_download_with_pause(
     def _run():
         try:
             if parsed.platform == Platform.YOUTUBE:
-                _yt_download_with_pause(task, pause_event, on_progress, on_done)
+                _yt_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.INSTAGRAM:
-                _ig_download_with_pause(task, pause_event, on_progress, on_done)
+                _ig_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.X:
-                _x_download_with_pause(task, pause_event, on_progress, on_done)
+                _x_download_with_pause(task, pause_event, on_progress)
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import threading
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -21,7 +22,8 @@ from PySide6.QtWidgets import (
 
 from ..downloader import enumerate_yt_videos, fetch_yt_channel_info, _yt_entry_to_queue_task
 from ..i18n import t
-from ..utils.config import get_download_dir
+from ..utils.config import get_download_dir, get_storage_mode
+from .widgets import NoWheelComboBox
 
 
 class _YtInfoWorker(QThread):
@@ -139,7 +141,7 @@ class YouTubeDialog(QDialog):
 
         fmt_row = QHBoxLayout()
         fmt_row.addWidget(QLabel(t("format_label")))
-        self._format_combo = QComboBox()
+        self._format_combo = NoWheelComboBox()
         self._format_combo.addItem(t("yt_fmt_best"), ("best", "combined"))
         self._format_combo.addItem("1080p", ("bestvideo[height<=1080]+bestaudio/best[height<=1080]", "video"))
         self._format_combo.addItem("720p", ("bestvideo[height<=720]+bestaudio/best[height<=720]", "video"))
@@ -260,9 +262,22 @@ class YouTubeDialog(QDialog):
 
         custom_name = self._name_input.text().strip()
         output_dir = Path(get_download_dir())
+        batch_id = uuid.uuid4().hex[:12]
+
+        # Organized mode: create batch-level directory
+        if get_storage_mode() == "organized":
+            author = self._channel_info.get("channel", self._channel_info.get("title", "YouTube"))
+            safe_author = author[:30].strip()
+            for ch in '\\/:*?"<>|':
+                safe_author = safe_author.replace(ch, "_")
+            date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+            batch_dir = output_dir / f"YouTube_{safe_author}_{date_str}"
+            batch_dir.mkdir(parents=True, exist_ok=True)
+            output_dir = batch_dir
+
         fmt_data = self._format_combo.currentData()
         format_id, format_type = fmt_data if isinstance(fmt_data, tuple) else ("best", "combined")
-        tasks = [_yt_entry_to_queue_task(e, custom_name, output_dir, format_id=format_id, format_type=format_type) for e in entries]
+        tasks = [_yt_entry_to_queue_task(e, custom_name, output_dir, format_id=format_id, format_type=format_type, batch_id=batch_id) for e in entries]
 
         self.batch_add_requested.emit(tasks)
         self.accept()
