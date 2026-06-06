@@ -119,9 +119,15 @@ class MainWindow(QMainWindow):
         # Library: new item added -> update library page
         self._manager.library_record_added.connect(self._library_page.on_item_added)
 
-        # Collections: sidebar selection + creation
+        # Conflict ask dialog
+        self._manager.conflict_ask.connect(self._on_conflict_ask)
+
+        # Collections: sidebar selection + creation + rename/delete + stats refresh
         self._sidebar.collection_selected.connect(self._on_collection_selected)
         self._sidebar.collection_create_requested.connect(self._on_create_collection)
+        self._sidebar.collection_rename_requested.connect(self._on_rename_collection)
+        self._sidebar.collection_delete_requested.connect(self._on_delete_collection)
+        self._library_manager.collection_changed.connect(self._refresh_sidebar_collections)
 
         # Settings: restart
         self._settings_page.restart_requested.connect(self._restart_app)
@@ -161,7 +167,55 @@ class MainWindow(QMainWindow):
 
     def _refresh_sidebar_collections(self):
         for col in self._library_manager.get_all_collections():
-            self._sidebar.add_collection_nav(col.id, col.name, col.icon)
+            count, total_size = self._library_manager.get_collection_stats(col.id)
+            self._sidebar.add_collection_nav(col.id, col.name, col.icon, count, total_size)
+
+    def _on_rename_collection(self, collection_id: int):
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from ..i18n import t
+        cols = [c for c in self._library_manager.get_all_collections() if c.id == collection_id]
+        if not cols:
+            return
+        new_name, ok = QInputDialog.getText(self, t("collection_rename"), t("collection_name_label"), text=cols[0].name)
+        if ok and new_name.strip():
+            self._library_manager.rename_collection(collection_id, new_name.strip())
+            self._refresh_sidebar_collections()
+
+    def _on_delete_collection(self, collection_id: int):
+        from PySide6.QtWidgets import QMessageBox
+        from ..i18n import t
+        cols = [c for c in self._library_manager.get_all_collections() if c.id == collection_id]
+        if not cols:
+            return
+        reply = QMessageBox.question(
+            self, t("collection_delete"), f"{t('collection_delete')} \"{cols[0].name}\"?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._library_manager.delete_collection(collection_id)
+            self._sidebar.remove_collection_nav(collection_id)
+            self._library_page.set_collection_filter(None)
+
+    def _on_conflict_ask(self, file_path: str):
+        from PySide6.QtWidgets import QMessageBox
+        from ..i18n import t
+        name = Path(file_path).name
+        msg = t("conflict_ask_msg", name=name)
+        box = QMessageBox(self)
+        box.setWindowTitle(t("file_conflict_policy"))
+        box.setText(msg)
+        box.addButton(t("conflict_rename"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(t("conflict_skip"), QMessageBox.ButtonRole.RejectRole)
+        box.addButton(t("conflict_overwrite"), QMessageBox.ButtonRole.DestructiveRole)
+        box.exec()
+        role = box.buttonRole(box.clickedButton())
+        if role == QMessageBox.ButtonRole.AcceptRole:
+            choice = "rename"
+        elif role == QMessageBox.ButtonRole.RejectRole:
+            choice = "skip"
+        else:
+            choice = "overwrite"
+        self._manager.resolve_conflict(choice)
 
     def _on_theme_toggle(self):
         self._theme = "light" if self._theme == "dark" else "dark"

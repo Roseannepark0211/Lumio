@@ -17,6 +17,31 @@ from .history_manager import HistoryManager, HistoryRecord
 from .utils.config import get_queue_path, load_config
 
 
+class _ConflictAskHandler(QObject):
+    """Bridges downloader's conflict-ask to main-thread dialog."""
+    conflict_detected = Signal(str)  # file_path
+
+    def __init__(self):
+        super().__init__()
+        self._event = threading.Event()
+        self._result = "rename"
+
+    def register(self):
+        from . import downloader
+        downloader._conflict_ask_handler = self._handle
+
+    def _handle(self, file_path: Path) -> str:
+        self._result = "rename"
+        self._event.clear()
+        self.conflict_detected.emit(str(file_path))
+        self._event.wait()
+        return self._result
+
+    def respond(self, choice: str):
+        self._result = choice
+        self._event.set()
+
+
 class TaskStatus(str, Enum):
     WAITING = "等待中"
     DOWNLOADING = "下载中"
@@ -127,6 +152,7 @@ class DownloadManager(QObject):
     batch_progress = Signal(int, int, int)           # completed, failed, total
     history_record_added = Signal(object)            # HistoryRecord
     library_record_added = Signal(object)            # LibraryItem
+    conflict_ask = Signal(str)                       # file_path, respond via conflict_resolved
 
     def __init__(self, history_manager: HistoryManager | None = None, parent=None):
         super().__init__(parent)
@@ -137,6 +163,12 @@ class DownloadManager(QObject):
         self._lock = threading.Lock()
         self._history_manager = history_manager
         self._library_manager = None
+
+        # Register conflict-ask handler
+        self._conflict_handler = _ConflictAskHandler()
+        self._conflict_handler.moveToThread(self.thread())
+        self._conflict_handler.conflict_detected.connect(self.conflict_ask)
+        self._conflict_handler.register()
 
         cfg = load_config()
         self._max_workers: int = cfg.get("max_concurrent", 3)
@@ -149,6 +181,10 @@ class DownloadManager(QObject):
 
     def set_library_manager(self, lm):
         self._library_manager = lm
+
+    def resolve_conflict(self, choice: str):
+        """Respond to conflict_ask signal. choice: 'rename'/'skip'/'overwrite'."""
+        self._conflict_handler.respond(choice)
 
     def check_url_duplicate(self, url: str) -> bool:
         if self._library_manager:

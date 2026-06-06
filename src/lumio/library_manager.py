@@ -17,6 +17,7 @@ _MIGRATED_MARKER = Path.home() / ".lumio" / ".library_migrated"
 
 class LibraryManager(QObject):
     thumbnail_updated = Signal(str, str)  # item_id, local_path
+    collection_changed = Signal()  # any collection content change
 
     def __init__(self):
         super().__init__()
@@ -24,6 +25,7 @@ class LibraryManager(QObject):
         self._migrate_from_history_json()
         self._migrate_add_storage_fields()
         self._backfill_media_types()
+        self.backfill_hashes()
 
     def _session(self):
         return get_session_factory()()
@@ -67,7 +69,7 @@ class LibraryManager(QObject):
             )
 
     def _migrate_add_storage_fields(self):
-        """Add folder_path and batch_id columns if missing."""
+        """Add folder_path, batch_id, content_hash columns if missing."""
         from sqlalchemy import text
         session = self._session()
         try:
@@ -76,6 +78,8 @@ class LibraryManager(QObject):
                 session.execute(text("ALTER TABLE library_items ADD COLUMN folder_path TEXT DEFAULT ''"))
             if "batch_id" not in existing:
                 session.execute(text("ALTER TABLE library_items ADD COLUMN batch_id TEXT DEFAULT ''"))
+            if "content_hash" not in existing:
+                session.execute(text("ALTER TABLE library_items ADD COLUMN content_hash TEXT"))
             session.commit()
         finally:
             session.close()
@@ -119,6 +123,11 @@ class LibraryManager(QObject):
             item_id = item.id
         finally:
             session.close()
+        # Compute content hash for dedup
+        if file_path:
+            h = self.compute_content_hash(file_path)
+            if h:
+                self.set_content_hash(item_id, h)
         return item_id
 
     def get_item(self, item_id: str) -> LibraryItem | None:
@@ -234,6 +243,7 @@ class LibraryManager(QObject):
                 session.commit()
         finally:
             session.close()
+        self.collection_changed.emit()
 
     def remove_item_from_collection(self, item_id: str, collection_id: int):
         session = self._session()
@@ -246,6 +256,7 @@ class LibraryManager(QObject):
                 session.commit()
         finally:
             session.close()
+        self.collection_changed.emit()
 
     def get_collection_items(self, collection_id: int) -> list[LibraryItem]:
         session = self._session()
@@ -281,12 +292,104 @@ class LibraryManager(QObject):
         finally:
             session.close()
 
+    def get_collection_stats(self, collection_id: int) -> tuple[int, int]:
+        """Return (item_count, total_size) for a collection."""
+        session = self._session()
+        try:
+            items = (
+                session.query(LibraryItem)
+                .join(ItemCollection)
+                .filter(ItemCollection.collection_id == collection_id)
+                .all()
+            )
+            return (len(items), sum(i.file_size or 0 for i in items))
+        finally:
+            session.close()
+
     # ---- Dedup ----
 
     def url_exists(self, url: str) -> bool:
         session = self._session()
         try:
             return session.query(LibraryItem).filter_by(url=url).first() is not None
+        finally:
+            session.close()
+
+    def hash_exists(self, content_hash: str) -> bool:
+        session = self._session()
+        try:
+            return session.query(LibraryItem).filter_by(content_hash=content_hash).first() is not None
+        finally:
+            session.close()
+
+    def compute_content_hash(self, file_path: str) -> str:
+        """Compute content hash. Images: full MD5. Video/audio: first 1MB + size."""
+        import hashlib
+        p = Path(file_path)
+        if p.is_dir():
+            # Hash first media file in directory
+            media_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.mkv', '.webm', '.mov', '.mp3', '.wav', '.aac', '.flac', '.ogg'}
+            files = sorted(f for f in p.iterdir() if f.suffix.lower() in media_exts)
+            if not files:
+                return ""
+            p = files[0]
+        if not p.exists():
+            return ""
+        ext = p.suffix.lower()
+        img_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+        try:
+            h = hashlib.md5()
+            if ext in img_exts:
+                h.update(p.read_bytes())
+            else:
+                with open(p, "rb") as f:
+                    h.update(f.read(1024 * 1024))
+                h.update(str(p.stat().st_size).encode())
+            return h.hexdigest()
+        except OSError:
+            return ""
+
+    def set_content_hash(self, item_id: str, content_hash: str):
+        session = self._session()
+        try:
+            item = session.get(LibraryItem, item_id)
+            if item:
+                item.content_hash = content_hash
+                session.commit()
+        finally:
+            session.close()
+
+    def backfill_hashes(self):
+        """Compute content_hash for all items missing one."""
+        session = self._session()
+        try:
+            items = session.query(LibraryItem).filter(
+                (LibraryItem.content_hash == "") | (LibraryItem.content_hash.is_(None))
+            ).all()
+            if not items:
+                return
+            session.expunge_all()
+        finally:
+            session.close()
+        for item in items:
+            if item.file_path:
+                h = self.compute_content_hash(item.file_path)
+                if h:
+                    self.set_content_hash(item.id, h)
+
+    def find_duplicates(self) -> dict[str, list[str]]:
+        """Return {hash: [item_ids]} for items with duplicate content hashes."""
+        session = self._session()
+        try:
+            items = session.query(LibraryItem).filter(
+                LibraryItem.content_hash.isnot(None),
+                LibraryItem.content_hash != "",
+            ).all()
+            from collections import defaultdict
+            groups: dict[str, list[str]] = defaultdict(list)
+            for item in items:
+                groups[item.content_hash].append(item.id)
+            return {h: ids for h, ids in groups.items() if len(ids) > 1}
         finally:
             session.close()
 

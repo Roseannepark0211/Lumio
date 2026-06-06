@@ -166,11 +166,12 @@ class SettingsPage(QWidget):
         self._conflict_combo.addItem(t("conflict_rename"), "rename")
         self._conflict_combo.addItem(t("conflict_skip"), "skip")
         self._conflict_combo.addItem(t("conflict_overwrite"), "overwrite")
+        self._conflict_combo.addItem(t("conflict_ask"), "ask")
         current_policy = cfg.get("file_conflict_policy", "rename")
         idx = self._conflict_combo.findData(current_policy)
         if idx >= 0:
             self._conflict_combo.setCurrentIndex(idx)
-        self._conflict_combo.setFixedWidth(200)
+        self._conflict_combo.setFixedWidth(280)
         cp_row.addWidget(self._conflict_combo)
         cp_row.addStretch()
         dl_inner.addLayout(cp_row)

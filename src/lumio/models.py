@@ -29,6 +29,7 @@ class LibraryItem(Base):
     is_favorite = Column(Boolean, default=False)
     folder_path = Column(String, default="")
     batch_id = Column(String, default="")
+    content_hash = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -14,6 +14,16 @@ import yt_dlp
 from .utils.config import get_cookie_path, get_download_dir, get_file_conflict_policy, get_storage_mode
 from .utils.url_parser import Platform, parse_url
 
+# --- Conflict ask callback (set by Downloader instance) ---
+_conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
+
+
+def _ask_user_conflict(file_path: Path) -> str:
+    """Ask user how to handle a file conflict. Blocks until response."""
+    if _conflict_ask_handler:
+        return _conflict_ask_handler(file_path)
+    return "rename"  # fallback
+
 
 def _resolve_conflict_path(path: Path, policy: str) -> Path | None:
     """Resolve file path based on conflict policy.
@@ -24,6 +34,13 @@ def _resolve_conflict_path(path: Path, policy: str) -> Path | None:
         return path
     if policy == "skip":
         return None
+    if policy == "ask":
+        choice = _ask_user_conflict(path)
+        if choice == "overwrite":
+            return path
+        if choice == "skip":
+            return None
+        # "rename" fallback
     # rename (default): append (1), (2), ...
     stem, suffix = path.stem, path.suffix
     counter = 1
@@ -46,6 +63,14 @@ def _resolve_conflict_stem(out_dir: Path, stem: str, policy: str) -> str | None:
         return stem
     if policy == "skip":
         return None
+    if policy == "ask":
+        example = existing[0]
+        choice = _ask_user_conflict(example)
+        if choice == "overwrite":
+            return stem
+        if choice == "skip":
+            return None
+        # "rename" fallback
     # rename
     counter = 1
     while True:

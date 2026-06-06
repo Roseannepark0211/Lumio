@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget
 
 from ..i18n import t
 
@@ -22,6 +22,8 @@ class SidebarWidget(QFrame):
     theme_toggle_requested = Signal()
     collection_selected = Signal(int)  # collection_id
     collection_create_requested = Signal()
+    collection_rename_requested = Signal(int)  # collection_id
+    collection_delete_requested = Signal(int)  # collection_id
 
     NAV_ITEMS = [
         ("⌂", "home", "home"),
@@ -140,17 +142,43 @@ class SidebarWidget(QFrame):
         for pid, btn in self._nav_buttons.items():
             btn.setChecked(pid == page_id)
 
-    def add_collection_nav(self, collection_id: int, name: str, icon: str = "📁"):
+    def add_collection_nav(self, collection_id: int, name: str, icon: str = "📁",
+                           count: int = 0, total_size: int = 0):
         if collection_id in self._collection_buttons:
+            self.update_collection_nav(collection_id, name, icon, count, total_size)
             return
-        btn = QPushButton(f"  {icon}   {name}")
+        btn = QPushButton()
         btn.setObjectName("nav_btn")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setCheckable(True)
         btn.setFixedHeight(32)
+        self._update_collection_btn_text(btn, name, icon, count, total_size)
         btn.clicked.connect(lambda checked, cid=collection_id: self._on_collection_nav(cid))
+        btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, cid=collection_id: self._show_collection_menu(pos, cid))
         self._collection_buttons[collection_id] = btn
         self._collections_list.addWidget(btn)
+
+    def update_collection_nav(self, collection_id: int, name: str = "", icon: str = "📁",
+                              count: int = 0, total_size: int = 0):
+        btn = self._collection_buttons.get(collection_id)
+        if btn:
+            self._update_collection_btn_text(btn, name, icon, count, total_size)
+
+    def _update_collection_btn_text(self, btn: QPushButton, name: str, icon: str,
+                                    count: int, total_size: int):
+        btn.setText(f"  {icon}   {name}  ({count})")
+
+    def _show_collection_menu(self, pos, collection_id: int):
+        menu = QMenu(self)
+        rename_action = menu.addAction(t("collection_rename"))
+        delete_action = menu.addAction(t("collection_delete"))
+        action = menu.exec(self.sender().mapToGlobal(pos))
+        if action == rename_action:
+            self.collection_rename_requested.emit(collection_id)
+        elif action == delete_action:
+            self.collection_delete_requested.emit(collection_id)
 
     def remove_collection_nav(self, collection_id: int):
         btn = self._collection_buttons.pop(collection_id, None)
