@@ -89,11 +89,11 @@ class TestInstagramProfileParsing:
         assert r.url.startswith("https://")
 
     def test_profile_url_with_params(self):
-        r = parse_url("https://www.instagram.com/jujingyi_kikuuu?utm_source=ig_web_button_share_sheet&igsh=abc")
+        r = parse_url("https://www.instagram.com/test_user_123?utm_source=ig_web_button_share_sheet&igsh=abc")
         assert r.platform == Platform.INSTAGRAM
         assert r.kind == "profile"
         assert "?" not in r.url
-        assert "jujingyi_kikuuu" in r.url
+        assert "test_user_123" in r.url
 
 
 class TestUnsupported:

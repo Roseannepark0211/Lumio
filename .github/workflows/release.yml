@@ -1,0 +1,78 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: Lumio-Windows.zip
+          - os: macos-latest
+            artifact: Lumio-macOS.zip
+          - os: ubuntu-latest
+            artifact: Lumio-Linux.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -e .
+
+    - name: Run tests
+      run: PYTHONPATH=src python -m pytest tests/ -v
+
+    - name: Build with PyInstaller
+      run: pyinstaller lumio.spec
+
+    - name: Package artifact (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        Compress-Archive -Path dist/Lumio/* -DestinationPath ${{ matrix.artifact }}
+
+    - name: Package artifact (macOS)
+      if: runner.os == 'macOS'
+      run: cd dist && tar czf ../${{ matrix.artifact }} Lumio/
+
+    - name: Package artifact (Linux)
+      if: runner.os == 'Linux'
+      run: cd dist && tar czf ../${{ matrix.artifact }} Lumio/
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        generate_release_notes: true
+        files: |
+          Lumio-Windows.zip
+          Lumio-macOS.zip
+          Lumio-Linux.tar.gz

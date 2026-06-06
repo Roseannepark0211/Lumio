@@ -25,13 +25,13 @@ from lumio.history_manager import HistoryRecord
 # =====================================================================
 
 TEST_URLS = {
-    "ig_profile": "https://www.instagram.com/jujingyi_kikuuu/",
-    "ig_profile_utm": "https://www.instagram.com/jujingyi_kikuuu?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw==",
-    "ig_post": "https://www.instagram.com/p/DYlrmb-FGFg/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA==",
-    "yt_channel": "https://www.youtube.com/@deepblueofficial",
-    "yt_channel_alt": "https://youtube.com/@deepblueofficial?si=mn5OQLN90-e1tSLn",
-    "yt_video_short": "https://youtu.be/vS-Tx6REeFs?si=GrVY728SvgzIlV2x",
-    "x_tweet": "https://x.com/justinbieber/status/2049344366985331105?s=20",
+    "ig_profile": "https://www.instagram.com/test_user_123/",
+    "ig_profile_utm": "https://www.instagram.com/test_user_123?utm_source=ig_web_button_share_sheet&igsh=abc123",
+    "ig_post": "https://www.instagram.com/p/ABC123test/?utm_source=ig_web_copy_link&igsh=def456",
+    "yt_channel": "https://www.youtube.com/@test_channel",
+    "yt_channel_alt": "https://youtube.com/@test_channel?si=test123",
+    "yt_video_short": "https://youtu.be/dQw4w9WgXcQ?si=test456",
+    "x_tweet": "https://x.com/test_user/status/1234567890123456789?s=20",
 }
 
 
@@ -46,13 +46,13 @@ class TestURLParsingFromTestLinks:
         r = parse_url(TEST_URLS["ig_profile"])
         assert r.platform == Platform.INSTAGRAM
         assert r.kind == "profile"
-        assert "jujingyi_kikuuu" in r.url
+        assert "test_user_123" in r.url
 
     def test_ig_profile_with_utm(self):
         r = parse_url(TEST_URLS["ig_profile_utm"])
         assert r.platform == Platform.INSTAGRAM
         assert r.kind == "profile"
-        assert "jujingyi_kikuuu" in r.url
+        assert "test_user_123" in r.url
 
     def test_ig_post(self):
         r = parse_url(TEST_URLS["ig_post"])
@@ -307,20 +307,20 @@ class TestExtractInfoMock:
 
     @patch("lumio.downloader._ig_extract_info")
     def test_instagram_extract(self, mock_ig):
-        mock_ig.return_value = self._make_video_info("instagram", author="jujingyi_kikuuu")
+        mock_ig.return_value = self._make_video_info("instagram", author="test_user_123")
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["ig_post"])
         assert info.platform == "instagram"
-        assert info.author == "jujingyi_kikuuu"
+        assert info.author == "test_user_123"
         mock_ig.assert_called_once()
 
     @patch("lumio.downloader._x_extract_info")
     def test_x_extract(self, mock_x):
-        mock_x.return_value = self._make_video_info("x", author="justinbieber")
+        mock_x.return_value = self._make_video_info("x", author="test_user")
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["x_tweet"])
         assert info.platform == "x"
-        assert info.author == "justinbieber"
+        assert info.author == "test_user"
         mock_x.assert_called_once()
 
 

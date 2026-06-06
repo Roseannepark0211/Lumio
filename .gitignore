@@ -1,15 +1,46 @@
+# Python
 __pycache__/
 *.pyc
+*.pyd
+*.so
 *.egg-info/
+*.egg
 dist/
 build/
 .eggs/
+.eggs/
+
+# Testing
 .pytest_cache/
-*.egg
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# App data (runtime generated)
 cookies.txt
-.getvp/
 config.json
+*.db
+*.log
+www.instagram.com_cookies.txt
+
+# Media temp files
 *.mhtml
 *.part
-www.instagram.com_cookies.txt
+
+# Legacy
+.getvp/
+
+# Claude
 .claude/
