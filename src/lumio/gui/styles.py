@@ -600,27 +600,7 @@ QPushButton#fav_btn:checked {
     color: #ef4444;
 }
 
-QPushButton#pin_btn {
-    background: transparent;
-    border: none;
-    font-size: 14px;
-    padding: 2px 4px;
-    color: #6b7084;
-}
-QPushButton#pin_btn:hover {
-    color: #f59e0b;
-}
-
-QLabel#tag_chip {
-    background-color: #22253a;
-    color: #a0a4b8;
-    font-size: 10px;
-    font-weight: 600;
-    border-radius: 8px;
-    padding: 1px 8px;
-}
-
-QPushButton#tag_add_btn {
+QPushButton#icon_add_btn {
     background: transparent;
     border: 1px solid #3e4460;
     border-radius: 8px;
@@ -629,30 +609,9 @@ QPushButton#tag_add_btn {
     font-weight: 700;
     padding: 0;
 }
-QPushButton#tag_add_btn:hover {
+QPushButton#icon_add_btn:hover {
     border-color: #7c8fff;
     color: #7c8fff;
-}
-
-QPushButton#tag_del_btn {
-    background: transparent;
-    border: none;
-    color: #6b7084;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 0;
-}
-QPushButton#tag_del_btn:hover {
-    color: #ef4444;
-}
-
-QLineEdit#tag_input {
-    background-color: #161822;
-    border: 1px solid #3e4460;
-    border-radius: 4px;
-    color: #e0e0e6;
-    font-size: 11px;
-    padding: 1px 4px;
 }
 
 /* ---- Media Type Badges ---- */
@@ -837,7 +796,7 @@ QComboBox#history_filter {
     color: #a0a8c8;
     border: 1px solid #2a2e3a;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 4px 8px 4px 16px;
     font-size: 11px;
     min-height: 22px;
 }
@@ -1663,27 +1622,7 @@ QPushButton#fav_btn:checked {
     color: #ef4444;
 }
 
-QPushButton#pin_btn {
-    background: transparent;
-    border: none;
-    font-size: 14px;
-    padding: 2px 4px;
-    color: #8e8ea0;
-}
-QPushButton#pin_btn:hover {
-    color: #f59e0b;
-}
-
-QLabel#tag_chip {
-    background-color: #e8e8f0;
-    color: #555568;
-    font-size: 10px;
-    font-weight: 600;
-    border-radius: 8px;
-    padding: 1px 8px;
-}
-
-QPushButton#tag_add_btn {
+QPushButton#icon_add_btn {
     background: transparent;
     border: 1px solid #d4d4dc;
     border-radius: 8px;
@@ -1692,30 +1631,9 @@ QPushButton#tag_add_btn {
     font-weight: 700;
     padding: 0;
 }
-QPushButton#tag_add_btn:hover {
+QPushButton#icon_add_btn:hover {
     border-color: #2563eb;
     color: #2563eb;
-}
-
-QPushButton#tag_del_btn {
-    background: transparent;
-    border: none;
-    color: #8e8ea0;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 0;
-}
-QPushButton#tag_del_btn:hover {
-    color: #ef4444;
-}
-
-QLineEdit#tag_input {
-    background-color: #ffffff;
-    border: 1px solid #d4d4dc;
-    border-radius: 4px;
-    color: #1a1a2e;
-    font-size: 11px;
-    padding: 1px 4px;
 }
 
 /* ---- History Filter ---- */
@@ -1724,7 +1642,7 @@ QComboBox#history_filter {
     color: #555568;
     border: 1px solid #d4d4dc;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 4px 8px 4px 16px;
     font-size: 11px;
     min-height: 22px;
 }

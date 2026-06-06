@@ -21,6 +21,7 @@ from ..i18n import t
 from ..library_manager import LibraryManager
 from ..models import LibraryItem
 from .library_panel import LibraryItemWidget
+from .preview_dialog import AudioPreviewDialog, ImagePreviewDialog, VideoPreviewDialog
 
 
 class LibraryPage(QWidget):
@@ -33,15 +34,16 @@ class LibraryPage(QWidget):
         self._select_mode = False
         self._selected: set[str] = set()
         self._build_ui()
+        self._lm.thumbnail_updated.connect(self._on_thumbnail_updated)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # --- Header bar (filters) ---
+        # --- Row 1: Title + Search + Reset ---
         header = QHBoxLayout()
-        header.setContentsMargins(32, 20, 32, 12)
+        header.setContentsMargins(32, 20, 32, 8)
         header.setSpacing(10)
 
         title = QLabel(t("library_title"))
@@ -55,96 +57,116 @@ class LibraryPage(QWidget):
 
         header.addStretch()
 
+        # Search box (wide, prominent)
+        self._search = QLineEdit()
+        self._search.setObjectName("history_search")
+        self._search.setPlaceholderText(t("library_search"))
+        self._search.setMinimumWidth(280)
+        self._search.setFixedHeight(30)
+        self._search.textChanged.connect(self._apply_filter)
+        header.addWidget(self._search)
+
+        # Reset filters button
+        self._reset_btn = QPushButton(t("library_reset_filters"))
+        self._reset_btn.setObjectName("secondary")
+        self._reset_btn.setFixedHeight(30)
+        self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_btn.clicked.connect(self._reset_filters)
+        header.addWidget(self._reset_btn)
+
+        root.addLayout(header)
+
+        # --- Row 2: Filters + Date range + Select mode ---
+        filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(32, 0, 32, 8)
+        filter_row.setSpacing(8)
+
         # Favorites filter toggle
         self._fav_toggle = QPushButton("♥")
         self._fav_toggle.setObjectName("fav_btn")
         self._fav_toggle.setCheckable(True)
-        self._fav_toggle.setFixedSize(30, 30)
+        self._fav_toggle.setFixedSize(30, 28)
         self._fav_toggle.setToolTip(t("library_filter_favorites"))
         self._fav_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._fav_toggle.clicked.connect(self._apply_filter)
-        header.addWidget(self._fav_toggle)
+        filter_row.addWidget(self._fav_toggle)
 
         # Platform filter
         self._platform_combo = QComboBox()
         self._platform_combo.setObjectName("history_filter")
-        self._platform_combo.setFixedWidth(120)
+        self._platform_combo.setFixedWidth(104)
+        self._platform_combo.setFixedHeight(28)
         self._platform_combo.addItem(t("library_filter_all_platform"), "all")
         self._platform_combo.addItem("YouTube", "youtube")
         self._platform_combo.addItem("Instagram", "instagram")
         self._platform_combo.addItem("X (Twitter)", "x")
         self._platform_combo.currentIndexChanged.connect(self._apply_filter)
-        header.addWidget(self._platform_combo)
+        filter_row.addWidget(self._platform_combo)
 
         # Media type filter
         self._type_combo = QComboBox()
         self._type_combo.setObjectName("history_filter")
-        self._type_combo.setFixedWidth(100)
+        self._type_combo.setFixedWidth(104)
+        self._type_combo.setFixedHeight(28)
         self._type_combo.addItem(t("library_filter_all_type"), "all")
         self._type_combo.addItem(t("library_filter_video"), "video")
         self._type_combo.addItem(t("library_filter_audio"), "audio")
         self._type_combo.addItem(t("library_filter_image"), "image")
         self._type_combo.currentIndexChanged.connect(self._apply_filter)
-        header.addWidget(self._type_combo)
+        filter_row.addWidget(self._type_combo)
 
         # Batch filter
         self._batch_combo = QComboBox()
         self._batch_combo.setObjectName("history_filter")
-        self._batch_combo.setFixedWidth(140)
+        self._batch_combo.setFixedWidth(104)
+        self._batch_combo.setFixedHeight(28)
         self._batch_combo.addItem(t("library_filter_all_batch"), "all")
         self._batch_combo.currentIndexChanged.connect(self._apply_filter)
-        header.addWidget(self._batch_combo)
+        filter_row.addWidget(self._batch_combo)
 
-        # Search box
-        self._search = QLineEdit()
-        self._search.setObjectName("history_search")
-        self._search.setPlaceholderText(t("library_search"))
-        self._search.setFixedWidth(200)
-        self._search.setFixedHeight(30)
-        self._search.textChanged.connect(self._apply_filter)
-        header.addWidget(self._search)
+        # Separator
+        sep = QLabel("|")
+        sep.setObjectName("muted")
+        filter_row.addWidget(sep)
 
-        root.addLayout(header)
-
-        # --- Date range row ---
-        date_row = QHBoxLayout()
-        date_row.setContentsMargins(32, 0, 32, 8)
-        date_row.setSpacing(8)
-
+        # Date range
         from_label = QLabel(t("library_date_from") + ":")
         from_label.setObjectName("muted")
-        date_row.addWidget(from_label)
+        filter_row.addWidget(from_label)
         self._date_from = QDateEdit()
         self._date_from.setCalendarPopup(True)
         self._date_from.setDisplayFormat("yyyy-MM-dd")
         from PySide6.QtCore import QDate
         self._date_from.setDate(QDate(2020, 1, 1))
-        self._date_from.setFixedWidth(120)
+        self._date_from.setMaximumDate(QDate.currentDate())
+        self._date_from.setFixedWidth(110)
         self._date_from.setFixedHeight(28)
-        self._date_from.dateChanged.connect(self._apply_filter)
-        date_row.addWidget(self._date_from)
+        self._date_from.dateChanged.connect(self._on_date_from_changed)
+        filter_row.addWidget(self._date_from)
 
         to_label = QLabel(t("library_date_to") + ":")
         to_label.setObjectName("muted")
-        date_row.addWidget(to_label)
+        filter_row.addWidget(to_label)
         self._date_to = QDateEdit()
         self._date_to.setCalendarPopup(True)
         self._date_to.setDisplayFormat("yyyy-MM-dd")
         self._date_to.setDate(QDate.currentDate())
-        self._date_to.setFixedWidth(120)
+        self._date_to.setMaximumDate(QDate.currentDate())
+        self._date_to.setMinimumDate(self._date_from.date())
+        self._date_to.setFixedWidth(110)
         self._date_to.setFixedHeight(28)
-        self._date_to.dateChanged.connect(self._apply_filter)
-        date_row.addWidget(self._date_to)
+        self._date_to.dateChanged.connect(self._on_date_to_changed)
+        filter_row.addWidget(self._date_to)
 
         # Select mode toggle
-        date_row.addStretch()
+        filter_row.addStretch()
         self._select_btn = QPushButton(t("library_batch_select"))
         self._select_btn.setObjectName("secondary")
         self._select_btn.setFixedHeight(28)
         self._select_btn.clicked.connect(self._toggle_select_mode)
-        date_row.addWidget(self._select_btn)
+        filter_row.addWidget(self._select_btn)
 
-        root.addLayout(date_row)
+        root.addLayout(filter_row)
 
         # --- Batch action bar (hidden by default) ---
         self._batch_bar = QWidget()
@@ -163,6 +185,11 @@ class LibraryPage(QWidget):
         batch_fav_btn.setObjectName("secondary")
         batch_fav_btn.clicked.connect(self._batch_favorite)
         batch_layout.addWidget(batch_fav_btn)
+
+        batch_col_btn = QPushButton(t("library_batch_collection"))
+        batch_col_btn.setObjectName("secondary")
+        batch_col_btn.clicked.connect(self._batch_collection)
+        batch_layout.addWidget(batch_col_btn)
 
         batch_del_btn = QPushButton(t("library_batch_delete"))
         batch_del_btn.setObjectName("task_btn_danger")
@@ -220,6 +247,12 @@ class LibraryPage(QWidget):
         self._badge.setText(str(visible_count))
         self._badge.setVisible(visible_count > 0)
 
+    def _on_thumbnail_updated(self, item_id: str, local_path: str):
+        """Slot: update card thumbnail when async generation completes."""
+        widget = self._item_widgets.get(item_id)
+        if widget:
+            widget.update_thumbnail(local_path)
+
     # ---- Filters ----
 
     def _refresh_batch_combo(self):
@@ -244,6 +277,87 @@ class LibraryPage(QWidget):
         if idx >= 0:
             self._batch_combo.setCurrentIndex(idx)
         self._batch_combo.blockSignals(False)
+
+    def _reset_filters(self):
+        """Clear all filter controls to defaults."""
+        self._search.blockSignals(True)
+        self._search.clear()
+        self._search.blockSignals(False)
+        self._platform_combo.setCurrentIndex(0)
+        self._type_combo.setCurrentIndex(0)
+        self._batch_combo.setCurrentIndex(0)
+        self._fav_toggle.setChecked(False)
+        from PySide6.QtCore import QDate
+        self._date_from.setDate(QDate(2020, 1, 1))
+        self._date_to.setDate(QDate.currentDate())
+        self._date_to.setMinimumDate(self._date_from.date())
+        self._date_from.setMaximumDate(QDate.currentDate())
+        self._apply_filter()
+
+    def _on_date_from_changed(self):
+        """Sync To's minimum date when From changes."""
+        from PySide6.QtCore import QDate
+        from_date = self._date_from.date()
+        self._date_to.setMinimumDate(from_date)
+        if self._date_to.date() < from_date:
+            self._date_to.setDate(from_date)
+        self._apply_filter()
+
+    def _on_date_to_changed(self):
+        """Sync From's maximum date when To changes."""
+        from PySide6.QtCore import QDate
+        to_date = self._date_to.date()
+        self._date_from.setMaximumDate(to_date)
+        if self._date_from.date() > to_date:
+            self._date_from.setDate(to_date)
+        self._apply_filter()
+
+    def _batch_collection(self):
+        """Add selected items to a collection."""
+        if not self._selected:
+            return
+        collections = self._lm.get_all_collections()
+        if not collections:
+            return
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QPushButton, QHBoxLayout, QLabel, QButtonGroup
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t("library_batch_collection"))
+        dlg.setMinimumWidth(220)
+        layout = QVBoxLayout(dlg)
+
+        label = QLabel(t("library_batch_selected", n=len(self._selected)))
+        label.setObjectName("muted")
+        layout.addWidget(label)
+
+        btn_group = QButtonGroup(dlg)
+        radio_btns = []
+        for col in collections:
+            rb = QRadioButton(f"{col.icon} {col.name}")
+            btn_group.addButton(rb)
+            layout.addWidget(rb)
+            radio_btns.append((col.id, rb))
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("secondary")
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("accent_btn")
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        cancel_btn.clicked.connect(dlg.reject)
+        ok_btn.clicked.connect(dlg.accept)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            for cid, rb in radio_btns:
+                if rb.isChecked():
+                    for item_id in self._selected:
+                        self._lm.add_item_to_collection(item_id, cid)
+                    break
+        self._toggle_select_mode()
 
     @Slot()
     def _apply_filter(self):
@@ -349,13 +463,40 @@ class LibraryPage(QWidget):
             if widget:
                 widget.update_favorite(new_state)
             self._apply_filter()
-        elif action == "toggle_pin":
-            new_state = self._lm.toggle_pinned(item_id)
-            widget = self._item_widgets.get(item_id)
-            if widget:
-                widget.update_pinned(new_state)
+        elif action == "preview":
+            self._open_preview(item)
         elif action == "show_collections":
             self._show_collection_dialog(item_id)
+
+    def _open_preview(self, item: LibraryItem):
+        """Open the appropriate preview dialog for the item."""
+        if not item.file_path:
+            return
+        p = Path(item.file_path)
+
+        # Resolve directory → list of media files
+        if p.is_dir():
+            media_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.mkv', '.webm', '.mov', '.avi', '.mp3', '.wav', '.aac', '.flac', '.ogg'}
+            files = sorted(f for f in p.iterdir() if f.suffix.lower() in media_exts)
+            if not files:
+                return
+        elif p.exists():
+            files = [p]
+        else:
+            return
+
+        # Infer type from actual file extension, not database media_type
+        ext = files[0].suffix.lower()
+        img_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        vid_exts = {'.mp4', '.mkv', '.webm', '.mov', '.avi'}
+        aud_exts = {'.mp3', '.wav', '.aac', '.flac', '.ogg'}
+
+        if ext in img_exts:
+            ImagePreviewDialog([str(f) for f in files], self).exec()
+        elif ext in vid_exts:
+            VideoPreviewDialog(str(files[0]), self).exec()
+        elif ext in aud_exts:
+            AudioPreviewDialog(str(files[0]), self).exec()
 
     def on_item_added(self, item: LibraryItem):
         """Slot connected to DownloadManager.library_record_added."""

@@ -473,8 +473,6 @@ class DownloadManager(QObject):
 
         # Library (SQLite) — auto-ingest
         if self._library_manager:
-            from .utils.media_utils import infer_media_type_from_format
-            media_type = infer_media_type_from_format(qt.format_type, qt.platform)
             item_id = self._library_manager.add_item(
                 title=qt.title,
                 author=qt.author,
@@ -482,7 +480,6 @@ class DownloadManager(QObject):
                 url=qt.url,
                 file_path=qt.filename,
                 file_size=file_size,
-                media_type=media_type,
                 post_time=qt.post_time,
                 thumbnail_url=qt.thumbnail_url or "",
                 folder_path=qt.output_dir,
@@ -494,7 +491,7 @@ class DownloadManager(QObject):
                 # Schedule async thumbnail generation
                 from .thumbnail_engine import generate_thumbnail_async
                 generate_thumbnail_async(
-                    item_id, qt.filename, media_type, qt.thumbnail_url or "",
+                    item_id, qt.filename, item.media_type, qt.thumbnail_url or "",
                     self._on_thumbnail_ready,
                 )
 

@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._check_cookie_status()
 
+        # Generate thumbnails for items missing them
+        self._library_manager.backfill_thumbnails()
+
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)

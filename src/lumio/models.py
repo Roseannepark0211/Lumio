@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -28,46 +27,13 @@ class LibraryItem(Base):
     thumbnail_url = Column(String, default="")
     local_thumbnail_path = Column(String, default="")
     is_favorite = Column(Boolean, default=False)
-    is_pinned = Column(Boolean, default=False)
-    tags_json = Column(Text, default="[]")
     folder_path = Column(String, default="")
     batch_id = Column(String, default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
-    item_tags = relationship("ItemTag", back_populates="item", cascade="all, delete-orphan")
     item_collections = relationship("ItemCollection", back_populates="item", cascade="all, delete-orphan")
-
-    def get_tag_names(self) -> list[str]:
-        try:
-            return json.loads(self.tags_json) if self.tags_json else []
-        except (json.JSONDecodeError, TypeError):
-            return []
-
-
-class Tag(Base):
-    __tablename__ = "tags"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, unique=True, nullable=False)
-    color = Column(String, default="#7c8fff")
-
-    # Relationships
-    item_tags = relationship("ItemTag", back_populates="tag", cascade="all, delete-orphan")
-
-
-class ItemTag(Base):
-    __tablename__ = "item_tags"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    item_id = Column(String, ForeignKey("library_items.id", ondelete="CASCADE"), nullable=False)
-    tag_id = Column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), nullable=False)
-
-    item = relationship("LibraryItem", back_populates="item_tags")
-    tag = relationship("Tag", back_populates="item_tags")
-
-    __table_args__ = (UniqueConstraint("item_id", "tag_id"),)
 
 
 class Collection(Base):

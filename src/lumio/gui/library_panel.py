@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -17,6 +18,15 @@ from PySide6.QtWidgets import (
 from ..i18n import t
 from ..models import LibraryItem
 from .history_panel import _format_size, _platform_badge
+
+
+class _ClickableLabel(QLabel):
+    """QLabel that emits clicked() on mouse press."""
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
 
 
 def _media_label(media_type: str) -> tuple[str, str]:
@@ -56,13 +66,14 @@ class LibraryItemWidget(QFrame):
         self._checkbox.toggled.connect(lambda checked: self.selection_changed.emit(self.item_id, checked))
         top.addWidget(self._checkbox)
 
-        # Thumbnail placeholder
-        self._thumb = QLabel()
+        # Thumbnail placeholder (clickable → preview)
+        self._thumb = _ClickableLabel()
         self._thumb.setObjectName("library_card_thumb")
         self._thumb.setFixedSize(48, 48)
         self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._thumb.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._thumb.setToolTip(t("library_preview"))
         if item.local_thumbnail_path and Path(item.local_thumbnail_path).exists():
-            from PySide6.QtGui import QPixmap
             pix = QPixmap(item.local_thumbnail_path)
             if not pix.isNull():
                 self._thumb.setPixmap(pix.scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
@@ -70,6 +81,7 @@ class LibraryItemWidget(QFrame):
                 self._thumb.setText(_platform_text(item.platform))
         else:
             self._thumb.setText(_platform_text(item.platform))
+        self._thumb.clicked.connect(lambda: self.action_requested.emit(self.item_id, "preview"))
         top.addWidget(self._thumb)
 
         # Platform badge
@@ -143,14 +155,6 @@ class LibraryItemWidget(QFrame):
         self._fav_btn = fav_btn
         btn_row.addWidget(fav_btn)
 
-        pin_btn = QPushButton("📌" if item.is_pinned else " ")
-        pin_btn.setObjectName("pin_btn")
-        pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        pin_btn.setFixedSize(28, 28)
-        pin_btn.clicked.connect(lambda: self.action_requested.emit(self.item_id, "toggle_pin"))
-        self._pin_btn = pin_btn
-        btn_row.addWidget(pin_btn)
-
         open_btn = QPushButton(t("library_open_file"))
         open_btn.setObjectName("task_btn")
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -204,8 +208,12 @@ class LibraryItemWidget(QFrame):
         self._fav_btn.setChecked(is_favorite)
         self._fav_btn.setText("♥" if is_favorite else "♡")
 
-    def update_pinned(self, is_pinned: bool):
-        self._pin_btn.setText("📌" if is_pinned else " ")
+    def update_thumbnail(self, local_path: str):
+        """Update thumbnail image after async generation."""
+        if local_path and Path(local_path).exists():
+            pix = QPixmap(local_path)
+            if not pix.isNull():
+                self._thumb.setPixmap(pix.scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
     def set_checkable(self, enabled: bool):
         self._checkbox.setVisible(enabled)

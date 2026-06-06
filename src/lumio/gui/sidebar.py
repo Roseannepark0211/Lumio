@@ -78,7 +78,7 @@ class SidebarWidget(QFrame):
                 cs_header.addWidget(cs_label)
                 cs_header.addStretch()
                 cs_add_btn = QPushButton("+")
-                cs_add_btn.setObjectName("tag_add_btn")
+                cs_add_btn.setObjectName("icon_add_btn")
                 cs_add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 cs_add_btn.setFixedSize(22, 18)
                 cs_add_btn.clicked.connect(self.collection_create_requested.emit)

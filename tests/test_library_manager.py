@@ -1,4 +1,4 @@
-"""Tests for library_manager.py — CRUD, tags, collections, search."""
+"""Tests for library_manager.py — CRUD, collections, search."""
 import json
 import time
 import pytest
@@ -78,45 +78,12 @@ class TestDelete:
         lm.delete_item("nope")  # should not raise
 
 
-class TestFavoritesAndPin:
+class TestFavorites:
     def test_toggle_favorite(self, lm):
         item_id = lm.add_item(title="Fav")
         assert lm.toggle_favorite(item_id) is True
         assert lm.get_item(item_id).is_favorite is True
         assert lm.toggle_favorite(item_id) is False
-
-    def test_toggle_pinned(self, lm):
-        item_id = lm.add_item(title="Pin")
-        assert lm.toggle_pinned(item_id) is True
-        assert lm.get_item(item_id).is_pinned is True
-
-
-class TestTags:
-    def test_auto_tag_on_add(self, lm):
-        lm.add_item(title="YT", platform="youtube")
-        all_tags = lm.get_all_tags()
-        names = [t.name for t in all_tags]
-        assert "youtube" in names
-
-    def test_add_custom_tag(self, lm):
-        item_id = lm.add_item(title="T")
-        lm.add_tag_to_item(item_id, "travel", color="#ff0000")
-        tags = lm.get_item_tags(item_id)
-        assert any(t.name == "travel" for t in tags)
-
-    def test_remove_tag(self, lm):
-        item_id = lm.add_item(title="T", platform="x")
-        lm.remove_tag_from_item(item_id, "x")
-        tag_names = [t.name for t in lm.get_item_tags(item_id)]
-        assert "x" not in tag_names
-
-    def test_tags_json_synced(self, lm):
-        item_id = lm.add_item(title="Sync", platform="youtube")
-        lm.add_tag_to_item(item_id, "music")
-        item = lm.get_item(item_id)
-        names = item.get_tag_names()
-        assert "youtube" in names
-        assert "music" in names
 
 
 class TestCollections:
@@ -191,12 +158,6 @@ class TestSearch:
         results = lm.search(favorites_only=True)
         assert len(results) == 1
 
-    def test_search_by_tag(self, lm):
-        lm.add_item(title="A", platform="youtube")
-        lm.add_item(title="B", platform="instagram")
-        results = lm.search(tag_name="youtube")
-        assert len(results) == 1
-
     def test_search_combined(self, lm):
         lm.add_item(title="Travel Vlog", platform="youtube", author="alice")
         lm.add_item(title="Food Pic", platform="instagram", author="alice")
@@ -206,14 +167,7 @@ class TestSearch:
 
 
 class TestGetAllItems:
-    def test_pinned_first(self, lm):
-        id1 = lm.add_item(title="Normal")
-        id2 = lm.add_item(title="Pinned")
-        lm.toggle_pinned(id2)
-        items = lm.get_all_items()
-        assert items[0].title == "Pinned"
-
-    def test_newer_first_within_same_pin(self, lm):
+    def test_newer_first(self, lm):
         id1 = lm.add_item(title="Older")
         time.sleep(0.05)  # ensure distinct created_at
         id2 = lm.add_item(title="Newer")

@@ -39,14 +39,3 @@ def infer_media_type(file_path: str, platform: str = "") -> str:
     if platform == "instagram":
         return "mixed"
     return ""
-
-
-def infer_media_type_from_format(format_type: str, platform: str) -> str:
-    """Infer media type from QueueTask format_type and platform."""
-    if format_type in ("video", "combined"):
-        return "video"
-    if format_type == "audio":
-        return "audio"
-    if platform == "instagram":
-        return "image"  # default; will be corrected after download
-    return "video"  # sensible default

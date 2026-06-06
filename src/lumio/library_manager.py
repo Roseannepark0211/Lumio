@@ -5,7 +5,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from .models import Collection, ItemCollection, ItemTag, LibraryItem, Tag
+from PySide6.QtCore import QObject, Signal
+
+from .models import Collection, ItemCollection, LibraryItem
 from .utils.config import get_history_path
 from .utils.database import get_session_factory, init_db
 from .utils.media_utils import infer_media_type
@@ -13,8 +15,11 @@ from .utils.media_utils import infer_media_type
 _MIGRATED_MARKER = Path.home() / ".lumio" / ".library_migrated"
 
 
-class LibraryManager:
+class LibraryManager(QObject):
+    thumbnail_updated = Signal(str, str)  # item_id, local_path
+
     def __init__(self):
+        super().__init__()
         init_db()
         self._migrate_from_history_json()
         self._migrate_add_storage_fields()
@@ -24,21 +29,42 @@ class LibraryManager:
         return get_session_factory()()
 
     def _backfill_media_types(self):
-        """Fill in empty media_type for existing items."""
+        """Fill in or correct media_type for existing items."""
+        session = self._session()
+        try:
+            items = session.query(LibraryItem).all()
+            changed = False
+            for item in items:
+                inferred = infer_media_type(item.file_path, item.platform)
+                if inferred and inferred != item.media_type:
+                    item.media_type = inferred
+                    changed = True
+            if changed:
+                session.commit()
+        finally:
+            session.close()
+
+    def backfill_thumbnails(self):
+        """Generate thumbnails for all items missing one. Call from GUI thread."""
         session = self._session()
         try:
             items = session.query(LibraryItem).filter(
-                (LibraryItem.media_type == "") | (LibraryItem.media_type.is_(None))
+                (LibraryItem.local_thumbnail_path == "")
+                | (LibraryItem.local_thumbnail_path.is_(None))
             ).all()
             if not items:
                 return
-            for item in items:
-                mt = infer_media_type(item.file_path, item.platform)
-                if mt:
-                    item.media_type = mt
-            session.commit()
+            session.expunge_all()
         finally:
             session.close()
+        from .thumbnail_engine import generate_thumbnail_async
+        for item in items:
+            if not item.file_path:
+                continue
+            generate_thumbnail_async(
+                item.id, item.file_path, item.media_type,
+                item.thumbnail_url or "", self.set_local_thumbnail,
+            )
 
     def _migrate_add_storage_fields(self):
         """Add folder_path and batch_id columns if missing."""
@@ -81,7 +107,7 @@ class LibraryManager:
                 url=url,
                 file_path=file_path,
                 file_size=file_size,
-                media_type=media_type or infer_media_type(file_path, platform),
+                media_type=infer_media_type(file_path, platform) or media_type,
                 duration=duration,
                 post_time=post_time,
                 thumbnail_url=thumbnail_url,
@@ -93,8 +119,6 @@ class LibraryManager:
             item_id = item.id
         finally:
             session.close()
-        # Auto-tag after commit (outside the session)
-        self.auto_tag_item(item_id)
         return item_id
 
     def get_item(self, item_id: str) -> LibraryItem | None:
@@ -112,7 +136,7 @@ class LibraryManager:
         try:
             items = (
                 session.query(LibraryItem)
-                .order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc())
+                .order_by(LibraryItem.created_at.desc())
                 .all()
             )
             # Detach from session so objects are usable outside
@@ -131,7 +155,7 @@ class LibraryManager:
         finally:
             session.close()
 
-    # ---- Favorites & Pin ----
+    # ---- Favorites ----
 
     def toggle_favorite(self, item_id: str) -> bool:
         session = self._session()
@@ -142,18 +166,6 @@ class LibraryManager:
             item.is_favorite = not item.is_favorite
             session.commit()
             return item.is_favorite
-        finally:
-            session.close()
-
-    def toggle_pinned(self, item_id: str) -> bool:
-        session = self._session()
-        try:
-            item = session.get(LibraryItem, item_id)
-            if not item:
-                return False
-            item.is_pinned = not item.is_pinned
-            session.commit()
-            return item.is_pinned
         finally:
             session.close()
 
@@ -168,77 +180,7 @@ class LibraryManager:
                 session.commit()
         finally:
             session.close()
-
-    # ---- Tags ----
-
-    def auto_tag_item(self, item_id: str):
-        session = self._session()
-        try:
-            item = session.get(LibraryItem, item_id)
-            if not item:
-                return
-            # Only auto-tag with platform, not media_type (media_type has its own filter)
-            if item.platform:
-                self._ensure_tag_assoc(session, item_id, item.platform)
-            self._sync_tags_json(session, item)
-            session.commit()
-        finally:
-            session.close()
-
-    def add_tag_to_item(self, item_id: str, tag_name: str, color: str = "#7c8fff"):
-        session = self._session()
-        try:
-            self._ensure_tag_assoc(session, item_id, tag_name, color)
-            item = session.get(LibraryItem, item_id)
-            if item:
-                self._sync_tags_json(session, item)
-            session.commit()
-        finally:
-            session.close()
-
-    def remove_tag_from_item(self, item_id: str, tag_name: str):
-        session = self._session()
-        try:
-            tag = session.query(Tag).filter_by(name=tag_name).first()
-            if tag:
-                assoc = session.query(ItemTag).filter_by(item_id=item_id, tag_id=tag.id).first()
-                if assoc:
-                    session.delete(assoc)
-            item = session.get(LibraryItem, item_id)
-            if item:
-                self._sync_tags_json(session, item)
-            session.commit()
-        finally:
-            session.close()
-
-    def get_item_tags(self, item_id: str) -> list[Tag]:
-        session = self._session()
-        try:
-            assocs = session.query(ItemTag).filter_by(item_id=item_id).all()
-            tags = [a.tag for a in assocs]
-            session.expunge_all()
-            return tags
-        finally:
-            session.close()
-
-    def get_all_tags(self) -> list[Tag]:
-        session = self._session()
-        try:
-            tags = session.query(Tag).order_by(Tag.name).all()
-            session.expunge_all()
-            return tags
-        finally:
-            session.close()
-
-    def delete_tag(self, tag_id: int):
-        session = self._session()
-        try:
-            tag = session.get(Tag, tag_id)
-            if tag:
-                session.delete(tag)
-                session.commit()
-        finally:
-            session.close()
+        self.thumbnail_updated.emit(item_id, path)
 
     # ---- Collections ----
 
@@ -312,7 +254,7 @@ class LibraryManager:
                 session.query(LibraryItem)
                 .join(ItemCollection)
                 .filter(ItemCollection.collection_id == collection_id)
-                .order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc())
+                .order_by(LibraryItem.created_at.desc())
                 .all()
             )
             session.expunge_all()
@@ -390,7 +332,6 @@ class LibraryManager:
         platform: str = "",
         media_type: str = "",
         favorites_only: bool = False,
-        tag_name: str = "",
         collection_id: int | None = None,
         date_from: str = "",
         date_to: str = "",
@@ -414,8 +355,6 @@ class LibraryManager:
                 q = q.filter(LibraryItem.media_type == media_type)
             if favorites_only:
                 q = q.filter(LibraryItem.is_favorite.is_(True))
-            if tag_name:
-                q = q.join(ItemTag).join(Tag).filter(Tag.name == tag_name)
             if collection_id is not None:
                 q = q.join(ItemCollection).filter(ItemCollection.collection_id == collection_id)
             if date_from:
@@ -424,32 +363,11 @@ class LibraryManager:
                 q = q.filter(LibraryItem.post_time <= date_to + "z")
             if batch_id:
                 q = q.filter(LibraryItem.batch_id == batch_id)
-            items = q.order_by(LibraryItem.is_pinned.desc(), LibraryItem.created_at.desc()).all()
+            items = q.order_by(LibraryItem.created_at.desc()).all()
             session.expunge_all()
             return items
         finally:
             session.close()
-
-    # ---- Internal helpers ----
-
-    def _ensure_tag_assoc(self, session, item_id: str, tag_name: str, color: str = "#7c8fff"):
-        tag = session.query(Tag).filter_by(name=tag_name).first()
-        if not tag:
-            tag = Tag(name=tag_name, color=color)
-            session.add(tag)
-            session.flush()
-        existing = session.query(ItemTag).filter_by(item_id=item_id, tag_id=tag.id).first()
-        if not existing:
-            session.add(ItemTag(item_id=item_id, tag_id=tag.id))
-
-    def _sync_tags_json(self, session, item: LibraryItem):
-        assocs = session.query(ItemTag).filter_by(item_id=item.id).all()
-        names = []
-        for a in assocs:
-            tag = session.get(Tag, a.tag_id)
-            if tag:
-                names.append(tag.name)
-        item.tags_json = json.dumps(names)
 
     # ---- Migration ----
 
