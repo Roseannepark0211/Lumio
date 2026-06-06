@@ -10,7 +10,7 @@ src_path = Path(SPECPATH) / "src"
 assets_path = src_path / "lumio" / "assets"
 
 a = Analysis(
-    [str(src_path / "lumio" / "main.py")],
+    [str(Path(SPECPATH) / "run.py")],
     pathex=[str(src_path)],
     binaries=[],
     datas=[

@@ -14,14 +14,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: Lumio-Windows.zip
-            pack_cmd: Compress-Archive -Path dist/Lumio/* -DestinationPath
+            artifact_name: Lumio-Windows-x64.zip
           - os: macos-latest
             artifact_name: Lumio-macOS.tar.gz
-            pack_cmd: cd dist && tar czf ../
           - os: ubuntu-latest
-            artifact_name: Lumio-Linux.tar.gz
-            pack_cmd: cd dist && tar czf ../
+            artifact_name: Lumio-Linux-x64.tar.gz
 
     runs-on: ${{ matrix.os }}
 
@@ -58,4 +55,47 @@ jobs:
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
       with:
-        files: ${{ matrix.artifact_name }}
+        body: |
+          ## Lumio ${{ github.ref_name }}
+
+          内容采集与素材管理桌面工具。
+
+          ### 下载
+
+          | 系统 | 文件 | 说明 |
+          |------|------|------|
+          | Windows x64 | `Lumio-Windows-x64.zip` | 解压后运行 `Lumio.exe` |
+          | macOS | `Lumio-macOS.tar.gz` | 解压后运行 `Lumio` |
+          | Linux x64 | `Lumio-Linux-x64.tar.gz` | 解压后运行 `./Lumio` |
+
+          ### 系统要求
+
+          - **Windows**: Windows 10/11 x64
+          - **macOS**: macOS 12+ (Intel/Apple Silicon)
+          - **Linux**: Ubuntu 20.04+ / Fedora 36+ x64
+
+          ### 安装说明
+
+          1. 下载对应系统的压缩包
+          2. 解压到任意目录
+          3. 运行 `Lumio` 可执行文件
+
+          > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有文件均开源可查。
+
+          ### pip 安装（需要 Python 3.10+）
+
+          ```
+          pip install lumio
+          lumio
+          ```
+
+          ### 从源码运行
+
+          ```
+          git clone https://github.com/Roseannepark0211/Lumio.git
+          cd Lumio
+          pip install -e .
+          python -m lumio.main
+          ```
+        files: |
+          ${{ matrix.artifact_name }}
