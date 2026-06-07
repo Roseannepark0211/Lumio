@@ -34,10 +34,20 @@ config.json
 *.db
 *.log
 www.instagram.com_cookies.txt
+x.com_cookies.txt
 
 # Media temp files
 *.mhtml
 *.part
+
+# Build artifacts
+*.zip
+.codegraph/
+
+# Non-code docs
+CLAUDE.md
+工具迭代路线集合/
+测试链接.md
 
 # Legacy
 .getvp/

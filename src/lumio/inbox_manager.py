@@ -41,6 +41,20 @@ class InboxManager(QObject):
                     conn.commit()
             except Exception as e:
                 logger.warning("Inbox migration failed (direct_url): %s", e)
+        if "content" not in cols:
+            try:
+                with engine.connect() as conn:
+                    conn.exec_driver_sql("ALTER TABLE inbox_items ADD COLUMN content VARCHAR DEFAULT ''")
+                    conn.commit()
+            except Exception as e:
+                logger.warning("Inbox migration failed (content): %s", e)
+        if "post_time" not in cols:
+            try:
+                with engine.connect() as conn:
+                    conn.exec_driver_sql("ALTER TABLE inbox_items ADD COLUMN post_time VARCHAR DEFAULT ''")
+                    conn.commit()
+            except Exception as e:
+                logger.warning("Inbox migration failed (post_time): %s", e)
 
     # ── session helper ──────────────────────────────────────────────
 
@@ -60,6 +74,8 @@ class InboxManager(QObject):
         platform: str = "",
         thumbnail_url: str = "",
         direct_url: str = "",
+        content: str = "",
+        post_time: str = "",
         duration: int | None = None,
     ) -> str:
         """添加一条采集记录。URL 重复时返回已有记录 id。"""
@@ -74,6 +90,8 @@ class InboxManager(QObject):
                 platform=platform,
                 thumbnail_url=thumbnail_url,
                 direct_url=direct_url,
+                content=content,
+                post_time=post_time,
                 duration=duration,
             )
             session.add(item)

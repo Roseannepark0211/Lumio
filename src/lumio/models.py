@@ -74,9 +74,30 @@ class InboxItem(Base):
     platform = Column(String, default="")
     thumbnail_url = Column(String, default="")
     direct_url = Column(String, default="")              # 媒体直链（浏览器提取，跳过 API）
+    content = Column(String, default="")                  # 正文内容（caption/text/笔记）
+    post_time = Column(String, default="")                # 内容发布时间（YYYYMMDD_HHMMSS）
     duration = Column(Integer, nullable=True)
     status = Column(String, default="new")            # new / queued / downloaded / archived / failed
     error_message = Column(String, default="")
     captured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class TelegramDevice(Base):
+    __tablename__ = "telegram_devices"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex[:12])
+    telegram_user_id = Column(Integer, unique=True, nullable=False)
+    telegram_username = Column(String, default="")
+    pair_code = Column(String, default="")
+    linked_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_sync_at = Column(DateTime, nullable=True)
+
+
+class TelegramUpdate(Base):
+    __tablename__ = "telegram_updates"
+
+    update_id = Column(Integer, primary_key=True)
+    telegram_user_id = Column(Integer)
+    processed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -19,6 +19,10 @@ DEFAULTS = {
     "file_conflict_policy": "rename",
     "auto_download_inbox": False,
     "api_port": 38900,
+    "telegram_bot_token": "",
+    "telegram_enabled": False,
+    "telegram_poll_interval": 10,
+    "telegram_api_base": "https://api.telegram.org",
 }
 
 _cache: dict | None = None

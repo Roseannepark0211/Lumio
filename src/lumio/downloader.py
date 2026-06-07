@@ -1518,13 +1518,52 @@ def _x_download_with_pause(task, pause_event, on_progress):
 
 
 def _direct_download_with_pause(task, pause_event, on_progress):
-    """通用直链下载（浏览器提取的媒体 URL，不调平台 API）。"""
+    """通用直链下载（浏览器提取的媒体 URL 或本地文件路径）。"""
     import urllib.parse
+    import shutil
 
     out_dir = _resolve_output_dir(task)
     out_dir.mkdir(parents=True, exist_ok=True)
     policy = get_file_conflict_policy()
     out_name = _effective_name(task)
+
+    # 本地文件路径（Telegram 媒体已下载到本地）
+    src = Path(task.direct_url)
+    if src.is_file():
+        ext = src.suffix or ".bin"
+        resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+        if resolved_stem is None:
+            task.status = "done"
+            task.progress = 100
+            return
+        dst = out_dir / f"{resolved_stem}{ext}"
+        shutil.copy2(str(src), str(dst))
+        task.filename = str(dst)
+        task.status = "done"
+        task.progress = 100
+        return
+
+    # 本地文件夹（Telegram 媒体组）
+    if src.is_dir():
+        files = sorted([f for f in src.iterdir() if f.is_file()], key=lambda f: f.name)
+        total = len(files)
+        if total == 0:
+            task.status = "done"
+            task.progress = 100
+            return
+        # 创建子文件夹
+        dst_dir = out_dir / out_name
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for i, f in enumerate(files):
+            dst = dst_dir / f"{i + 1}{f.suffix}"
+            shutil.copy2(str(f), str(dst))
+            task.progress = (i + 1) / total * 100
+            if on_progress:
+                on_progress(task)
+        task.filename = str(dst_dir)
+        task.status = "done"
+        task.progress = 100
+        return
 
     # 从 URL 推断扩展名
     url_path = urllib.parse.urlparse(task.direct_url).path

@@ -68,14 +68,19 @@ class InboxItemWidget(QWidget):
         info = QVBoxLayout()
         info.setSpacing(2)
 
-        self._title = QLabel(self.item.title or self.item.url)
+        full_title = self.item.title or self.item.url
+        short_title = full_title[:80] + "..." if len(full_title) > 80 else full_title
+        self._title = QLabel(short_title)
         self._title.setWordWrap(True)
         self._title.setStyleSheet("font-weight: bold;")
+        self._title.setToolTip(full_title)
         info.addWidget(self._title)
 
         meta_text = self.item.author
         if self.item.platform:
             meta_text += f"  ·  {self.item.platform}" if meta_text else self.item.platform
+        if getattr(self.item, "source", "") == "telegram":
+            meta_text += "  ·  📱 Telegram"
         if self.item.captured_at:
             meta_text += f"  ·  {self.item.captured_at:%Y-%m-%d %H:%M}"
         self._meta = QLabel(meta_text)
@@ -306,9 +311,8 @@ class InboxPage(QWidget):
 
     @Slot(str)
     def _on_item_added(self, item_id: str):
-        """API 写入新记录时刷新列表（仅在 filter=新 时显示）。"""
-        if self._filter.currentIndex() == 0:  # "新内容"
-            self.refresh()
+        """API/Telegram 写入新记录时刷新当前筛选视图。"""
+        self.refresh()
 
     @Slot(str)
     def _on_item_updated(self, item_id: str):
@@ -363,6 +367,7 @@ class InboxPage(QWidget):
             thumbnail_url=thumbnail,
             direct_url=getattr(item, "direct_url", "") or "",
             custom_name=custom,
+            post_time=getattr(item, "post_time", "") or "",
         )
         self._dm.add_task(qt)
         self._task_to_inbox[qt.task_id] = item_id
@@ -447,6 +452,7 @@ class InboxPage(QWidget):
             thumbnail_url=item.thumbnail_url or "",
             direct_url=getattr(item, "direct_url", "") or "",
             custom_name=custom,
+            post_time=getattr(item, "post_time", "") or "",
             format_id=fmt_id,
             format_type=fmt_type,
         )

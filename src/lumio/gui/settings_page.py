@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QClipboard
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QRadioButton,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..i18n import get_lang, set_lang, t
 from ..utils.config import get_download_dir, load_config, save_config
+from ..telegram_service import TelegramService
 from .widgets import NoWheelComboBox
 
 
@@ -290,6 +293,122 @@ class SettingsPage(QWidget):
 
         inner.addWidget(cookie_group)
 
+        # ---- Telegram section ----
+        tg_group = QGroupBox(t("telegram_integration"))
+        tg_outer = QVBoxLayout(tg_group)
+        tg_outer.setSpacing(12)
+        tg_outer.setContentsMargins(16, 16, 16, 16)
+
+        cfg_tg = load_config()
+
+        # Row 1: Enable toggle
+        self._tg_enable = QCheckBox(t("telegram_enable"))
+        self._tg_enable.setChecked(cfg_tg.get("telegram_enabled", False))
+        self._tg_enable.stateChanged.connect(self._on_tg_toggle)
+        tg_outer.addWidget(self._tg_enable)
+
+        # Collapsible content
+        self._tg_content = QWidget()
+        tg_inner = QVBoxLayout(self._tg_content)
+        tg_inner.setContentsMargins(20, 8, 0, 4)
+        tg_inner.setSpacing(12)
+
+        # Bot Token
+        token_row = QHBoxLayout()
+        token_row.setSpacing(8)
+        token_row.addWidget(QLabel(t("telegram_bot_token") + ":"))
+        self._tg_token_input = QLineEdit()
+        self._tg_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._tg_token_input.setPlaceholderText("123456:ABC-DEF...")
+        self._tg_token_input.setText(cfg_tg.get("telegram_bot_token", ""))
+        token_row.addWidget(self._tg_token_input, 1)
+        self._tg_validate_btn = QPushButton(t("telegram_validate"))
+        self._tg_validate_btn.setFixedHeight(28)
+        self._tg_validate_btn.clicked.connect(self._on_tg_validate)
+        token_row.addWidget(self._tg_validate_btn)
+        tg_inner.addLayout(token_row)
+
+        # API Base URL (optional, for local Bot API server)
+        api_row = QHBoxLayout()
+        api_row.setSpacing(8)
+        api_row.addWidget(QLabel(t("telegram_api_base") + ":"))
+        self._tg_api_input = QLineEdit()
+        self._tg_api_input.setPlaceholderText("https://api.telegram.org")
+        self._tg_api_input.setText(cfg_tg.get("telegram_api_base", "https://api.telegram.org"))
+        api_row.addWidget(self._tg_api_input, 1)
+        tg_inner.addLayout(api_row)
+
+        api_hint = QLabel(t("telegram_api_base_hint"))
+        api_hint.setObjectName("muted")
+        api_hint.setWordWrap(True)
+        tg_inner.addWidget(api_hint)
+
+        # Connection status
+        self._tg_status = QLabel()
+        self._tg_status.setObjectName("muted")
+        tg_inner.addWidget(self._tg_status)
+
+        # Pair code area (visible when token valid + not bound)
+        self._tg_pair_area = QWidget()
+        pair_v = QVBoxLayout(self._tg_pair_area)
+        pair_v.setContentsMargins(0, 0, 0, 0)
+        pair_v.setSpacing(4)
+
+        pair_row1 = QHBoxLayout()
+        pair_row1.setSpacing(8)
+        pair_row1.addWidget(QLabel(t("telegram_pair_code") + ":"))
+        self._tg_pair_code = QLabel()
+        self._tg_pair_code.setStyleSheet("font-size: 16px; font-weight: bold; color: #4A9EFF;")
+        pair_row1.addWidget(self._tg_pair_code)
+        self._tg_copy_btn = QPushButton(t("telegram_copy"))
+        self._tg_copy_btn.setStyleSheet("QPushButton { background:none; border:none; color:#4A9EFF; } QPushButton:hover { text-decoration:underline; }")
+        self._tg_copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tg_copy_btn.clicked.connect(self._on_tg_copy)
+        pair_row1.addWidget(self._tg_copy_btn)
+        self._tg_regen_btn = QPushButton(t("telegram_regen"))
+        self._tg_regen_btn.setFixedHeight(26)
+        self._tg_regen_btn.clicked.connect(self._on_tg_regen)
+        pair_row1.addWidget(self._tg_regen_btn)
+        pair_row1.addStretch()
+        pair_v.addLayout(pair_row1)
+
+        self._tg_pair_hint = QLabel(t("telegram_pair_hint"))
+        self._tg_pair_hint.setObjectName("muted")
+        self._tg_pair_hint.setWordWrap(True)
+        pair_v.addWidget(self._tg_pair_hint)
+
+        tg_inner.addWidget(self._tg_pair_area)
+
+        # Bound device area (visible when bound)
+        self._tg_bound_area = QWidget()
+        bound_v = QVBoxLayout(self._tg_bound_area)
+        bound_v.setContentsMargins(0, 4, 0, 4)
+        bound_v.setSpacing(8)
+
+        self._tg_bound_label = QLabel()
+        self._tg_bound_label.setStyleSheet("font-size: 13px;")
+        bound_v.addWidget(self._tg_bound_label)
+
+        bound_row = QHBoxLayout()
+        bound_row.setSpacing(12)
+        self._tg_unlink_btn = QPushButton(t("telegram_unlink"))
+        self._tg_unlink_btn.setFixedHeight(28)
+        self._tg_unlink_btn.setObjectName("secondary")
+        self._tg_unlink_btn.clicked.connect(self._on_tg_unlink)
+        bound_row.addWidget(self._tg_unlink_btn)
+        bound_row.addStretch()
+        bound_v.addLayout(bound_row)
+
+        tg_inner.addWidget(self._tg_bound_area)
+
+        tg_outer.addWidget(self._tg_content)
+
+        # Initial state
+        self._tg_content.setVisible(cfg_tg.get("telegram_enabled", False))
+        self._tg_refresh_state()
+
+        inner.addWidget(tg_group)
+
         # ---- About section ----
         about_group = QGroupBox("About")
         ag = QVBoxLayout(about_group)
@@ -367,6 +486,9 @@ class SettingsPage(QWidget):
         cfg["storage_mode"] = "organized" if self._organized_radio.isChecked() else "simple"
         cfg["file_conflict_policy"] = self._conflict_combo.currentData()
         cfg["auto_download_inbox"] = self._auto_dl_check.isChecked()
+        cfg["telegram_enabled"] = self._tg_enable.isChecked()
+        cfg["telegram_bot_token"] = self._tg_token_input.text().strip()
+        cfg["telegram_api_base"] = self._tg_api_input.text().strip() or "https://api.telegram.org"
         save_config(cfg)
         self._hint_label.setText(t("settings_saved"))
         self.saved.emit()
@@ -510,3 +632,174 @@ class SettingsPage(QWidget):
         self._update_ig_cookie_status()
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
+
+    # ---- Telegram handlers ----
+
+    def _on_tg_toggle(self, state):
+        enabled = state == 2  # Qt.CheckState.Checked
+        self._tg_content.setVisible(enabled)
+        cfg = load_config()
+        cfg["telegram_enabled"] = enabled
+        cfg["telegram_bot_token"] = self._tg_token_input.text().strip()
+        save_config(cfg)
+        # 自动启停同步
+        app = QApplication.instance()
+        tg_svc = getattr(app, '_lumio_tg_service', None)
+        if enabled:
+            token = cfg.get("telegram_bot_token", "")
+            if token:
+                inbox_mgr = getattr(app, '_lumio_inbox_manager', None)
+                if inbox_mgr:
+                    if not tg_svc:
+                        from ..telegram_service import TelegramService
+                        tg_svc = TelegramService(inbox_mgr)
+                        app._lumio_tg_service = tg_svc
+                    # item_added 信号已由 InboxManager 连接到 inbox_page
+                    if not tg_svc.is_running:
+                        tg_svc.start_polling()
+        else:
+            if tg_svc and tg_svc.is_running:
+                tg_svc.stop_polling()
+
+    def _on_tg_validate(self):
+        token = self._tg_token_input.text().strip()
+        if not token:
+            self._tg_status.setText("❌ " + t("telegram_token_empty"))
+            return
+        self._tg_validate_btn.setEnabled(False)
+        self._tg_status.setText(t("telegram_validating"))
+
+        import threading
+        from PySide6.QtCore import QTimer
+
+        def _check():
+            result = TelegramService.validate_token(token)
+            # UI 更新回到主线程
+            def _update_ui():
+                self._tg_validate_btn.setEnabled(True)
+                if result["ok"]:
+                    self._tg_status.setText(f"🟢 @{result['username']} — {t('telegram_connected')}")
+                    self._tg_status.setStyleSheet("color: #4ADE80;")
+                    cfg = load_config()
+                    cfg["telegram_bot_token"] = token
+                    save_config(cfg)
+                    self._tg_generate_pair_code()
+                    self._tg_refresh_state()
+                    # 自动启动轮询
+                    self._auto_start_tg_service()
+                else:
+                    self._tg_status.setText(f"🔴 {t('telegram_validate_fail')}: {result['error']}")
+                    self._tg_status.setStyleSheet("color: #FF6B6B;")
+            QTimer.singleShot(0, _update_ui)
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _tg_generate_pair_code(self):
+        cfg = load_config()
+        if cfg.get("telegram_pair_code"):
+            return  # 已有配对码，不重新生成
+        self._on_tg_regen()
+
+    def _auto_start_tg_service(self):
+        """自动启动 Telegram 轮询服务。"""
+        app = QApplication.instance()
+        tg_svc = getattr(app, '_lumio_tg_service', None)
+        inbox_mgr = getattr(app, '_lumio_inbox_manager', None)
+        if not inbox_mgr:
+            return
+        if not tg_svc:
+            tg_svc = TelegramService(inbox_mgr)
+            app._lumio_tg_service = tg_svc
+        # item_added 信号已由 InboxManager 连接到 inbox_page
+        if not tg_svc.is_running:
+            tg_svc.start_polling()
+
+    def _on_tg_regen(self):
+        svc = TelegramService(inbox_manager=None)
+        code = svc.generate_pair_code("")
+        self._tg_pair_code.setText(code)
+        self._tg_pair_hint.setText(t("telegram_pair_hint"))
+
+    def _on_tg_copy(self):
+        code = self._tg_pair_code.text()
+        if code and code != "—":
+            QApplication.clipboard().setText(code)
+            self._tg_copy_btn.setText("✅ 已复制")
+            self._tg_copy_btn.setStyleSheet("QPushButton { background: none; border: none; color: #4ADE80; font-size: 13px; }")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1500, self._tg_reset_copy_btn)
+
+    def _tg_reset_copy_btn(self):
+        self._tg_copy_btn.setText(t("telegram_copy"))
+        self._tg_copy_btn.setStyleSheet("QPushButton { background: none; border: none; color: #4A9EFF; font-size: 13px; } QPushButton:hover { text-decoration: underline; }")
+
+    def _tg_update_status(self):
+        cfg = load_config()
+        token = cfg.get("telegram_bot_token", "")
+        if not token:
+            self._tg_status.setText(t("telegram_no_token"))
+            self._tg_status.setStyleSheet("color: #888;")
+        else:
+            self._tg_status.setText(t("telegram_token_saved"))
+            self._tg_status.setStyleSheet("color: #888;")
+
+    def _tg_update_pair_code(self):
+        cfg = load_config()
+        code = cfg.get("telegram_pair_code", "")
+        if code:
+            self._tg_pair_code.setText(code)
+            self._tg_pair_hint.setText(t("telegram_pair_hint"))
+        else:
+            self._tg_pair_code.setText("—")
+            self._tg_pair_hint.setText("")
+
+    def _tg_update_bound(self):
+        svc = TelegramService(inbox_manager=None)
+        device = svc.get_bound_device()
+        if device:
+            self._tg_bound_row.setVisible(True)
+            self._tg_bound_label.setText(
+                f"✅ @{device.telegram_username or 'unknown'} (ID: {device.telegram_user_id})"
+            )
+        else:
+            self._tg_bound_row.setVisible(False)
+
+    def _tg_refresh_state(self):
+        """统一刷新 Telegram 区域可见性。"""
+        cfg = load_config()
+        token = cfg.get("telegram_bot_token", "")
+        code = cfg.get("telegram_pair_code", "")
+
+        # Status
+        if not token:
+            self._tg_status.setText(t("telegram_no_token"))
+            self._tg_status.setStyleSheet("color: #888;")
+        else:
+            self._tg_status.setText(t("telegram_token_saved"))
+            self._tg_status.setStyleSheet("color: #888;")
+
+        # Pair code: token 有效时始终显示
+        if token:
+            self._tg_pair_area.setVisible(True)
+            self._tg_pair_code.setText(code if code else "—")
+            self._tg_pair_hint.setText(t("telegram_pair_hint"))
+        else:
+            self._tg_pair_area.setVisible(False)
+
+        # Bound device
+        svc = TelegramService(inbox_manager=None)
+        device = svc.get_bound_device()
+        if device:
+            self._tg_bound_area.setVisible(True)
+            self._tg_bound_label.setText(
+                f"✅ 已绑定 @{device.telegram_username or 'unknown'}（ID: {device.telegram_user_id}）"
+            )
+        else:
+            self._tg_bound_area.setVisible(False)
+
+    def _on_tg_unlink(self):
+        svc = TelegramService(inbox_manager=None)
+        device = svc.get_bound_device()
+        if device:
+            svc.unlink_device(device.telegram_user_id)
+            self._tg_refresh_state()

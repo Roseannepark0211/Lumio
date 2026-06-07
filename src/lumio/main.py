@@ -47,6 +47,14 @@ def _show_main(app, cfg):
     app._lumio_inbox_manager = inbox_manager
     app._lumio_window = window
 
+    # Telegram Bot 轮询（item_added 信号已在 inbox_page._connect_signals 中连接，无需重复）
+    if cfg.get("telegram_enabled") and cfg.get("telegram_bot_token"):
+        from .telegram_service import TelegramService
+        tg_service = TelegramService(inbox_manager)
+        tg_service.start_polling()
+        app.aboutToQuit.connect(tg_service.stop_polling)
+        app._lumio_tg_service = tg_service
+
 
 def _show_init(app, cfg):
     from .gui.init_page import InitPage
@@ -81,6 +89,14 @@ def _show_init(app, cfg):
         app._lumio_inbox_manager = inbox_manager
         app._lumio_window = window
         app._lumio_init_page = init_page
+
+        # Telegram Bot 轮询
+        if cfg.get("telegram_enabled") and cfg.get("telegram_bot_token"):
+            from .telegram_service import TelegramService
+            tg_service = TelegramService(inbox_manager)
+            tg_service.start_polling()
+            app.aboutToQuit.connect(tg_service.stop_polling)
+            app._lumio_tg_service = tg_service
 
     init_page.check_completed.connect(on_init_done)
     init_page.start_checks()
