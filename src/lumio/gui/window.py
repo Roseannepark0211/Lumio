@@ -4,26 +4,31 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QStackedWidget,
+    QSystemTrayIcon,
     QWidget,
 )
 
 from ..history_manager import HistoryManager
 from ..i18n import t
 from ..library_manager import LibraryManager
+from ..notification_manager import NotificationManager
 from ..queue_manager import DownloadManager
 from ..utils.config import load_config, save_config
 from .cookie_checker import CookieCheckWorker
 from .downloads_page import DownloadsPage
 from .history_page import HistoryPage
 from .home_page import HomePage
+from .inbox_page import InboxPage
 from .library_page import LibraryPage
 from .settings_page import SettingsPage
 from .sidebar import SidebarWidget
@@ -34,7 +39,7 @@ _ASSETS = Path(__file__).parent.parent / "assets"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, manager: DownloadManager):
+    def __init__(self, manager: DownloadManager, *, inbox_manager=None):
         super().__init__()
         self.setWindowTitle(t("app_title"))
         self.setMinimumSize(960, 640)
@@ -44,20 +49,30 @@ class MainWindow(QMainWindow):
         self._theme = cfg.get("theme", "dark")
         self.setStyleSheet(get_stylesheet(self._theme))
 
-        from PySide6.QtGui import QIcon
         logo = _ASSETS / "logo.png"
         if logo.exists():
             self.setWindowIcon(QIcon(str(logo)))
 
         self._manager = manager
+        self._inbox_manager = inbox_manager
+        self._closing = False
         self._history_manager = HistoryManager()
         self._manager.set_history_manager(self._history_manager)
         self._library_manager = LibraryManager()
         self._manager.set_library_manager(self._library_manager)
 
+        # Notification system (before _build_ui, used by NotificationPage)
+        self._notif_manager = NotificationManager(self)
+
         self._build_ui()
         self._connect_signals()
         self._check_cookie_status()
+
+        self._notif_manager.notifications_changed.connect(self._sidebar.update_notification_badge)
+        self._notif_manager.check_all()
+
+        # System tray
+        self._setup_tray()
 
         # Generate thumbnails for items missing them
         self._library_manager.backfill_thumbnails()
@@ -88,18 +103,24 @@ class MainWindow(QMainWindow):
 
         # Create pages
         self._home_page = HomePage(self._manager)
+        self._inbox_page = InboxPage(self._inbox_manager, self._manager) if self._inbox_manager else None
         self._downloads_page = DownloadsPage(self._manager)
         self._history_page = HistoryPage(self._history_manager)
         self._stats_page = StatsPage(self._history_manager)
+        from .notification_page import NotificationPage
+        self._notif_page = NotificationPage(self._notif_manager)
         self._settings_page = SettingsPage()
         self._library_page = LibraryPage(self._library_manager)
 
         self._stack.addWidget(self._home_page)      # index 0
-        self._stack.addWidget(self._downloads_page)  # index 1
-        self._stack.addWidget(self._history_page)    # index 2
-        self._stack.addWidget(self._library_page)    # index 3
-        self._stack.addWidget(self._stats_page)      # index 4
-        self._stack.addWidget(self._settings_page)   # index 5
+        if self._inbox_page:
+            self._stack.addWidget(self._inbox_page)  # index 1
+        self._stack.addWidget(self._downloads_page)  # index 1 or 2
+        self._stack.addWidget(self._history_page)    # index 2 or 3
+        self._stack.addWidget(self._library_page)    # index 3 or 4
+        self._stack.addWidget(self._stats_page)      # index 4 or 5
+        self._stack.addWidget(self._notif_page)      # index 5 or 6
+        self._stack.addWidget(self._settings_page)   # index 6 or 7
 
         root.addWidget(self._stack, 1)
 
@@ -109,6 +130,9 @@ class MainWindow(QMainWindow):
 
         # Sidebar theme toggle
         self._sidebar.theme_toggle_requested.connect(self._on_theme_toggle)
+
+        # Notification page navigation
+        self._notif_page.navigate_to.connect(self._on_nav)
 
         # Home page -> batch dialogs
         self._home_page.request_batch_dialog.connect(self._on_batch_dialog)
@@ -135,19 +159,15 @@ class MainWindow(QMainWindow):
         self._settings_page.restart_requested.connect(self._restart_app)
         self._settings_page.saved.connect(lambda: self._show_toast(t("settings_saved")))
 
+        # Auto download: inbox item_added → auto queue + start
+        if self._inbox_manager and load_config().get("auto_download_inbox"):
+            self._inbox_manager.item_added.connect(self._on_inbox_auto_download)
+
         # Load existing collections into sidebar
         self._refresh_sidebar_collections()
 
     def _on_nav(self, page_id: str):
-        page_map = {
-            "home": 0,
-            "downloads": 1,
-            "history": 2,
-            "library": 3,
-            "stats": 4,
-            "settings": 5,
-        }
-        idx = page_map.get(page_id, 0)
+        idx = self._page_index(page_id)
         self._stack.setCurrentIndex(idx)
         # Refresh stats when switching to stats page
         if page_id == "stats":
@@ -157,7 +177,7 @@ class MainWindow(QMainWindow):
             self._library_page.set_collection_filter(None)
 
     def _on_collection_selected(self, collection_id: int):
-        self._stack.setCurrentIndex(3)  # Library page
+        self._stack.setCurrentIndex(self._page_index("library"))
         self._library_page.set_collection_filter(collection_id)
 
     def _on_create_collection(self):
@@ -220,6 +240,45 @@ class MainWindow(QMainWindow):
             choice = "overwrite"
         self._manager.resolve_conflict(choice)
 
+    def _page_index(self, page_id: str) -> int:
+        """动态计算页面索引（Inbox 可选插入）。"""
+        base = {
+            "home": 0, "downloads": 1, "history": 2, "library": 3,
+            "stats": 4, "notifications": 5, "settings": 6,
+        }
+        idx = base.get(page_id, 0)
+        if self._inbox_page and page_id != "home":
+            idx += 1
+        return idx
+
+    @Slot(str)
+    def _on_inbox_auto_download(self, item_id: str):
+        """自动下载采集内容（auto_download_inbox 开启时）。"""
+        if not self._inbox_manager or not self._inbox_page:
+            return
+        item = self._inbox_manager.get_item(item_id)
+        if not item or item.status != "new":
+            return
+        from ..queue_manager import QueueTask
+        from ..utils.config import get_download_dir
+        custom = item.title if not item.author else ""
+        if not custom and not item.author:
+            custom = "download"
+        qt = QueueTask(
+            url=item.url,
+            title=item.title,
+            author=item.author,
+            platform=item.platform or "auto",
+            output_dir=str(get_download_dir()),
+            thumbnail_url=item.thumbnail_url or "",
+            custom_name=custom,
+        )
+        self._manager.add_task(qt)
+        # 将 task_id → inbox_id 映射写入 inbox_page，由其 task_finished 统一处理
+        self._inbox_page._task_to_inbox[qt.task_id] = item_id
+        self._manager.start_task(qt.task_id)
+        self._inbox_manager.mark_status(item_id, "queued")
+
     def _on_theme_toggle(self):
         self._theme = "light" if self._theme == "dark" else "dark"
         self.setStyleSheet(get_stylesheet(self._theme))
@@ -274,13 +333,13 @@ class MainWindow(QMainWindow):
             self._manager.add_task(qt)
         self._show_toast(t("batch_added", n=len(tasks)))
         self._sidebar.set_active("downloads")
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(self._page_index("downloads"))
 
     @Slot(int)
     def _on_search_batch_added(self, count: int):
         self._show_toast(t("batch_added", n=count))
         self._sidebar.set_active("downloads")
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(self._page_index("downloads"))
 
     def _open_yt_dialog(self, url: str, tab: str = ""):
         from .yt_dialog import YouTubeDialog
@@ -294,7 +353,7 @@ class MainWindow(QMainWindow):
             self._manager.add_task(qt)
         self._show_toast(t("batch_added", n=len(tasks)))
         self._sidebar.set_active("downloads")
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(self._page_index("downloads"))
 
     def _open_x_dialog(self, username: str):
         from .x_dialog import XTimelineDialog
@@ -308,7 +367,7 @@ class MainWindow(QMainWindow):
             self._manager.add_task(qt)
         self._show_toast(t("batch_added", n=len(tasks)))
         self._sidebar.set_active("downloads")
-        self._stack.setCurrentIndex(1)
+        self._stack.setCurrentIndex(self._page_index("downloads"))
 
     # ---- Restart ----
 
@@ -335,3 +394,68 @@ class MainWindow(QMainWindow):
         )
         toast.show()
         QTimer.singleShot(2000, toast.deleteLater)
+
+    # ---- System Tray ----
+
+    def _setup_tray(self):
+        logo = _ASSETS / "logo.png"
+        icon = QIcon(str(logo)) if logo.exists() else QIcon()
+
+        self._tray = QSystemTrayIcon(icon, self)
+        self._tray.setToolTip("Lumio")
+
+        menu = QMenu()
+        show_action = QAction(t("tray_show"), self)
+        show_action.triggered.connect(self._tray_show)
+        quit_action = QAction(t("tray_quit"), self)
+        quit_action.triggered.connect(self._tray_quit)
+        menu.addAction(show_action)
+        menu.addSeparator()
+        menu.addAction(quit_action)
+
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._tray_show()
+
+    def _tray_show(self):
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
+
+    def _tray_quit(self):
+        self._closing = True
+        self._tray.hide()
+        QApplication.instance().quit()
+
+    def closeEvent(self, event):
+        if self._closing:
+            event.accept()
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle(t("app_title"))
+        box.setText(t("close_confirm"))
+        box.setIcon(QMessageBox.Icon.Question)
+        tray_btn = box.addButton(t("minimize_to_tray"), QMessageBox.ButtonRole.AcceptRole)
+        quit_btn = box.addButton(t("quit_app"), QMessageBox.ButtonRole.RejectRole)
+        cancel_btn = box.addButton(t("cancel"), QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+
+        if box.clickedButton() == tray_btn:
+            event.ignore()
+            self.hide()
+            self._tray.showMessage(
+                "Lumio", t("tray_hint"),
+                QSystemTrayIcon.MessageIcon.Information, 2000,
+            )
+        elif box.clickedButton() == quit_btn:
+            self._closing = True
+            self._tray.hide()
+            event.accept()
+            QTimer.singleShot(0, QApplication.instance().quit)
+        else:
+            event.ignore()

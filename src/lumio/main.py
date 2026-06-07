@@ -12,6 +12,7 @@ _ASSETS = Path(__file__).parent / "assets"
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Lumio")
+    app.setQuitOnLastWindowClosed(False)  # 托盘模式：隐藏窗口不退出
     logo = _ASSETS / "logo.png"
     if logo.exists():
         app.setWindowIcon(QIcon(str(logo)))
@@ -26,17 +27,24 @@ def main():
 
 
 def _show_main(app, cfg):
+    from .api_server import start_server, stop_server
     from .gui.window import MainWindow
+    from .inbox_manager import InboxManager
     from .queue_manager import DownloadManager
 
     manager = DownloadManager()
     manager.load_queue()
     app.aboutToQuit.connect(manager.shutdown)
 
-    window = MainWindow(manager)
+    inbox_manager = InboxManager()
+    start_server(inbox_manager, port=cfg.get("api_port", 38900))
+    app.aboutToQuit.connect(stop_server)
+
+    window = MainWindow(manager, inbox_manager=inbox_manager)
     window.show()
     # Prevent GC: store references on the app object
     app._lumio_manager = manager
+    app._lumio_inbox_manager = inbox_manager
     app._lumio_window = window
 
 
@@ -52,18 +60,25 @@ def _show_init(app, cfg):
         cfg["init_completed"] = True
         save_config(cfg)
 
+        from .api_server import start_server, stop_server
         from .gui.window import MainWindow
+        from .inbox_manager import InboxManager
         from .queue_manager import DownloadManager
 
         manager = DownloadManager()
         manager.load_queue()
         app.aboutToQuit.connect(manager.shutdown)
 
-        window = MainWindow(manager)
+        inbox_manager = InboxManager()
+        start_server(inbox_manager, port=cfg.get("api_port", 38900))
+        app.aboutToQuit.connect(stop_server)
+
+        window = MainWindow(manager, inbox_manager=inbox_manager)
         window.show()
         init_page.close()
         # Prevent GC
         app._lumio_manager = manager
+        app._lumio_inbox_manager = inbox_manager
         app._lumio_window = window
         app._lumio_init_page = init_page
 

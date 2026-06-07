@@ -20,6 +20,7 @@ class NavButton(QPushButton):
 class SidebarWidget(QFrame):
     navigation_changed = Signal(str)  # page_id
     theme_toggle_requested = Signal()
+    notification_clicked = Signal()   # bell clicked
     collection_selected = Signal(int)  # collection_id
     collection_create_requested = Signal()
     collection_rename_requested = Signal(int)  # collection_id
@@ -27,15 +28,13 @@ class SidebarWidget(QFrame):
 
     NAV_ITEMS = [
         ("⌂", "home", "home"),
+        ("📥", "inbox", "inbox"),
         ("↓", "downloads", "downloads"),
         ("🕘", "history", "history"),
         ("◻", "library", "library"),
         ("☰", "stats", "stats"),
+        ("🔔", "notifications", "notifications"),
         ("⚙", "settings", "settings"),
-    ]
-
-    PLACEHOLDER_ITEMS = [
-        ("☐", "workspace", "workspace"),
     ]
 
     def __init__(self, theme: str = "dark", parent=None):
@@ -45,6 +44,7 @@ class SidebarWidget(QFrame):
         self._theme = theme
         self._nav_buttons: dict[str, NavButton] = {}
         self._collection_buttons: dict[int, QPushButton] = {}
+        self._collections_list = QVBoxLayout()
         self._build_ui()
 
     def _build_ui(self):
@@ -94,20 +94,6 @@ class SidebarWidget(QFrame):
                 root.addWidget(self._collections_section)
 
         root.addSpacing(16)
-
-        # Separator label
-        sep = QLabel(t("nav_coming_soon"))
-        sep.setObjectName("sidebar_sep")
-        sep.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        root.addWidget(sep)
-
-        # Placeholder nav items (disabled)
-        for icon, label_key, page_id in self.PLACEHOLDER_ITEMS:
-            btn = NavButton(icon, t(label_key), page_id)
-            btn.setEnabled(False)
-            btn.setObjectName("nav_btn_disabled")
-            self._nav_buttons[page_id] = btn
-            root.addWidget(btn)
 
         root.addStretch()
 
@@ -202,3 +188,13 @@ class SidebarWidget(QFrame):
     def update_theme(self, theme: str):
         self._theme = theme
         self._update_theme_btn_text()
+
+    def update_notification_badge(self, count: int):
+        """更新通知导航按钮的 badge。"""
+        btn = self._nav_buttons.get("notifications")
+        if not btn:
+            return
+        if count > 0:
+            btn.setText(f"  🔔   {t('notifications')}  ({count})")
+        else:
+            btn.setText(f"  🔔   {t('notifications')}")

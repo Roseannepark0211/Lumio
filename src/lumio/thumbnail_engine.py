@@ -78,7 +78,10 @@ def _download_and_resize(url: str, dst: Path) -> str | None:
     import requests
     from PIL import Image
     from io import BytesIO
-    resp = requests.get(url, timeout=10)
+    headers = {}
+    if "twimg.com" in url or "x.com" in url:
+        headers["Referer"] = "https://x.com/"
+    resp = requests.get(url, timeout=10, headers=headers)
     if resp.status_code != 200:
         return None
     img = Image.open(BytesIO(resp.content))

@@ -60,3 +60,23 @@ class ItemCollection(Base):
     collection = relationship("Collection", back_populates="item_collections")
 
     __table_args__ = (UniqueConstraint("item_id", "collection_id"),)
+
+
+class InboxItem(Base):
+    __tablename__ = "inbox_items"
+
+    id = Column(String, primary_key=True, default=lambda: uuid.uuid4().hex[:12])
+    source = Column(String, default="browser")       # browser / telegram / manual
+    type = Column(String, default="url")              # url / video / image
+    url = Column(String, unique=True, nullable=False)
+    title = Column(String, default="")
+    author = Column(String, default="")
+    platform = Column(String, default="")
+    thumbnail_url = Column(String, default="")
+    direct_url = Column(String, default="")              # 媒体直链（浏览器提取，跳过 API）
+    duration = Column(Integer, nullable=True)
+    status = Column(String, default="new")            # new / queued / downloaded / archived / failed
+    error_message = Column(String, default="")
+    captured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

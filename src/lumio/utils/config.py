@@ -17,6 +17,8 @@ DEFAULTS = {
     "theme": "dark",
     "storage_mode": "simple",
     "file_conflict_policy": "rename",
+    "auto_download_inbox": False,
+    "api_port": 38900,
 }
 
 _cache: dict | None = None

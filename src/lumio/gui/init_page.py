@@ -153,6 +153,8 @@ class InitPage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._entered = False
+        self._countdown_timer = None
         self._build_ui()
 
     def _build_ui(self):
@@ -202,8 +204,16 @@ class InitPage(QWidget):
         layout.addWidget(self._enter_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._countdown = 10
+        self._entered = False
 
     def _emit_complete(self):
+        # 防止按钮点击 + 倒计时重复触发
+        if self._entered:
+            return
+        self._entered = True
+        if hasattr(self, "_countdown_timer"):
+            self._countdown_timer.stop()
+        self._enter_btn.setEnabled(False)
         self.check_completed.emit()
 
     def start_checks(self):

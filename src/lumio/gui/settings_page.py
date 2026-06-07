@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -182,6 +183,17 @@ class SettingsPage(QWidget):
         dl_inner.addWidget(cp_desc)
         dl_inner.addSpacing(20)
 
+        # --- E: 自动下载采集内容 ---
+        self._auto_dl_check = QCheckBox(t("auto_download_inbox"))
+        self._auto_dl_check.setChecked(cfg.get("auto_download_inbox", False))
+        dl_inner.addWidget(self._auto_dl_check)
+        auto_dl_desc = QLabel(t("auto_download_inbox_desc"))
+        auto_dl_desc.setObjectName("muted")
+        auto_dl_desc.setWordWrap(True)
+        auto_dl_desc.setContentsMargins(24, 0, 0, 0)
+        dl_inner.addWidget(auto_dl_desc)
+        dl_inner.addSpacing(20)
+
         # --- D: 默认下载目录 ---
         dl_inner.addWidget(QLabel(t("default_download_dir") + ":"))
         dl_inner.addSpacing(6)
@@ -288,6 +300,18 @@ class SettingsPage(QWidget):
         ver_val = QLabel(__version__)
         ver_val.setObjectName("muted")
         ver_row.addWidget(ver_val)
+        ver_row.addSpacing(12)
+
+        self._update_btn = QPushButton(t("check_update"))
+        self._update_btn.setObjectName("secondary")
+        self._update_btn.setFixedHeight(28)
+        self._update_btn.clicked.connect(self._on_check_update)
+        ver_row.addWidget(self._update_btn)
+
+        self._update_result = QLabel()
+        self._update_result.setObjectName("muted")
+        ver_row.addWidget(self._update_result)
+
         ver_row.addStretch()
         ag.addLayout(ver_row)
 
@@ -342,9 +366,43 @@ class SettingsPage(QWidget):
         cfg["max_retries"] = self._retry_spin.value()
         cfg["storage_mode"] = "organized" if self._organized_radio.isChecked() else "simple"
         cfg["file_conflict_policy"] = self._conflict_combo.currentData()
+        cfg["auto_download_inbox"] = self._auto_dl_check.isChecked()
         save_config(cfg)
         self._hint_label.setText(t("settings_saved"))
         self.saved.emit()
+
+    def _on_check_update(self):
+        self._update_btn.setEnabled(False)
+        self._update_result.setText(t("update_checking"))
+        from ..notification_manager import NotificationManager
+        import threading
+
+        def _check():
+            mgr = NotificationManager()
+            result = mgr.check_version()
+            self._update_btn.setEnabled(True)
+            if result == "latest":
+                self._update_result.setText(f"✅ {t('update_latest')}")
+                self._update_result.setStyleSheet("color: #4ADE80;")
+            elif result.startswith("new:"):
+                ver = result.split(":", 1)[1]
+                self._update_result.setText(f"🆕 {t('update_found', ver=ver)}")
+                self._update_result.setStyleSheet("color: #FFB84D;")
+                # 同时写入通知
+                mgr.add_notification(Notification(
+                    category="update", type="update",
+                    title=f"发现新版本 v{ver}",
+                    message=f"当前版本 v{__version__}，最新版本 v{ver}",
+                    action="open_url:https://github.com/Roseannepark0211/Lumio/releases",
+                    action_text="前往下载",
+                    source_key=f"update_{ver}",
+                ))
+            else:
+                err = result.split(":", 1)[1] if ":" in result else result
+                self._update_result.setText(f"⚠ {t('update_error', err=err)}")
+                self._update_result.setStyleSheet("color: #888;")
+
+        threading.Thread(target=_check, daemon=True).start()
 
     def _on_browse_dir(self):
         d = QFileDialog.getExistingDirectory(self, t("default_download_dir"), str(get_download_dir()))

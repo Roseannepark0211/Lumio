@@ -1517,6 +1517,66 @@ def _x_download_with_pause(task, pause_event, on_progress):
     task.progress = 100
 
 
+def _direct_download_with_pause(task, pause_event, on_progress):
+    """通用直链下载（浏览器提取的媒体 URL，不调平台 API）。"""
+    import urllib.parse
+
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    policy = get_file_conflict_policy()
+    out_name = _effective_name(task)
+
+    # 从 URL 推断扩展名
+    url_path = urllib.parse.urlparse(task.direct_url).path
+    ext = Path(url_path).suffix or ".mp4"
+    if ext == ".jpeg":
+        ext = ".jpg"
+
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        return
+
+    filename = out_dir / f"{resolved_stem}{ext}"
+
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    }
+    # IG CDN 需要 Referer
+    if "cdninstagram" in task.direct_url or "fbcdn" in task.direct_url:
+        headers["Referer"] = "https://www.instagram.com/"
+
+    resp = requests.get(task.direct_url, stream=True, timeout=30, headers=headers)
+    try:
+        resp.raise_for_status()
+        total_size = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        with open(filename, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                pause_event.wait()
+                if task._cancelled:
+                    raise _CancelledError()
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    task.progress = downloaded / total_size * 100
+                    if on_progress:
+                        on_progress(task)
+        task.filename = str(filename)
+        task.status = "done"
+        task.progress = 100
+    except Exception:
+        resp.close()
+        raise
+    finally:
+        resp.close()
+
+
 def start_download_with_pause(
     task: DownloadTask,
     pause_event: threading.Event,
@@ -1527,7 +1587,9 @@ def start_download_with_pause(
 
     def _run():
         try:
-            if parsed.platform == Platform.YOUTUBE:
+            if task.direct_url:
+                _direct_download_with_pause(task, pause_event, on_progress)
+            elif parsed.platform == Platform.YOUTUBE:
                 _yt_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.INSTAGRAM:
                 _ig_download_with_pause(task, pause_event, on_progress)
