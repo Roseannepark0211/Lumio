@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, Slot
@@ -23,12 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from ..i18n import get_lang, set_lang, t
-from ..utils.config import get_cookie_path, get_download_dir, load_config, save_config
+from ..utils.config import get_download_dir, load_config, save_config
 from .widgets import NoWheelComboBox
 
 
 class SettingsPage(QWidget):
     restart_requested = Signal()
+    saved = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -302,13 +301,13 @@ class SettingsPage(QWidget):
     # ---- Cookie status ----
 
     def _set_cookie_label(self, label: QLabel, status: str):
-        if status == "已配置":
+        if status == "valid":
             label.setText(f"🟢 {t('cookie_valid')}")
             label.setObjectName("cookie_ok")
-        elif status == "即将失效":
+        elif status == "warning":
             label.setText(f"🟡 {t('cookie_warning')}")
             label.setObjectName("cookie_expired")
-        elif status == "已失效":
+        elif status == "expired":
             label.setText(f"🔴 {t('cookie_expired')}")
             label.setObjectName("cookie_missing")
         else:
@@ -345,6 +344,7 @@ class SettingsPage(QWidget):
         cfg["file_conflict_policy"] = self._conflict_combo.currentData()
         save_config(cfg)
         self._hint_label.setText(t("settings_saved"))
+        self.saved.emit()
 
     def _on_browse_dir(self):
         d = QFileDialog.getExistingDirectory(self, t("default_download_dir"), str(get_download_dir()))
@@ -380,14 +380,44 @@ class SettingsPage(QWidget):
             cookie_file = cfg.get("cookie_file") or str(Path.home() / ".lumio" / "cookies.txt")
             dest = Path(cookie_file)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dest)
+
+            # Merge: read existing + new, deduplicate by (domain, name)
+            def _parse_cookies(filepath: Path) -> dict[tuple[str, str], str]:
+                """Parse Netscape cookie file → {(domain, name): line}."""
+                cookies = {}
+                if filepath.exists():
+                    for line in filepath.read_text(encoding="utf-8", errors="replace").splitlines():
+                        line = line.rstrip("\n")
+                        if not line or line.startswith("#"):
+                            continue
+                        parts = line.split("\t")
+                        if len(parts) >= 6:
+                            key = (parts[0], parts[5])
+                            cookies[key] = line
+                return cookies
+
+            existing = _parse_cookies(dest)
+            new = _parse_cookies(Path(path))
+            existing.update(new)  # new cookies override existing with same (domain, name)
+
+            # Preserve header comments from source file
+            header_lines = []
+            src_text = Path(path).read_text(encoding="utf-8", errors="replace")
+            for line in src_text.splitlines():
+                if line.startswith("#"):
+                    header_lines.append(line)
+                else:
+                    break
+
+            merged = "\n".join(header_lines + list(existing.values())) + "\n"
+            dest.write_text(merged, encoding="utf-8")
 
             from .cookie_checker import check_ig_cookie_status, check_x_cookie_status
             ig_status = check_ig_cookie_status()
             x_status = check_x_cookie_status()
-            if ig_status == "已配置" or x_status == "已配置":
+            if ig_status == "valid" or x_status == "valid":
                 self._hint_label.setText(t("cookie_imported"))
-            elif ig_status == "已失效" or x_status == "已失效":
+            elif ig_status == "expired" or x_status == "expired":
                 self._hint_label.setText(f"{t('cookie_imported')} — {t('cookie_expired')}")
             else:
                 self._hint_label.setText(t("cookie_imported"))

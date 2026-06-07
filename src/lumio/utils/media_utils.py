@@ -39,3 +39,16 @@ def infer_media_type(file_path: str, platform: str = "") -> str:
     if platform == "instagram":
         return "mixed"
     return ""
+
+
+def format_size(size_bytes: int, zero_default: str = "—") -> str:
+    """Format bytes as human-readable size string."""
+    if size_bytes <= 0:
+        return zero_default
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"

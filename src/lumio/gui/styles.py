@@ -200,32 +200,6 @@ QProgressBar::chunk {
     border-radius: 6px;
 }
 
-/* ---- List Widget ---- */
-QListWidget {
-    background-color: #12141c;
-    color: #c8ccd8;
-    border: 1px solid #1e2130;
-    border-radius: 8px;
-    font-size: 13px;
-    outline: none;
-    padding: 4px;
-}
-
-QListWidget::item {
-    padding: 8px 10px;
-    border-radius: 5px;
-    margin: 1px 0;
-}
-
-QListWidget::item:selected {
-    background-color: #1e2440;
-    color: #e0e0e6;
-}
-
-QListWidget::item:hover {
-    background-color: #191d2a;
-}
-
 /* ---- Group Box (Card style) ---- */
 QGroupBox {
     background-color: #161822;
@@ -250,12 +224,6 @@ QGroupBox::title {
     font-weight: 600;
     letter-spacing: 0.5px;
     background-color: #161822;
-}
-
-QWidget#settings_separator {
-    background-color: #22253a;
-    max-height: 1px;
-    margin: 4px 0;
 }
 
 /* ---- ScrollBar ---- */
@@ -370,22 +338,6 @@ QLabel#cookie_expired {
     color: #fbbf24;
     font-size: 12px;
     font-weight: 600;
-    background: transparent;
-}
-
-/* ---- Queue Drawer ---- */
-QFrame#queue_header {
-    background-color: #161822;
-    border-top: 1px solid #22253a;
-    border-radius: 0;
-    padding: 6px 12px;
-}
-
-QLabel#queue_title {
-    color: #a0a8c8;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
     background: transparent;
 }
 
@@ -519,14 +471,6 @@ QLabel#platform_x {
     font-weight: 700;
     border-radius: 3px;
     padding: 0px 4px;
-}
-
-/* ---- History Drawer ---- */
-QFrame#history_header {
-    background-color: #161822;
-    border-top: 1px solid #22253a;
-    border-radius: 0;
-    padding: 6px 12px;
 }
 
 QLabel#history_badge {
@@ -813,25 +757,23 @@ QFrame#home_divider {
     max-height: 1px;
 }
 
+/* ---- Search Results ---- */
+QScrollArea#search_scroll {
+    background-color: #0e1018;
+    border: 1px solid #1e2130;
+    border-radius: 8px;
+}
+
+QLabel#search_thumb {
+    background-color: #1a1c28;
+    border-radius: 4px;
+}
+
 /* ---- Stat Label ---- */
 QLabel#stat_label {
     color: #6b7084;
     font-size: 12px;
     background: transparent;
-}
-
-/* ---- Settings Card ---- */
-QWidget#settings_card {
-    background-color: #161822;
-    border: 1px solid #22253a;
-    border-radius: 10px;
-}
-
-QLabel#settings_section_title {
-    color: #7c8fff;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
 }
 
 QSpinBox {
@@ -1098,12 +1040,6 @@ QGroupBox::title {
     background-color: #ffffff;
 }
 
-QWidget#settings_separator {
-    background-color: #e0e0e6;
-    max-height: 1px;
-    margin: 4px 0;
-}
-
 /* ---- ScrollBar ---- */
 QScrollBar:vertical {
     background: transparent;
@@ -1216,22 +1152,6 @@ QLabel#cookie_expired {
     color: #f59e0b;
     font-size: 12px;
     font-weight: 600;
-    background: transparent;
-}
-
-/* ---- Queue Drawer ---- */
-QFrame#queue_header {
-    background-color: #ffffff;
-    border-top: 1px solid #e0e0e6;
-    border-radius: 0;
-    padding: 6px 12px;
-}
-
-QLabel#queue_title {
-    color: #555568;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
     background: transparent;
 }
 
@@ -1543,14 +1463,6 @@ QWidget#stat_card:hover {
     border-color: #2563eb;
 }
 
-/* ---- History Drawer ---- */
-QFrame#history_header {
-    background-color: #ffffff;
-    border-top: 1px solid #e0e0e6;
-    border-radius: 0;
-    padding: 6px 12px;
-}
-
 QLabel#history_badge {
     background-color: #2563eb;
     color: #ffffff;
@@ -1659,25 +1571,23 @@ QFrame#home_divider {
     max-height: 1px;
 }
 
+/* ---- Search Results ---- */
+QScrollArea#search_scroll {
+    background-color: #f8f8fa;
+    border: 1px solid #e0e0e6;
+    border-radius: 8px;
+}
+
+QLabel#search_thumb {
+    background-color: #e8e8ee;
+    border-radius: 4px;
+}
+
 /* ---- Stat Label ---- */
 QLabel#stat_label {
     color: #8e8ea0;
     font-size: 12px;
     background: transparent;
-}
-
-/* ---- Settings Card ---- */
-QWidget#settings_card {
-    background-color: #ffffff;
-    border: 1px solid #e0e0e6;
-    border-radius: 10px;
-}
-
-QLabel#settings_section_title {
-    color: #2563eb;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
 }
 
 QSpinBox {

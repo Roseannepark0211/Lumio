@@ -12,19 +12,19 @@ _WARNING_THRESHOLD = 7 * 24 * 3600
 
 
 def _check_cookie_expiry(domains: list[str], required_names: list[str]) -> str:
-    """Return one of: '未配置', '已失效', '即将失效', '已配置'."""
+    """Return one of: 'missing', 'expired', 'warning', 'valid'."""
     cookie_path = get_cookie_path()
     if cookie_path is None:
-        return "未配置"
+        return "missing"
 
     try:
         text = cookie_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
-        return "未配置"
+        return "missing"
 
     has_any = any(name in text for name in required_names)
     if not has_any:
-        return "未配置"
+        return "missing"
 
     now = time.time()
     soonest_expiry = float("inf")
@@ -45,15 +45,15 @@ def _check_cookie_expiry(domains: list[str], required_names: list[str]) -> str:
                 expiry = float(parts[4])
                 if expiry > 0:
                     if expiry < now:
-                        return "已失效"
+                        return "expired"
                     soonest_expiry = min(soonest_expiry, expiry)
             except (ValueError, IndexError):
                 pass
 
     if soonest_expiry < now + _WARNING_THRESHOLD:
-        return "即将失效"
+        return "warning"
 
-    return "已配置"
+    return "valid"
 
 
 def check_ig_cookie_status() -> str:

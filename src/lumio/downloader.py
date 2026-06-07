@@ -4,6 +4,7 @@ import json
 import shutil
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -11,7 +12,7 @@ import http.cookiejar
 import requests
 import yt_dlp
 
-from .utils.config import get_cookie_path, get_download_dir, get_file_conflict_policy, get_storage_mode
+from .utils.config import get_cookie_path, get_file_conflict_policy, get_storage_mode
 from .utils.url_parser import Platform, parse_url
 
 # --- Conflict ask callback (set by Downloader instance) ---
@@ -29,6 +30,7 @@ def _resolve_conflict_path(path: Path, policy: str) -> Path | None:
     """Resolve file path based on conflict policy.
 
     Returns the resolved path, or None if the file should be skipped.
+    Ignores .part files (partial downloads) to allow resume.
     """
     if policy == "overwrite" or not path.exists():
         return path
@@ -40,8 +42,7 @@ def _resolve_conflict_path(path: Path, policy: str) -> Path | None:
             return path
         if choice == "skip":
             return None
-        # "rename" fallback
-    # rename (default): append (1), (2), ...
+    # rename: append (1), (2), ... — skip .part files
     stem, suffix = path.stem, path.suffix
     counter = 1
     while True:
@@ -78,6 +79,38 @@ def _resolve_conflict_stem(out_dir: Path, stem: str, policy: str) -> str | None:
         if not list(out_dir.glob(f"{new_stem}.*")):
             return new_stem
         counter += 1
+
+
+def _cleanup_empty_dir(path: Path):
+    """Remove directory if empty (and parent if also empty)."""
+    try:
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    except OSError:
+        pass
+
+
+def _resume_headers(file_path: Path) -> dict:
+    """Return HTTP headers for resume download if partial file exists."""
+    if file_path.exists() and file_path.stat().st_size > 0:
+        return {"Range": f"bytes={file_path.stat().st_size}-"}
+    return {}
+
+
+def _resolve_output_dir(task) -> Path:
+    """Resolve output directory based on current storage mode.
+
+    For batch tasks in organized mode, returns a batch-level subdirectory.
+    Always reads storage mode at call time (download time).
+    Does NOT create the directory — caller is responsible for mkdir.
+    """
+    base = Path(task.output_dir)
+    if get_storage_mode() != "organized" or not task.batch_id:
+        return base
+    platform = (task.platform or "download").capitalize()
+    author = _safe_filename(task.author or "unknown")[:30]
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return base / f"{platform}_{author}_{date_str}"
 
 
 def _find_ffmpeg() -> str | None:
@@ -121,6 +154,9 @@ class DownloadTask:
     author: str = ""
     post_time: str = ""
     format_type: str = ""  # "video" | "audio" | "combined" | ""
+    platform: str = ""
+    batch_id: str = ""
+    direct_url: str = ""  # Pre-resolved download URL (e.g. from X-Sou)
     status: str = "pending"
     progress: float = 0.0
     speed: str = ""
@@ -138,6 +174,7 @@ def _yt_opts(cookie_file: Path | None = None) -> dict:
         "noprogress": True,
         "continuedl": True,
         "keep_fragments": True,
+        "socket_timeout": 15,
     }
     if cookie_file and cookie_file.exists():
         opts["cookiefile"] = str(cookie_file)
@@ -185,37 +222,15 @@ def _yt_extract_info(url: str) -> VideoInfo:
 
 # ---- Instagram ----
 
-def _ig_session():
-    import instaloader
-    L = instaloader.Instaloader(
-        download_videos=True,
-        download_video_thumbnails=False,
-        download_geotags=False,
-        download_comments=False,
-        save_metadata=False,
-        compress_json=False,
-    )
-    cookie_path = get_cookie_path()
-    if cookie_path:
-        cj = http.cookiejar.MozillaCookieJar(str(cookie_path))
-        cj.load(ignore_discard=True, ignore_expires=True)
-        for c in cj:
-            L.context._session.cookies.set(c.name, c.value, domain=c.domain)
-    return L
-
-
-def _ig_build_items(post) -> list[MediaItem]:
-    """Extract MediaItems from an instaloader.Post."""
-    items: list[MediaItem] = []
-    if post.typename == "GraphSidecar":
-        for i, node in enumerate(post.get_sidecar_nodes()):
-            url_str = str(node.video_url) if node.is_video else str(node.display_url)
-            items.append(MediaItem(url=url_str, is_video=node.is_video, index=i))
-    elif post.is_video:
-        items.append(MediaItem(url=str(post.video_url), is_video=True, index=0))
-    else:
-        items.append(MediaItem(url=str(post.url), is_video=False, index=0))
-    return items
+def _ig_shortcode_from_url(url: str) -> str:
+    """Extract Instagram shortcode from a post/reel URL."""
+    parts = url.rstrip("/").split("/")
+    shortcode = parts[-1]
+    for i, p in enumerate(parts):
+        if p in ("reel", "p") and i + 1 < len(parts):
+            shortcode = parts[i + 1]
+            break
+    return shortcode
 
 
 def _ig_shortcode_to_media_id(shortcode: str) -> str:
@@ -321,6 +336,7 @@ def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retri
 def _ig_api_session() -> requests.Session:
     """Create a requests.Session with cookies and standard IG headers."""
     session = requests.Session()
+    session.trust_env = True  # respect system proxy (Windows registry, env vars)
     cookie_path = get_cookie_path()
     csrf_token = ""
     if cookie_path and Path(cookie_path).exists():
@@ -425,7 +441,7 @@ def enumerate_profile_posts(username: str, limit: int, callback=None, cancel_eve
 def fetch_yt_channel_info(url: str) -> dict:
     """Fetch channel/playlist title via yt-dlp flat extraction."""
     from .utils.config import get_cookie_path
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1, "ignoreerrors": True}
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlistend": 1, "ignoreerrors": True, "socket_timeout": 15}
     cookie = get_cookie_path()
     if cookie and cookie.exists():
         opts["cookiefile"] = str(cookie)
@@ -471,13 +487,14 @@ def enumerate_yt_videos(url: str, limit: int, callback=None, cancel_event=None) 
 
 
 def _yt_entry_to_queue_task(entry: dict, custom_name: str, output_dir, max_retries: int = 3,
-                            format_id: str = "best", format_type: str = "combined", batch_id: str = ""):
+                            format_id: str = "best", format_type: str = "combined",
+                            batch_id: str = "", default_author: str = ""):
     """Create QueueTask from yt-dlp flat entry dict."""
     from .queue_manager import QueueTask
     video_id = entry.get("id", "")
     url = f"https://www.youtube.com/watch?v={video_id}"
     title = entry.get("title", "YouTube video")
-    author = entry.get("channel", entry.get("uploader", ""))
+    author = entry.get("channel", "") or entry.get("uploader", "") or default_author
 
     # Default save name: author_short_title (timestamp appended by _effective_name)
     if not custom_name:
@@ -515,12 +532,7 @@ def _yt_entry_to_queue_task(entry: dict, custom_name: str, output_dir, max_retri
 
 
 def _ig_extract_info(url: str) -> VideoInfo:
-    shortcode = url.rstrip("/").split("/")[-1]
-    parts = url.rstrip("/").split("/")
-    for i, p in enumerate(parts):
-        if p in ("reel", "p") and i + 1 < len(parts):
-            shortcode = parts[i + 1]
-            break
+    shortcode = _ig_shortcode_from_url(url)
 
     media = _ig_get_media_info(shortcode)
     items = _ig_media_to_items(media)
@@ -556,37 +568,473 @@ def _ig_extract_info(url: str) -> VideoInfo:
 
 # ---- X (Twitter) ----
 
-def _x_extract_info(url: str) -> VideoInfo:
-    cookie = get_cookie_path()
-    opts = _yt_opts(cookie)
-    opts["skip_download"] = True
+_X_BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs=1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+_X_GRAPHQL_TWEET = "2ICDjqPd81tulZcYrtpTuQ/TweetResultByRestId"
+_X_GRAPHQL_USER = "xc8f1g7BYqr6VTzTbvNlGw/UserByScreenName"
+_X_GRAPHQL_USER_TWEETS = "E3opETHurmVJflFsUBVuUQ/UserTweets"
 
-    info = yt_dlp.YoutubeDL.sanitize_info(info)
+_X_TWEET_FEATURES = {
+    "creator_subscriptions_tweet_preview_api_enabled": True,
+    "tweetypie_unmention_optimization_enabled": True,
+    "responsive_web_edit_tweet_api_enabled": True,
+    "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+    "view_counts_everywhere_api_enabled": True,
+    "longform_notetweets_consumption_enabled": True,
+    "responsive_web_twitter_article_tweet_consumption_enabled": False,
+    "tweet_awards_web_tipping_enabled": False,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
+    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+    "longform_notetweets_rich_text_read_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
+    "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "responsive_web_media_download_video_enabled": False,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+    "responsive_web_enhance_cards_enabled": False,
+}
 
-    author = (
-        info.get("uploader")
-        or info.get("creator")
-        or ""
+_X_USER_FEATURES = {
+    "hidden_profile_subscriptions_enabled": True,
+    "rweb_tipjar_consumption_enabled": True,
+    "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "subscriptions_verification_info_is_identity_verified_enabled": True,
+    "subscriptions_verification_info_verified_since_enabled": True,
+    "highlights_tweets_tab_ui_enabled": True,
+    "responsive_web_twitter_article_notes_tab_enabled": True,
+    "subscriptions_feature_can_gift_premium": True,
+    "creator_subscriptions_tweet_preview_api_enabled": True,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+}
+
+_X_TIMELINE_FEATURES = {
+    "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "creator_subscriptions_tweet_preview_api_enabled": True,
+    "c9s_tweet_anatomy_moderator_badge_enabled": True,
+    "tweetypie_unmention_optimization_enabled": True,
+    "responsive_web_edit_tweet_api_enabled": True,
+    "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+    "view_counts_everywhere_api_enabled": True,
+    "longform_notetweets_consumption_enabled": True,
+    "responsive_web_twitter_article_tweet_consumption_enabled": True,
+    "tweet_awards_web_tipping_enabled": False,
+    "creator_subscriptions_quote_tweet_preview_enabled": False,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
+    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+    "rweb_video_timestamps_enabled": True,
+    "longform_notetweets_rich_text_read_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
+    "responsive_web_enhance_cards_enabled": False,
+}
+
+
+def _x_api_session() -> requests.Session:
+    """Create a requests.Session with X cookies and headers."""
+    session = requests.Session()
+    session.trust_env = True
+    cookie_path = get_cookie_path()
+    ct0 = ""
+    if cookie_path and Path(cookie_path).exists():
+        cj = http.cookiejar.MozillaCookieJar(str(cookie_path))
+        cj.load(ignore_discard=True, ignore_expires=True)
+        session.cookies = cj
+        for c in cj:
+            if c.name == "ct0" and ("x.com" in c.domain or "twitter.com" in c.domain):
+                ct0 = c.value
+                break
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {_X_BEARER}",
+        "x-csrf-token": ct0,
+    })
+    return session
+
+
+def _x_get_user_id(session: requests.Session, username: str) -> str:
+    """Get user rest_id from screen name via GraphQL."""
+    variables = json.dumps({"screen_name": username, "withSafetyModeUserFields": True})
+    features = json.dumps(_X_USER_FEATURES)
+    resp = session.get(
+        f"https://x.com/i/api/graphql/{_X_GRAPHQL_USER}",
+        params={"variables": variables, "features": features},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["data"]["user"]["result"]["rest_id"]
+
+
+def _x_extract_tweet_media(tweet_result: dict) -> list[MediaItem]:
+    """Extract MediaItem list from a GraphQL tweet result."""
+    items: list[MediaItem] = []
+    legacy = tweet_result.get("legacy", {})
+    media_list = legacy.get("extended_entities", {}).get("media", [])
+    for i, m in enumerate(media_list):
+        mtype = m.get("type", "")
+        if mtype == "photo":
+            url = m.get("media_url_https", "")
+            if url:
+                # Request original quality
+                url = url + "?format=jpg&name=orig"
+                items.append(MediaItem(url=url, is_video=False, index=i))
+        elif mtype in ("video", "animated_gif"):
+            # Get best video URL
+            variants = m.get("video_info", {}).get("variants", [])
+            best_url = ""
+            best_br = 0
+            for v in variants:
+                if v.get("content_type") == "video/mp4":
+                    br = v.get("bitrate", 0)
+                    if br > best_br:
+                        best_br = br
+                        best_url = v["url"]
+            if not best_url and variants:
+                best_url = variants[0].get("url", "")
+            if best_url:
+                items.append(MediaItem(url=best_url, is_video=True, index=i))
+    return items
+
+
+def _x_get_tweet_info(session: requests.Session, tweet_id: str) -> dict:
+    """Fetch tweet data via GraphQL TweetResultByRestId."""
+    variables = json.dumps({
+        "tweetId": tweet_id,
+        "withCommunity": False,
+        "includePromotedContent": False,
+        "withVoice": False,
+    })
+    features = json.dumps(_X_TWEET_FEATURES)
+    fieldToggles = json.dumps({"withArticleRichContentState": False})
+    resp = session.get(
+        f"https://x.com/i/api/graphql/{_X_GRAPHQL_TWEET}",
+        params={"variables": variables, "features": features, "fieldToggles": fieldToggles},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    result = data.get("data", {}).get("tweetResult", {}).get("result", {})
+    if not result:
+        raise ValueError("Tweet not found or not accessible")
+    typename = result.get("__typename", "")
+    if typename == "TweetUnavailable":
+        reason = result.get("reason", "Unknown")
+        raise ValueError(f"Tweet unavailable: {reason}")
+    return result
+
+
+def _x_tweet_id_from_url(url: str) -> str:
+    """Extract tweet ID from URL like x.com/user/status/123."""
+    # Strip query params and fragments
+    clean = url.split("?")[0].split("#")[0].rstrip("/")
+    parts = clean.split("/")
+    for i, p in enumerate(parts):
+        if p == "status" and i + 1 < len(parts):
+            return parts[i + 1]
+    return parts[-1]
+
+
+def fetch_x_profile_info(username: str) -> dict:
+    """Return X user profile metadata."""
+    session = _x_api_session()
+    variables = json.dumps({"screen_name": username, "withSafetyModeUserFields": True})
+    features = json.dumps(_X_USER_FEATURES)
+    resp = session.get(
+        f"https://x.com/i/api/graphql/{_X_GRAPHQL_USER}",
+        params={"variables": variables, "features": features},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    user = data["data"]["user"]["result"]
+    legacy = user.get("legacy", {})
+    return {
+        "username": legacy.get("screen_name", username),
+        "full_name": legacy.get("name", ""),
+        "profile_pic_url": legacy.get("profile_image_url_https", "").replace("_normal", "_400x400"),
+        "post_count": legacy.get("statuses_count", 0),
+        "user_id": user.get("rest_id", ""),
+    }
+
+
+def enumerate_x_tweets(username: str, limit: int, callback=None, cancel_event=None) -> list:
+    """Return up to `limit` tweet dicts with media from user timeline."""
+    session = _x_api_session()
+    user_info = fetch_x_profile_info(username)
+    user_id = user_info["user_id"]
+
+    all_tweets = []
+    cursor = None
+
+    while len(all_tweets) < limit:
+        if cancel_event and cancel_event.is_set():
+            break
+
+        variables = {
+            "userId": user_id,
+            "count": min(20, limit - len(all_tweets)),
+            "includePromotedContent": False,
+            "withQuickPromoteEligibilityTweetFields": True,
+            "withVoice": True,
+            "withV2Timeline": True,
+        }
+        if cursor:
+            variables["cursor"] = cursor
+
+        resp = session.get(
+            f"https://x.com/i/api/graphql/{_X_GRAPHQL_USER_TWEETS}",
+            params={
+                "variables": json.dumps(variables),
+                "features": json.dumps(_X_TIMELINE_FEATURES),
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            break
+
+        data = resp.json()
+        instructions = (
+            data.get("data", {})
+            .get("user", {})
+            .get("result", {})
+            .get("timeline_v2", {})
+            .get("timeline", {})
+            .get("instructions", [])
+        )
+
+        new_cursor = None
+        found_any = False
+
+        for inst in instructions:
+            if inst.get("type") == "TimelineAddEntries":
+                entries = inst.get("entries", [])
+            elif inst.get("type") == "TimelineAddToModule":
+                entries = inst.get("moduleItems", [])
+            else:
+                entries = inst.get("entries", [])
+
+            for entry in entries:
+                if cancel_event and cancel_event.is_set():
+                    break
+                if len(all_tweets) >= limit:
+                    break
+
+                # Extract tweet from nested structure
+                content = entry.get("content", {})
+                entry_type = content.get("entryType", "")
+
+                tweet_result = None
+                if entry_type == "TimelineTimelineItem":
+                    tweet_result = (
+                        content.get("itemContent", {})
+                        .get("tweet_results", {})
+                        .get("result", {})
+                    )
+                elif entry_type == "TimelineTimelineModule":
+                    items = content.get("items", [])
+                    if items:
+                        tweet_result = (
+                            items[0].get("item", {})
+                            .get("itemContent", {})
+                            .get("tweet_results", {})
+                            .get("result", {})
+                        )
+
+                if not tweet_result or tweet_result.get("__typename") == "TweetTombstone":
+                    continue
+
+                # Check if tweet has media
+                legacy = tweet_result.get("legacy", {})
+                media = legacy.get("extended_entities", {}).get("media", [])
+                if not media:
+                    continue
+
+                all_tweets.append(tweet_result)
+                found_any = True
+                if callback:
+                    callback(len(all_tweets), limit)
+
+                # Look for cursor
+                if content.get("cursorType") == "Bottom":
+                    new_cursor = content.get("value")
+
+            # Check for cursor in entry
+            if entry.get("content", {}).get("cursorType") == "Bottom":
+                new_cursor = entry.get("content", {}).get("value")
+
+        if not found_any or not new_cursor or new_cursor == cursor:
+            break
+        cursor = new_cursor
+
+    return all_tweets
+
+
+def _x_tweet_to_queue_task(tweet_result: dict, custom_name: str, output_dir, batch_id: str = "") -> DownloadTask:
+    """Convert a GraphQL tweet result to a DownloadTask."""
+    legacy = tweet_result.get("legacy", {})
+    author = legacy.get("user", {}).get("screen_name", "") if "user" in legacy else ""
+    if not author:
+        # Try to get from core.user_results
+        core = tweet_result.get("core", {})
+        author = core.get("user_results", {}).get("result", {}).get("legacy", {}).get("screen_name", "")
+
+    title = legacy.get("full_text", "")[:80]
+    tweet_id = tweet_result.get("rest_id", "")
+    url = f"https://x.com/{author}/status/{tweet_id}" if author else ""
+
+    # Parse post time
+    created_at = legacy.get("created_at", "")
+    post_time = ""
+    if created_at:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+            post_time = dt.strftime("%Y%m%d")
+        except Exception:
+            pass
+
+    # Determine media type
+    media = legacy.get("extended_entities", {}).get("media", [])
+    has_video = any(m.get("type") in ("video", "animated_gif") for m in media)
+    has_photo = any(m.get("type") == "photo" for m in media)
+    if has_video and has_photo:
+        media_type = "mixed"
+    elif has_video:
+        media_type = "video"
+    elif has_photo:
+        media_type = "image"
+    else:
+        media_type = ""
+
+    return DownloadTask(
+        url=url,
+        format_id=None,
+        output_dir=output_dir,
+        custom_name=custom_name,
+        author=author,
+        post_time=post_time,
+        platform="x",
+        batch_id=batch_id,
     )
 
-    upload_date = info.get("upload_date", "")
+
+def _x_extract_info(url: str) -> VideoInfo:
+    session = _x_api_session()
+    tweet_id = _x_tweet_id_from_url(url)
+    tweet_result = _x_get_tweet_info(session, tweet_id)
+
+    legacy = tweet_result.get("legacy", {})
+    author = (
+        legacy.get("user", {}).get("screen_name", "")
+        or tweet_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {}).get("screen_name", "")
+    )
+    title = legacy.get("full_text", "")[:80] or "X post"
+
+    # Parse post time
+    created_at = legacy.get("created_at", "")
     post_time = ""
-    if upload_date and len(upload_date) == 8:
-        post_time = f"{upload_date[:4]}{upload_date[4:6]}{upload_date[6:8]}"
+    if created_at:
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+            post_time = dt.strftime("%Y%m%d")
+        except Exception:
+            pass
+
+    # Extract media items (images + videos)
+    items = _x_extract_tweet_media(tweet_result)
+
+    # Get thumbnail (first media item or user profile pic)
+    thumbnail = None
+    media_list = legacy.get("extended_entities", {}).get("media", [])
+    if media_list:
+        thumbnail = media_list[0].get("media_url_https")
+
+    # For video-only tweets, also get yt-dlp format info for quality selection
+    formats = []
+    duration = None
+    has_video = any(item.is_video for item in items)
+    if has_video and len(items) == 1:
+        # Single video — use yt-dlp for format selection
+        try:
+            cookie = get_cookie_path()
+            opts = _yt_opts(cookie)
+            opts["skip_download"] = True
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl_info = ydl.extract_info(url, download=False)
+            ydl_info = yt_dlp.YoutubeDL.sanitize_info(ydl_info)
+            formats = ydl_info.get("formats", [])
+            duration = ydl_info.get("duration")
+        except Exception:
+            pass
 
     return VideoInfo(
-        title=info.get("title", "X post"),
+        title=title,
         url=url,
-        thumbnail=info.get("thumbnail"),
-        duration=info.get("duration"),
-        formats=info.get("formats", []),
+        thumbnail=thumbnail,
+        duration=duration,
+        formats=formats,
         platform="x",
         author=author,
         post_time=post_time,
+        items=items,
     )
+
+
+# ---- X-Sou Search API ----
+
+_XSOU_BASE = "https://x-sou.com/api"
+
+
+def x_sou_search(query: str, page: int = 1, limit: int = 20) -> dict:
+    """Search X-Sou for videos. Returns {data: [...], total: int, page: int}.
+
+    query can be:
+    - keyword: "NASA 火箭"
+    - @username: "@elonmusk" → auto-converts to "from:elonmusk"
+    """
+    q = query.strip()
+    if q.startswith("@"):
+        q = f"from:{q[1:]}"
+    resp = requests.get(
+        f"{_XSOU_BASE}/search",
+        params={"q": q, "type": "video", "page": page, "limit": limit},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def x_sou_download_video(video_url: str, dest_path: Path, cancel_event=None) -> bool:
+    """Download a video from X-Sou direct URL. Returns True if successful."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Referer": "https://x.com/",
+    }
+    resp = requests.get(video_url, stream=True, timeout=30, headers=headers)
+    try:
+        if resp.status_code == 403:
+            return False
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        with open(dest_path, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                if cancel_event and cancel_event.is_set():
+                    dest_path.unlink(missing_ok=True)
+                    return False
+                f.write(chunk)
+                downloaded += len(chunk)
+        return True
+    finally:
+        resp.close()
 
 
 # ---- Public API ----
@@ -686,29 +1134,6 @@ def _build_format_options(info: VideoInfo) -> list[dict]:
 ProgressCallback = Callable[[DownloadTask], None]
 
 
-def _download_hook(task: DownloadTask, on_progress: ProgressCallback | None):
-    def hook(d: dict):
-        if task._cancelled:
-            raise _CancelledError()
-
-        if d["status"] == "downloading":
-            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            downloaded = d.get("downloaded_bytes", 0)
-            task.progress = (downloaded / total * 100) if total else 0
-            task.speed = d.get("_speed_str", "")
-            task.filename = d.get("filename", "")
-            task.status = "downloading"
-        elif d["status"] == "finished":
-            task.progress = 100
-            task.status = "done"
-            task.filename = d.get("filename", "")
-
-        if on_progress:
-            on_progress(task)
-
-    return hook
-
-
 class _CancelledError(Exception):
     pass
 
@@ -734,200 +1159,6 @@ def _effective_name(task: DownloadTask) -> str:
     if task.post_time:
         name = f"{name}_{task.post_time}"
     return name
-
-
-def _yt_download(
-    task: DownloadTask,
-    on_progress: ProgressCallback | None,
-):
-    cookie = get_cookie_path()
-    opts = _yt_opts(cookie)
-    out_name = _effective_name(task)
-
-    # File conflict handling
-    out_dir = Path(task.output_dir)
-    policy = get_file_conflict_policy()
-    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
-    if resolved_stem is None:
-        task.status = "done"
-        task.progress = 100
-        return
-    out_name = resolved_stem
-
-    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
-    opts["progress_hooks"] = [_download_hook(task, on_progress)]
-
-    if task.format_id and task.format_id not in ("best", "___sep"):
-        # Auto-merge: video-only needs audio, audio-only needs video
-        if task.format_type == "video":
-            opts["format"] = f"{task.format_id}+bestaudio"
-        elif task.format_type == "audio":
-            opts["format"] = task.format_id
-        else:
-            opts["format"] = task.format_id
-    else:
-        opts["format"] = (
-            "bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/"
-            "bestvideo+bestaudio/"
-            "best[ext=mp4]/"
-            "best"
-        )
-    opts["merge_output_format"] = "mp4"
-
-    task.status = "downloading"
-    if on_progress:
-        on_progress(task)
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([task.url])
-
-    task.status = "done"
-    task.progress = 100
-
-
-def _ig_download(
-    task: DownloadTask,
-    on_progress: ProgressCallback | None,
-):
-    parts = task.url.rstrip("/").split("/")
-    shortcode = parts[-1]
-    for i, p in enumerate(parts):
-        if p in ("reel", "p") and i + 1 < len(parts):
-            shortcode = parts[i + 1]
-            break
-
-    media = _ig_get_media_info(shortcode)
-
-    task.status = "downloading"
-    if on_progress:
-        on_progress(task)
-
-    out_dir = Path(task.output_dir)
-
-    # Organized mode: create per-post subdirectory
-    if get_storage_mode() == "organized":
-        post_stem = task.author or shortcode
-        if task.post_time:
-            post_stem = f"{post_stem}_{task.post_time}"
-        out_dir = out_dir / post_stem
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    items = _ig_media_to_items(media)
-
-    # Build a unique stem: author_postTime (or custom_name, or shortcode)
-    name_stem = _safe_filename(task.custom_name or task.author or shortcode)
-    if task.post_time:
-        name_stem = f"{name_stem}_{task.post_time}"
-
-    total = len(items)
-    pad = len(str(total))
-    policy = get_file_conflict_policy()
-    for idx, item in enumerate(items):
-        ext = "mp4" if item.is_video else "jpg"
-        suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
-        filename = out_dir / f"{name_stem}{suffix}.{ext}"
-
-        # File conflict handling
-        resolved = _resolve_conflict_path(filename, policy)
-        if resolved is None:
-            continue  # skip
-        filename = resolved
-
-        resp = requests.get(item.url, stream=True, timeout=30)
-        try:
-            resp.raise_for_status()
-
-            total_size = int(resp.headers.get("content-length", 0))
-            downloaded = 0
-
-            try:
-                with open(filename, "wb") as f:
-                    for chunk in resp.iter_content(8192):
-                        if task._cancelled:
-                            raise _CancelledError()
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size:
-                            item_pct = downloaded / total_size * 100
-                            task.progress = (idx + item_pct / 100) / total * 100
-                            task.speed = f"{idx + 1}/{total}"
-                            task.filename = str(filename)
-                            if on_progress:
-                                on_progress(task)
-            except _CancelledError:
-                filename.unlink(missing_ok=True)
-                raise
-        finally:
-            resp.close()
-
-    task.status = "done"
-    task.progress = 100
-    task.filename = str(out_dir)
-
-
-def _x_download(
-    task: DownloadTask,
-    on_progress: ProgressCallback | None,
-):
-    cookie = get_cookie_path()
-    opts = _yt_opts(cookie)
-    out_name = _effective_name(task)
-
-    # File conflict handling
-    out_dir = Path(task.output_dir)
-    policy = get_file_conflict_policy()
-    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
-    if resolved_stem is None:
-        task.status = "done"
-        task.progress = 100
-        return
-    out_name = resolved_stem
-
-    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
-    opts["progress_hooks"] = [_download_hook(task, on_progress)]
-    opts["format"] = "best[ext=mp4]/best"
-    opts["merge_output_format"] = "mp4"
-
-    task.status = "downloading"
-    if on_progress:
-        on_progress(task)
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([task.url])
-
-    task.status = "done"
-    task.progress = 100
-
-
-def start_download(
-    task: DownloadTask,
-    on_progress: ProgressCallback | None = None,
-    on_done: Callable[[DownloadTask], None] | None = None,
-) -> threading.Thread:
-    parsed = parse_url(task.url)
-
-    def _run():
-        try:
-            if parsed.platform == Platform.YOUTUBE:
-                _yt_download(task, on_progress)
-            elif parsed.platform == Platform.INSTAGRAM:
-                _ig_download(task, on_progress)
-            elif parsed.platform == Platform.X:
-                _x_download(task, on_progress)
-        except _CancelledError:
-            task.status = "error"
-            task.error = "Cancelled"
-        except Exception as e:
-            task.status = "error"
-            task.error = str(e)
-
-        if on_done:
-            on_done(task)
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    return thread
 
 
 # ---- Pause-aware download (V2 queue system) ----
@@ -968,7 +1199,8 @@ def _yt_download_with_pause(task, pause_event, on_progress):
     out_name = _effective_name(task)
 
     # File conflict handling
-    out_dir = Path(task.output_dir)
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
     policy = get_file_conflict_policy()
     resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
     if resolved_stem is None:
@@ -977,7 +1209,7 @@ def _yt_download_with_pause(task, pause_event, on_progress):
         return
     out_name = resolved_stem
 
-    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
+    opts["outtmpl"] = str(out_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
 
     if task.format_id and task.format_id not in ("best", "___sep"):
@@ -1003,17 +1235,21 @@ def _yt_download_with_pause(task, pause_event, on_progress):
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([task.url])
 
+    # Verify file exists (yt-dlp rename may fail on Windows)
+    candidates = list(out_dir.glob(f"{out_name}.*"))
+    candidates = [f for f in candidates if not f.suffix.endswith(".part")]
+    if not candidates:
+        task.status = "error"
+        task.error = "下载完成但文件未生成"
+        _cleanup_empty_dir(out_dir)
+        return
+    task.filename = str(candidates[0])
     task.status = "done"
     task.progress = 100
 
 
 def _ig_download_with_pause(task, pause_event, on_progress):
-    parts = task.url.rstrip("/").split("/")
-    shortcode = parts[-1]
-    for i, p in enumerate(parts):
-        if p in ("reel", "p") and i + 1 < len(parts):
-            shortcode = parts[i + 1]
-            break
+    shortcode = _ig_shortcode_from_url(task.url)
 
     media = _ig_get_media_info(shortcode)
 
@@ -1021,16 +1257,17 @@ def _ig_download_with_pause(task, pause_event, on_progress):
     if on_progress:
         on_progress(task)
 
-    out_dir = Path(task.output_dir)
+    out_dir = _resolve_output_dir(task)
 
     # Organized mode: create per-post subdirectory
+    post_out_dir = out_dir
     if get_storage_mode() == "organized":
         post_stem = task.author or shortcode
         if task.post_time:
             post_stem = f"{post_stem}_{task.post_time}"
-        out_dir = out_dir / post_stem
+        post_out_dir = out_dir / post_stem
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    post_out_dir.mkdir(parents=True, exist_ok=True)
 
     items = _ig_media_to_items(media)
 
@@ -1041,26 +1278,36 @@ def _ig_download_with_pause(task, pause_event, on_progress):
     total = len(items)
     pad = len(str(total))
     policy = get_file_conflict_policy()
+    downloaded_any = False
     for idx, item in enumerate(items):
         ext = "mp4" if item.is_video else "jpg"
         suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
-        filename = out_dir / f"{name_stem}{suffix}.{ext}"
+        filename = post_out_dir / f"{name_stem}{suffix}.{ext}"
 
-        # File conflict handling
-        resolved = _resolve_conflict_path(filename, policy)
-        if resolved is None:
-            continue  # skip
-        filename = resolved
+        # IG: skip only if complete file exists and policy says skip
+        # Partial files are kept for resume via Range header
+        if filename.exists() and policy == "skip":
+            continue
 
-        resp = requests.get(item.url, stream=True, timeout=30)
+        resp = requests.get(item.url, stream=True, timeout=30,
+                            headers=_resume_headers(filename))
         try:
+            # Server supports resume if 206, otherwise start fresh
+            is_resume = resp.status_code == 206
+            if resp.status_code == 416:
+                # Range not satisfiable — file already complete
+                continue
             resp.raise_for_status()
 
             total_size = int(resp.headers.get("content-length", 0))
-            downloaded = 0
+            if is_resume:
+                downloaded = filename.stat().st_size
+                total_size += downloaded
+            else:
+                downloaded = 0
 
             try:
-                with open(filename, "wb") as f:
+                with open(filename, "ab" if is_resume else "wb") as f:
                     for chunk in resp.iter_content(8192):
                         if task._cancelled:
                             raise _CancelledError()
@@ -1081,38 +1328,190 @@ def _ig_download_with_pause(task, pause_event, on_progress):
                 raise
         finally:
             resp.close()
+        downloaded_any = True
+
+    if not downloaded_any:
+        _cleanup_empty_dir(post_out_dir)
 
     task.status = "done"
     task.progress = 100
-    task.filename = str(out_dir)
+    task.filename = str(post_out_dir)
 
 
-def _x_download_with_pause(task, pause_event, on_progress):
-    cookie = get_cookie_path()
-    opts = _yt_opts(cookie)
+def _x_download_direct(task, pause_event, on_progress):
+    """Download a video from a pre-resolved direct URL (e.g. X-Sou)."""
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    policy = get_file_conflict_policy()
     out_name = _effective_name(task)
 
-    # File conflict handling
-    out_dir = Path(task.output_dir)
-    policy = get_file_conflict_policy()
     resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
     if resolved_stem is None:
         task.status = "done"
         task.progress = 100
         return
-    out_name = resolved_stem
 
-    opts["outtmpl"] = str(task.output_dir / f"{out_name}.%(ext)s")
-    opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
-    opts["format"] = "best[ext=mp4]/best"
-    opts["merge_output_format"] = "mp4"
+    filename = out_dir / f"{resolved_stem}.mp4"
 
     task.status = "downloading"
     if on_progress:
         on_progress(task)
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([task.url])
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Referer": "https://x.com/",
+    }
+    resp = requests.get(task.direct_url, stream=True, timeout=30, headers=headers)
+    try:
+        if resp.status_code == 403:
+            # Video from suspended/deleted account — not downloadable
+            task.status = "error"
+            task.error = "403 Forbidden — 内容已不可用（账号可能被封禁）"
+            task.error_category = "content"
+            resp.close()
+            return
+        resp.raise_for_status()
+        total_size = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        try:
+            with open(filename, "wb") as f:
+                for chunk in resp.iter_content(8192):
+                    pause_event.wait()
+                    if task._cancelled:
+                        raise _CancelledError()
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size:
+                        task.progress = downloaded / total_size * 100
+                        task.filename = str(filename)
+                        if on_progress:
+                            on_progress(task)
+        except _CancelledError:
+            filename.unlink(missing_ok=True)
+            raise
+    finally:
+        resp.close()
+
+    task.status = "done"
+    task.progress = 100
+    task.filename = str(filename)
+
+
+def _x_download_with_pause(task, pause_event, on_progress):
+    session = _x_api_session()
+    tweet_id = _x_tweet_id_from_url(task.url)
+    tweet_result = _x_get_tweet_info(session, tweet_id)
+    items = _x_extract_tweet_media(tweet_result)
+
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    policy = get_file_conflict_policy()
+    out_name = _effective_name(task)
+
+    # Single video only — use yt-dlp for format merging
+    if len(items) == 1 and items[0].is_video:
+        resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+        if resolved_stem is None:
+            task.status = "done"
+            task.progress = 100
+            return
+        cookie = get_cookie_path()
+        opts = _yt_opts(cookie)
+        opts["outtmpl"] = str(out_dir / f"{resolved_stem}.%(ext)s")
+        opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+        opts["format"] = "best[ext=mp4]/best"
+        opts["merge_output_format"] = "mp4"
+        task.status = "downloading"
+        if on_progress:
+            on_progress(task)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([task.url])
+        # Verify file actually exists (yt-dlp may report "finished" before rename)
+        expected = out_dir / f"{resolved_stem}.mp4"
+        if not expected.exists():
+            # Check for .part or other extensions
+            candidates = list(out_dir.glob(f"{resolved_stem}.*"))
+            if not candidates:
+                task.status = "error"
+                task.error = "下载完成但文件未生成"
+                _cleanup_empty_dir(out_dir)
+                return
+        task.status = "done"
+        task.progress = 100
+        task.filename = str(expected) if expected.exists() else str(candidates[0])
+        return
+
+    # Multi-item (images + videos) — download each individually
+    total = len(items)
+    pad = len(str(total))
+    downloaded_any = False
+
+    for idx, item in enumerate(items):
+        ext = "mp4" if item.is_video else "jpg"
+        suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
+        filename = out_dir / f"{out_name}{suffix}.{ext}"
+
+        if filename.exists() and policy == "skip":
+            continue
+
+        resolved = _resolve_conflict_path(filename, policy)
+        if resolved is None:
+            continue
+        filename = resolved
+
+        if item.is_video:
+            # Download video via requests with resume
+            headers = _resume_headers(filename)
+            resp = requests.get(item.url, stream=True, timeout=30, headers=headers)
+            try:
+                is_resume = resp.status_code == 206
+                if resp.status_code == 416:
+                    continue
+                resp.raise_for_status()
+                total_size = int(resp.headers.get("content-length", 0))
+                if is_resume:
+                    downloaded = filename.stat().st_size
+                    total_size += downloaded
+                else:
+                    downloaded = 0
+                try:
+                    with open(filename, "ab" if is_resume else "wb") as f:
+                        for chunk in resp.iter_content(8192):
+                            pause_event.wait()
+                            if task._cancelled:
+                                raise _CancelledError()
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size:
+                                pct = downloaded / total_size * 100
+                                task.progress = (idx + pct / 100) / total * 100
+                                task.speed = f"{idx + 1}/{total}"
+                                task.filename = str(filename)
+                                if on_progress:
+                                    on_progress(task)
+                except _CancelledError:
+                    filename.unlink(missing_ok=True)
+                    raise
+            finally:
+                resp.close()
+        else:
+            # Download image via requests
+            resp = requests.get(item.url, timeout=30)
+            try:
+                resp.raise_for_status()
+                filename.write_bytes(resp.content)
+            finally:
+                resp.close()
+
+        downloaded_any = True
+        task.progress = (idx + 1) / total * 100
+        task.speed = f"{idx + 1}/{total}"
+        task.filename = str(filename)
+        if on_progress:
+            on_progress(task)
+
+    if not downloaded_any:
+        _cleanup_empty_dir(out_dir)
 
     task.status = "done"
     task.progress = 100
@@ -1137,9 +1536,11 @@ def start_download_with_pause(
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"
+            _cleanup_empty_dir(_resolve_output_dir(task))
         except Exception as e:
             task.status = "error"
             task.error = str(e)
+            _cleanup_empty_dir(_resolve_output_dir(task))
 
         if on_done:
             on_done(task)

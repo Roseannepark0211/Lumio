@@ -65,6 +65,7 @@ class QueueTask:
     output_dir: str = ""
     custom_name: str = ""
     batch_id: str = ""
+    direct_url: str = ""  # Pre-resolved download URL (e.g. from X-Sou)
 
     # Display metadata (frozen at enqueue time)
     title: str = ""
@@ -102,6 +103,9 @@ class QueueTask:
             author=self.author,
             post_time=self.post_time,
             format_type=self.format_type,
+            platform=self.platform,
+            batch_id=self.batch_id,
+            direct_url=self.direct_url,
         )
 
     def to_dict(self) -> dict:
@@ -113,6 +117,7 @@ class QueueTask:
             "output_dir": self.output_dir,
             "custom_name": self.custom_name,
             "batch_id": self.batch_id,
+            "direct_url": self.direct_url,
             "title": self.title,
             "platform": self.platform,
             "author": self.author,
@@ -438,10 +443,16 @@ class DownloadManager(QObject):
             self.task_progress.emit(qt.task_id, t.progress, t.speed, t.filename)
 
         def on_done(t: DownloadTask):
-            success = t.status == "done"
             qt.filename = t.filename  # sync final filename
             self._cleanup_task(qt.task_id)
-            if success:
+
+            # Verify file actually exists before marking success
+            file_valid = False
+            if t.status == "done" and qt.filename:
+                p = Path(qt.filename)
+                file_valid = p.exists() and (p.is_file() or p.is_dir())
+
+            if file_valid:
                 qt.status = TaskStatus.COMPLETED.value
                 qt.progress = 100
                 self._record_history(qt)
@@ -509,18 +520,21 @@ class DownloadManager(QObject):
 
         # Library (SQLite) — auto-ingest
         if self._library_manager:
-            item_id = self._library_manager.add_item(
-                title=qt.title,
-                author=qt.author,
-                platform=qt.platform,
-                url=qt.url,
-                file_path=qt.filename,
-                file_size=file_size,
-                post_time=qt.post_time,
-                thumbnail_url=qt.thumbnail_url or "",
-                folder_path=qt.output_dir,
-                batch_id=qt.batch_id,
-            )
+            try:
+                item_id = self._library_manager.add_item(
+                    title=qt.title,
+                    author=qt.author,
+                    platform=qt.platform,
+                    url=qt.url,
+                    file_path=qt.filename,
+                    file_size=file_size,
+                    post_time=qt.post_time,
+                    thumbnail_url=qt.thumbnail_url or "",
+                    folder_path=qt.output_dir,
+                    batch_id=qt.batch_id,
+                )
+            except Exception as e:
+                return
             item = self._library_manager.get_item(item_id)
             if item:
                 self.library_record_added.emit(item)

@@ -550,22 +550,3 @@ class LibraryPage(QWidget):
                 elif not is_in and was_in:
                     self._lm.remove_item_from_collection(item_id, cid)
             self._apply_filter()
-
-    def _on_collection_action(self, item_id: str, action: str):
-        if action.startswith("add_to_collection:"):
-            cid = int(action[18:])
-            self._lm.add_item_to_collection(item_id, cid)
-        elif action.startswith("remove_from_collection:"):
-            cid = int(action[23:])
-            self._lm.remove_item_from_collection(item_id, cid)
-        self._apply_filter()
-
-    def _on_create_collection(self):
-        from PySide6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(self, t("collection_create"), t("collection_name_label"))
-        if ok and name.strip():
-            self._lm.create_collection(name.strip())
-            self._refresh_collections()
-
-    def _refresh_collections(self):
-        pass

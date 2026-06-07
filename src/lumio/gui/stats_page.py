@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from ..history_manager import HistoryManager
 from ..i18n import t
+from ..utils.media_utils import format_size
 
 
 def _stat_card(label: str, value: str, color: str = "#7c8fff") -> QWidget:
@@ -39,15 +40,7 @@ def _stat_card(label: str, value: str, color: str = "#7c8fff") -> QWidget:
 
 
 def _format_total_size(size_bytes: int) -> str:
-    if size_bytes <= 0:
-        return "0 B"
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+    return format_size(size_bytes, zero_default="0 B")
 
 
 class StatsPage(QWidget):

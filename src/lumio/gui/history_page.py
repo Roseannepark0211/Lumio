@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..history_manager import HistoryManager, HistoryRecord
 from ..i18n import t
-from .history_panel import BatchGroupWidget, HistoryRecordWidget, _format_size
+from .history_panel import BatchGroupWidget, HistoryRecordWidget
 
 
 class HistoryPage(QWidget):
@@ -27,6 +27,7 @@ class HistoryPage(QWidget):
         self._hm = history_manager
         self._record_widgets: dict[str, HistoryRecordWidget] = {}
         self._batch_widgets: list[BatchGroupWidget] = []
+        self._batch_widget_map: dict[str, BatchGroupWidget] = {}  # batch_id -> widget
         self._build_ui()
 
     def _build_ui(self):
@@ -135,6 +136,8 @@ class HistoryPage(QWidget):
         widget = BatchGroupWidget(records)
         widget.action_requested.connect(self._on_action)
         self._batch_widgets.append(widget)
+        if records and records[0].batch_id:
+            self._batch_widget_map[records[0].batch_id] = widget
         self._list_layout.insertWidget(self._list_layout.count() - 1, widget)
 
     def _add_record_widget(self, rec: HistoryRecord):
@@ -235,6 +238,13 @@ class HistoryPage(QWidget):
 
     @Slot(HistoryRecord)
     def on_history_added(self, record: HistoryRecord):
-        self._add_record_widget(record)
+        if record.batch_id:
+            existing = self._batch_widget_map.get(record.batch_id)
+            if existing:
+                existing.add_record(record)
+            else:
+                self._add_batch_widget([record])
+        else:
+            self._add_record_widget(record)
         self._update_empty()
         self._apply_filter()

@@ -112,9 +112,11 @@ class MainWindow(QMainWindow):
 
         # Home page -> batch dialogs
         self._home_page.request_batch_dialog.connect(self._on_batch_dialog)
+        self._home_page.search_batch_added.connect(self._on_search_batch_added)
 
         # History: new record added -> update history page + stats
         self._manager.history_record_added.connect(self._history_page.on_history_added)
+        self._manager.history_record_added.connect(lambda _: self._stats_page.refresh())
 
         # Library: new item added -> update library page
         self._manager.library_record_added.connect(self._library_page.on_item_added)
@@ -129,8 +131,9 @@ class MainWindow(QMainWindow):
         self._sidebar.collection_delete_requested.connect(self._on_delete_collection)
         self._library_manager.collection_changed.connect(self._refresh_sidebar_collections)
 
-        # Settings: restart
+        # Settings: restart + save toast
         self._settings_page.restart_requested.connect(self._restart_app)
+        self._settings_page.saved.connect(lambda: self._show_toast(t("settings_saved")))
 
         # Load existing collections into sidebar
         self._refresh_sidebar_collections()
@@ -256,6 +259,8 @@ class MainWindow(QMainWindow):
             self._open_profile_dialog(arg)
         elif dialog_type == "youtube":
             self._open_yt_dialog(arg, tab=tab)
+        elif dialog_type == "x":
+            self._open_x_dialog(arg)
 
     def _open_profile_dialog(self, username: str):
         from .profile_dialog import ProfileDialog
@@ -271,6 +276,12 @@ class MainWindow(QMainWindow):
         self._sidebar.set_active("downloads")
         self._stack.setCurrentIndex(1)
 
+    @Slot(int)
+    def _on_search_batch_added(self, count: int):
+        self._show_toast(t("batch_added", n=count))
+        self._sidebar.set_active("downloads")
+        self._stack.setCurrentIndex(1)
+
     def _open_yt_dialog(self, url: str, tab: str = ""):
         from .yt_dialog import YouTubeDialog
         dlg = YouTubeDialog(url, tab=tab, parent=self)
@@ -279,6 +290,20 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_yt_batch_add(self, tasks):
+        for qt in tasks:
+            self._manager.add_task(qt)
+        self._show_toast(t("batch_added", n=len(tasks)))
+        self._sidebar.set_active("downloads")
+        self._stack.setCurrentIndex(1)
+
+    def _open_x_dialog(self, username: str):
+        from .x_dialog import XTimelineDialog
+        dlg = XTimelineDialog(username, self)
+        dlg.batch_add_requested.connect(self._on_x_batch_add)
+        dlg.exec()
+
+    @Slot(object)
+    def _on_x_batch_add(self, tasks):
         for qt in tasks:
             self._manager.add_task(qt)
         self._show_toast(t("batch_added", n=len(tasks)))

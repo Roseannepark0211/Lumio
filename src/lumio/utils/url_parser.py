@@ -33,6 +33,7 @@ _INSTAGRAM_PATTERNS = [
 _X_PATTERNS = [
     (re.compile(r"(?:x\.com|twitter\.com)/[\w.]+/status/\d+"), "tweet"),
     (re.compile(r"(?:x\.com|twitter\.com)/i/status/\d+"), "tweet"),
+    (re.compile(r"(?:x\.com|twitter\.com)/([\w.]+)/?$"), "profile"),
 ]
 
 

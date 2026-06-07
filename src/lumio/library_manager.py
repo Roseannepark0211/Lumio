@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -163,6 +162,7 @@ class LibraryManager(QObject):
                 session.commit()
         finally:
             session.close()
+        self.collection_changed.emit()
 
     # ---- Favorites ----
 
@@ -315,13 +315,6 @@ class LibraryManager(QObject):
         finally:
             session.close()
 
-    def hash_exists(self, content_hash: str) -> bool:
-        session = self._session()
-        try:
-            return session.query(LibraryItem).filter_by(content_hash=content_hash).first() is not None
-        finally:
-            session.close()
-
     def compute_content_hash(self, file_path: str) -> str:
         """Compute content hash. Images: full MD5. Video/audio: first 1MB + size."""
         import hashlib
@@ -377,22 +370,6 @@ class LibraryManager(QObject):
                 if h:
                     self.set_content_hash(item.id, h)
 
-    def find_duplicates(self) -> dict[str, list[str]]:
-        """Return {hash: [item_ids]} for items with duplicate content hashes."""
-        session = self._session()
-        try:
-            items = session.query(LibraryItem).filter(
-                LibraryItem.content_hash.isnot(None),
-                LibraryItem.content_hash != "",
-            ).all()
-            from collections import defaultdict
-            groups: dict[str, list[str]] = defaultdict(list)
-            for item in items:
-                groups[item.content_hash].append(item.id)
-            return {h: ids for h, ids in groups.items() if len(ids) > 1}
-        finally:
-            session.close()
-
     # ---- Batch info ----
 
     def get_all_batch_ids(self) -> list[str]:
@@ -426,6 +403,7 @@ class LibraryManager(QObject):
             session.commit()
         finally:
             session.close()
+        self.collection_changed.emit()
 
     # ---- Search ----
 
@@ -461,9 +439,13 @@ class LibraryManager(QObject):
             if collection_id is not None:
                 q = q.join(ItemCollection).filter(ItemCollection.collection_id == collection_id)
             if date_from:
-                q = q.filter(LibraryItem.post_time >= date_from)
+                q = q.filter(
+                    (LibraryItem.post_time >= date_from) | (LibraryItem.post_time == "")
+                )
             if date_to:
-                q = q.filter(LibraryItem.post_time <= date_to + "z")
+                q = q.filter(
+                    (LibraryItem.post_time <= date_to + "z") | (LibraryItem.post_time == "")
+                )
             if batch_id:
                 q = q.filter(LibraryItem.batch_id == batch_id)
             items = q.order_by(LibraryItem.created_at.desc()).all()

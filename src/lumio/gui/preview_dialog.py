@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygon
+from PySide6.QtGui import QColor, QPainter, QPixmap, QPolygon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -387,7 +387,11 @@ class VideoPreviewDialog(QDialog):
         self._player.setAudioOutput(self._audio)
         self._player.setVideoOutput(self._video)
         self._player.errorOccurred.connect(self._on_error)
-        self._player.setSource(QUrl.fromLocalFile(file_path))
+        if file_path.startswith(("http://", "https://")):
+            self.setWindowTitle(file_path.split("/")[-1][:40])
+            self._player.setSource(QUrl(file_path))
+        else:
+            self._player.setSource(QUrl.fromLocalFile(file_path))
         self._player.play()
 
         # Controls
@@ -453,7 +457,11 @@ class AudioPreviewDialog(QDialog):
         self._player = QMediaPlayer()
         self._player.setAudioOutput(self._audio)
         self._player.errorOccurred.connect(self._on_error)
-        self._player.setSource(QUrl.fromLocalFile(file_path))
+        if file_path.startswith(("http://", "https://")):
+            self.setWindowTitle(file_path.split("/")[-1][:40])
+            self._player.setSource(QUrl(file_path))
+        else:
+            self._player.setSource(QUrl.fromLocalFile(file_path))
         self._player.play()
 
         # Controls

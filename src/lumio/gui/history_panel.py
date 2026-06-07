@@ -14,18 +14,7 @@ from PySide6.QtWidgets import (
 
 from ..history_manager import HistoryRecord
 from ..i18n import t
-
-
-def _format_size(size_bytes: int) -> str:
-    if size_bytes <= 0:
-        return "—"
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+from ..utils.media_utils import format_size as _format_size
 
 
 def _platform_badge(platform: str) -> tuple[str, str]:
@@ -316,6 +305,24 @@ class BatchGroupWidget(QFrame):
         self._expanded = not self._expanded
         self._children_widget.setVisible(self._expanded)
         self._arrow.setText("▼" if self._expanded else "▶")
+
+    def add_record(self, record):
+        """Add a new record to this batch group (for real-time updates)."""
+        self._records.append(record)
+        child = HistoryRecordWidget(record)
+        child.action_requested.connect(self.action_requested)
+        self._children_layout.addWidget(child)
+        # Update count label
+        count_lbl = self._header.findChild(QLabel)  # find count label by layout position
+        # Simpler: just update the title text
+        for i in range(self._header.layout().count()):
+            item = self._header.layout().itemAt(i)
+            if item and item.layout():
+                for j in range(item.layout().count()):
+                    w = item.layout().itemAt(j).widget()
+                    if isinstance(w, QLabel) and t("batch_items") in w.text():
+                        w.setText(f"{len(self._records)} {t('batch_items')}")
+                        break
 
     def _open_dir(self):
         if self._records:

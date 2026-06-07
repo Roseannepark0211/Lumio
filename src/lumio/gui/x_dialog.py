@@ -20,13 +20,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..downloader import enumerate_profile_posts, fetch_profile_info, _post_to_queue_task
+from ..downloader import enumerate_x_tweets, fetch_x_profile_info, _x_tweet_to_queue_task
 from ..i18n import t
 from ..utils.config import get_download_dir
 
 
-class _ProfileInfoWorker(QThread):
-    finished = Signal(object)  # dict or Exception
+class _XInfoWorker(QThread):
+    finished = Signal(object)
 
     def __init__(self, username: str):
         super().__init__()
@@ -34,15 +34,15 @@ class _ProfileInfoWorker(QThread):
 
     def run(self):
         try:
-            info = fetch_profile_info(self._username)
+            info = fetch_x_profile_info(self._username)
             self.finished.emit(info)
         except Exception as e:
             self.finished.emit(e)
 
 
-class _ProfileEnumerateWorker(QThread):
-    progress = Signal(int, int)  # current, total
-    finished = Signal(object)  # list[Post] or Exception
+class _XEnumerateWorker(QThread):
+    progress = Signal(int, int)
+    finished = Signal(object)
 
     def __init__(self, username: str, limit: int, cancel_event: threading.Event):
         super().__init__()
@@ -52,28 +52,28 @@ class _ProfileEnumerateWorker(QThread):
 
     def run(self):
         try:
-            posts = enumerate_profile_posts(
+            tweets = enumerate_x_tweets(
                 self._username,
                 self._limit,
                 callback=lambda cur, tot: self.progress.emit(cur, tot),
                 cancel_event=self._cancel_event,
             )
-            self.finished.emit(posts)
+            self.finished.emit(tweets)
         except Exception as e:
             self.finished.emit(e)
 
 
-class ProfileDialog(QDialog):
-    batch_add_requested = Signal(object)  # list[QueueTask]
+class XTimelineDialog(QDialog):
+    batch_add_requested = Signal(object)
 
     def __init__(self, username: str, parent: QWidget | None = None):
         super().__init__(parent)
         self._username = username
         self._profile_info: dict | None = None
         self._cancel_event = threading.Event()
-        self._enumerate_worker: _ProfileEnumerateWorker | None = None
+        self._enumerate_worker: _XEnumerateWorker | None = None
 
-        self.setWindowTitle(t("profile_dialog_title"))
+        self.setWindowTitle(t("x_dialog_title"))
         self.setMinimumWidth(460)
         self.setModal(True)
         self._build_ui()
@@ -88,7 +88,6 @@ class ProfileDialog(QDialog):
         header = QHBoxLayout()
         self._pic_label = QLabel()
         self._pic_label.setFixedSize(64, 64)
-        self._pic_label.setObjectName("profile_pic")
         self._pic_label.setStyleSheet(
             "background-color: #12141c; border: 2px solid #2a2e3a; border-radius: 32px;"
         )
@@ -112,7 +111,7 @@ class ProfileDialog(QDialog):
         root.addLayout(header)
 
         # ---- Settings group ----
-        settings_group = QGroupBox(t("profile_posts_label"))
+        settings_group = QGroupBox(t("x_tweets_label"))
         sg = QVBoxLayout(settings_group)
 
         range_row = QHBoxLayout()
@@ -138,7 +137,7 @@ class ProfileDialog(QDialog):
 
         root.addWidget(settings_group)
 
-        # ---- Progress section (hidden initially) ----
+        # ---- Progress section ----
         self._progress_widget = QWidget()
         pv = QVBoxLayout(self._progress_widget)
         pv.setContentsMargins(0, 0, 0, 0)
@@ -168,17 +167,14 @@ class ProfileDialog(QDialog):
         root.addLayout(btn_row)
 
     def _start_fetch_info(self):
-        self._info_worker = _ProfileInfoWorker(self._username)
+        self._info_worker = _XInfoWorker(self._username)
         self._info_worker.finished.connect(self._on_info_done)
         self._info_worker.start()
 
     @Slot(object)
     def _on_info_done(self, result):
         if isinstance(result, Exception):
-            err_msg = str(result)
-            if "429" in err_msg:
-                err_msg = t("profile_rate_limited")
-            QMessageBox.warning(self, t("error"), t("profile_error", err=err_msg))
+            QMessageBox.warning(self, t("error"), t("profile_error", err=str(result)))
             self.reject()
             return
 
@@ -196,7 +192,6 @@ class ProfileDialog(QDialog):
         self._to_spin.setEnabled(True)
         self._add_btn.setEnabled(True)
 
-        # Load profile pic
         pic_url = result.get("profile_pic_url")
         if pic_url:
             self._load_pic(pic_url)
@@ -258,7 +253,7 @@ class ProfileDialog(QDialog):
         self._name_input.setEnabled(False)
 
         self._cancel_event.clear()
-        self._enumerate_worker = _ProfileEnumerateWorker(
+        self._enumerate_worker = _XEnumerateWorker(
             self._username, end, self._cancel_event
         )
         self._enumerate_worker.progress.connect(self._on_enumerate_progress)
@@ -278,14 +273,8 @@ class ProfileDialog(QDialog):
             self._reset_controls()
             return
 
-        if isinstance(result, list) and self._cancel_event.is_set():
-            if not result:
-                QMessageBox.information(self, t("profile_cancelled"), t("profile_cancelled"))
-                self._reset_controls()
-                return
-
-        posts = result
-        if not posts:
+        tweets = result
+        if not tweets:
             QMessageBox.information(self, t("profile_no_posts"), t("profile_no_posts"))
             self._reset_controls()
             return
@@ -295,13 +284,13 @@ class ProfileDialog(QDialog):
         end = self._to_spin.value()
         if start > end:
             start, end = end, start
-        posts = posts[start - 1:end]
+        tweets = tweets[start - 1:end]
 
         custom_name = self._name_input.text().strip() or f"@{self._username}"
         output_dir = Path(get_download_dir())
         batch_id = uuid.uuid4().hex[:12]
 
-        tasks = [_post_to_queue_task(p, custom_name, output_dir, batch_id=batch_id) for p in posts]
+        tasks = [_x_tweet_to_queue_task(tw, custom_name, output_dir, batch_id=batch_id) for tw in tweets]
 
         self.batch_add_requested.emit(tasks)
         self.accept()

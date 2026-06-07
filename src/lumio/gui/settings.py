@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -135,10 +134,10 @@ class SettingsDialog(QDialog):
     def _update_ig_cookie_status(self):
         from .cookie_checker import check_ig_cookie_status
         status = check_ig_cookie_status()
-        if status == "已配置":
+        if status == "valid":
             self._ig_cookie_status.setText(t("cookie_valid"))
             self._ig_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
+        elif status == "expired":
             self._ig_cookie_status.setText(t("cookie_expired"))
             self._ig_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
         else:
@@ -148,10 +147,10 @@ class SettingsDialog(QDialog):
     def _update_x_cookie_status(self):
         from .cookie_checker import check_x_cookie_status
         status = check_x_cookie_status()
-        if status == "已配置":
+        if status == "valid":
             self._x_cookie_status.setText(t("cookie_valid"))
             self._x_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
+        elif status == "expired":
             self._x_cookie_status.setText(t("cookie_expired"))
             self._x_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
         else:
@@ -161,10 +160,10 @@ class SettingsDialog(QDialog):
     def _update_yt_cookie_status(self):
         from .cookie_checker import check_yt_cookie_status
         status = check_yt_cookie_status()
-        if status == "已配置":
+        if status == "valid":
             self._yt_cookie_status.setText(t("cookie_valid"))
             self._yt_cookie_status.setStyleSheet("color: #10b981; font-weight: 600;")
-        elif status == "已失效":
+        elif status == "expired":
             self._yt_cookie_status.setText(t("cookie_expired"))
             self._yt_cookie_status.setStyleSheet("color: #f87171; font-weight: 600;")
         else:
@@ -193,16 +192,39 @@ class SettingsDialog(QDialog):
             cfg = load_config()
             dest = Path(cfg["cookie_file"])
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dest)
+
+            def _parse_cookies(filepath: Path) -> dict[tuple[str, str], str]:
+                cookies = {}
+                if filepath.exists():
+                    for line in filepath.read_text(encoding="utf-8", errors="replace").splitlines():
+                        line = line.rstrip("\n")
+                        if not line or line.startswith("#"):
+                            continue
+                        parts = line.split("\t")
+                        if len(parts) >= 6:
+                            cookies[(parts[0], parts[5])] = line
+                return cookies
+
+            existing = _parse_cookies(dest)
+            new = _parse_cookies(Path(path))
+            existing.update(new)
+            header_lines = []
+            for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("#"):
+                    header_lines.append(line)
+                else:
+                    break
+            merged = "\n".join(header_lines + list(existing.values())) + "\n"
+            dest.write_text(merged, encoding="utf-8")
 
             # Validate after import
             from .cookie_checker import check_ig_cookie_status, check_x_cookie_status
             ig_status = check_ig_cookie_status()
             x_status = check_x_cookie_status()
-            if ig_status == "已配置" or x_status == "已配置":
+            if ig_status == "valid" or x_status == "valid":
                 self._hint_label.setText(t("cookie_imported"))
                 self._hint_label.setStyleSheet("color: #10b981;")
-            elif ig_status == "已失效" or x_status == "已失效":
+            elif ig_status == "expired" or x_status == "expired":
                 self._hint_label.setText(f"{t('cookie_imported')} — {t('cookie_expired')}")
                 self._hint_label.setStyleSheet("color: #fbbf24;")
             else:
