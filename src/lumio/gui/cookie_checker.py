@@ -77,6 +77,15 @@ def check_all_cookies() -> dict[str, str]:
     }
 
 
+def check_apify_token_status() -> str:
+    """Check if Apify API token is configured.
+    Returns: 'missing' (no token) | 'valid' (token set).
+    Actual connectivity validation is done via ApifyIGClient.test_connection().
+    """
+    from ..utils.config import get_apify_token
+    return "valid" if get_apify_token() else "missing"
+
+
 class CookieCheckWorker(QThread):
     """Background thread for non-blocking cookie status check."""
 

@@ -237,61 +237,218 @@ class SettingsPage(QWidget):
 
         inner.addWidget(dl_group)
 
-        # ---- Cookie section ----
-        cookie_group = QGroupBox(t("cookie_mgmt"))
-        cg = QVBoxLayout(cookie_group)
+        # ---- Platform Credentials section ----
+        cred_group = QGroupBox(t("platform_credentials"))
+        cg = QVBoxLayout(cred_group)
+        cg.setSpacing(14)
 
-        # Instagram
-        ig_row = QHBoxLayout()
-        ig_row.addWidget(QLabel("Instagram:"))
-        self._ig_cookie_status = QLabel()
-        self._ig_cookie_status.setMinimumWidth(150)
-        self._ig_cookie_status.setContentsMargins(4, 0, 4, 0)
+        cfg_cred = load_config()
+
+        # Helper to build a platform credential block
+        def _add_platform_block(
+            label: str,
+            platform_key: str,
+            has_api: bool,
+            cookie_hint: str,
+            cookie_check_fn: str,
+        ):
+            # Header row: platform name + mode selector
+            header = QHBoxLayout()
+            name_lbl = QLabel(label)
+            name_lbl.setMinimumWidth(110)
+            header.addWidget(name_lbl)
+            header.addStretch()
+
+            mode_combo = NoWheelComboBox()
+            mode_combo.addItem(t("mode_cookie"), "cookie")
+            if has_api:
+                mode_combo.addItem(t("mode_api"), "api")
+            else:
+                mode_combo.addItem(t("mode_api_soon"), "api")
+                mode_combo.model().item(1).setEnabled(False)
+            # Restore saved mode
+            saved_mode = cfg_cred.get(f"{platform_key}_mode", "cookie")
+            idx = mode_combo.findData(saved_mode)
+            if idx >= 0:
+                mode_combo.setCurrentIndex(idx)
+            header.addWidget(mode_combo)
+            cg.addLayout(header)
+
+            # Cookie panel
+            cookie_panel = QWidget()
+            cp_layout = QVBoxLayout(cookie_panel)
+            cp_layout.setContentsMargins(16, 4, 0, 4)
+            cp_layout.setSpacing(6)
+
+            status_row = QHBoxLayout()
+            status_lbl = QLabel()
+            status_lbl.setMinimumWidth(150)
+            status_lbl.setContentsMargins(4, 0, 4, 0)
+            status_row.addWidget(status_lbl)
+            status_row.addStretch()
+
+            import_btn = QPushButton(t("cookie_import"))
+            import_btn.setObjectName("secondary")
+            import_btn.setFixedHeight(28)
+            status_row.addWidget(import_btn)
+            reset_btn = QPushButton(t("cookie_reset"))
+            reset_btn.setObjectName("secondary")
+            reset_btn.setFixedHeight(28)
+            status_row.addWidget(reset_btn)
+            cp_layout.addLayout(status_row)
+
+            hint = QLabel(cookie_hint)
+            hint.setObjectName("muted")
+            hint.setContentsMargins(4, 0, 0, 0)
+            cp_layout.addWidget(hint)
+
+            cg.addWidget(cookie_panel)
+
+            # API panel
+            api_panel = QWidget()
+            ap_layout = QVBoxLayout(api_panel)
+            ap_layout.setContentsMargins(16, 4, 0, 4)
+            ap_layout.setSpacing(8)
+
+            if has_api:
+                # Token input
+                token_row = QHBoxLayout()
+                token_row.addWidget(QLabel(f"{t('apify_token')}:"))
+                token_input = QLineEdit()
+                token_input.setEchoMode(QLineEdit.EchoMode.Password)
+                token_input.setPlaceholderText("apify_api_...")
+                token_input.setText(cfg_cred.get("apify_token", ""))
+                token_row.addWidget(token_input, 1)
+                ap_layout.addLayout(token_row)
+
+                # Actor ID input
+                actor_row = QHBoxLayout()
+                actor_row.addWidget(QLabel(f"{t('apify_actor_id')}:"))
+                actor_input = QLineEdit()
+                actor_input.setPlaceholderText("shu8hvrXbJbY3Eb9W")
+                actor_input.setText(cfg_cred.get("apify_ig_actor", ""))
+                actor_row.addWidget(actor_input, 1)
+                ap_layout.addLayout(actor_row)
+
+                # Validate button + status
+                val_row = QHBoxLayout()
+                val_row.addStretch()
+                conn_status = QLabel()
+                conn_status.setObjectName("muted")
+                val_row.addWidget(conn_status)
+                val_btn = QPushButton(t("apify_validate"))
+                val_btn.setFixedHeight(28)
+                val_row.addWidget(val_btn)
+                ap_layout.addLayout(val_row)
+            else:
+                coming = QLabel(t("mode_api_soon"))
+                coming.setObjectName("muted")
+                coming.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                ap_layout.addWidget(coming)
+
+            api_panel.setVisible(saved_mode == "api")
+            cookie_panel.setVisible(saved_mode != "api")
+            cg.addWidget(api_panel)
+
+            # Wire mode switch
+            def _on_mode_changed(idx, cp=cookie_panel, ap=api_panel):
+                mode = mode_combo.currentData()
+                cp.setVisible(mode == "cookie")
+                ap.setVisible(mode == "api")
+
+            mode_combo.currentIndexChanged.connect(_on_mode_changed)
+
+            return {
+                "mode_combo": mode_combo,
+                "status_lbl": status_lbl,
+                "import_btn": import_btn,
+                "reset_btn": reset_btn,
+                "cookie_panel": cookie_panel,
+                "api_panel": api_panel,
+                "token_input": token_input if has_api else None,
+                "actor_input": actor_input if has_api else None,
+                "val_btn": val_btn if has_api else None,
+                "conn_status": "conn_status" if has_api else None,
+            }
+
+        self._ig_cred = _add_platform_block(
+            "Instagram:", "instagram", True,
+            t("ig_cookie_hint"), "check_ig_cookie_status",
+        )
+        self._x_cred = _add_platform_block(
+            "X (Twitter):", "x", False,
+            t("x_cookie_hint"), "check_x_cookie_status",
+        )
+        self._yt_cred = _add_platform_block(
+            "YouTube:", "yt", False,
+            t("yt_cookie_hint"), "check_yt_cookie_status",
+        )
+
+        # Wire cookie status updates + import
         self._update_ig_cookie_status()
-        ig_row.addWidget(self._ig_cookie_status)
-        ig_row.addStretch()
-        cg.addLayout(ig_row)
-
-        # X
-        x_row = QHBoxLayout()
-        x_row.addWidget(QLabel("X (Twitter):"))
-        self._x_cookie_status = QLabel()
-        self._x_cookie_status.setMinimumWidth(150)
-        self._x_cookie_status.setContentsMargins(4, 0, 4, 0)
         self._update_x_cookie_status()
-        x_row.addWidget(self._x_cookie_status)
-        x_row.addStretch()
-        cg.addLayout(x_row)
-
-        # YouTube
-        yt_row = QHBoxLayout()
-        yt_row.addWidget(QLabel("YouTube:"))
-        self._yt_cookie_status = QLabel()
-        self._yt_cookie_status.setMinimumWidth(150)
-        self._yt_cookie_status.setContentsMargins(4, 0, 4, 0)
         self._update_yt_cookie_status()
-        yt_row.addWidget(self._yt_cookie_status)
-        yt_row.addStretch()
-        cg.addLayout(yt_row)
+        self._ig_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._x_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._yt_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._ig_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("instagram"))
+        self._x_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("x"))
+        self._yt_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("youtube"))
 
-        import_row = QHBoxLayout()
-        import_row.addStretch()
+        # Wire IG API validation
+        def _on_validate_apify():
+            from ..utils.config import get_apify_token
+            token = self._ig_cred["token_input"].text().strip()
+            actor_id = self._ig_cred["actor_input"].text().strip()
+            if not token:
+                self._ig_cred_val_status.setText(f"⚠ {t('apify_token_empty')}")
+                return
+            if not actor_id:
+                self._ig_cred_val_status.setText(f"⚠ {t('apify_actor_empty')}")
+                return
+            self._ig_cred["val_btn"].setEnabled(False)
+            self._ig_cred_val_status.setText(f"⏳ {t('apify_validating')}")
+
+            def _do():
+                try:
+                    # Temporarily save token so client can read it
+                    cfg_tmp = load_config()
+                    cfg_tmp["apify_token"] = token
+                    cfg_tmp["apify_ig_actor"] = actor_id
+                    save_config(cfg_tmp)
+                    from ..apify_client import ApifyIGClient
+                    client = ApifyIGClient(token, actor_id)
+                    ok = client.test_connection()
+                    self._ig_cred["val_btn"].setEnabled(True)
+                    if ok:
+                        self._ig_cred_val_status.setText(f"✅ {t('apify_connected')}")
+                    else:
+                        self._ig_cred_val_status.setText(f"❌ {t('apify_validate_fail')}")
+                except Exception:
+                    self._ig_cred["val_btn"].setEnabled(True)
+                    self._ig_cred_val_status.setText(f"❌ {t('apify_validate_fail')}")
+
+            import threading
+            threading.Thread(target=_do, daemon=True).start()
+
+        self._ig_cred_val_status = self._ig_cred["conn_status"]
+        self._ig_cred["val_btn"].clicked.connect(_on_validate_apify)
+
+        # Check all button
+        check_row = QHBoxLayout()
+        check_row.addStretch()
         check_btn = QPushButton(t("cookie_check"))
         check_btn.setObjectName("secondary")
         check_btn.clicked.connect(self._on_check_cookies)
-        import_row.addWidget(check_btn)
-        self._import_btn = QPushButton(t("cookie_import"))
-        self._import_btn.setObjectName("secondary")
-        self._import_btn.clicked.connect(self._on_import_cookie)
-        import_row.addWidget(self._import_btn)
-        cg.addLayout(import_row)
+        check_row.addWidget(check_btn)
+        cg.addLayout(check_row)
 
         self._hint_label = QLabel("")
         self._hint_label.setObjectName("muted")
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cg.addWidget(self._hint_label)
 
-        inner.addWidget(cookie_group)
+        inner.addWidget(cred_group)
 
         # ---- Telegram section ----
         tg_group = QGroupBox(t("telegram_integration"))
@@ -461,15 +618,15 @@ class SettingsPage(QWidget):
 
     def _update_ig_cookie_status(self):
         from .cookie_checker import check_ig_cookie_status
-        self._set_cookie_label(self._ig_cookie_status, check_ig_cookie_status())
+        self._set_cookie_label(self._ig_cred["status_lbl"], check_ig_cookie_status())
 
     def _update_x_cookie_status(self):
         from .cookie_checker import check_x_cookie_status
-        self._set_cookie_label(self._x_cookie_status, check_x_cookie_status())
+        self._set_cookie_label(self._x_cred["status_lbl"], check_x_cookie_status())
 
     def _update_yt_cookie_status(self):
         from .cookie_checker import check_yt_cookie_status
-        self._set_cookie_label(self._yt_cookie_status, check_yt_cookie_status())
+        self._set_cookie_label(self._yt_cred["status_lbl"], check_yt_cookie_status())
 
     def _on_check_cookies(self):
         self._update_ig_cookie_status()
@@ -489,7 +646,22 @@ class SettingsPage(QWidget):
         cfg["telegram_enabled"] = self._tg_enable.isChecked()
         cfg["telegram_bot_token"] = self._tg_token_input.text().strip()
         cfg["telegram_api_base"] = self._tg_api_input.text().strip() or "https://api.telegram.org"
+        # Platform credentials
+        cfg["instagram_mode"] = self._ig_cred["mode_combo"].currentData() or "cookie"
+        cfg["x_mode"] = self._x_cred["mode_combo"].currentData() or "cookie"
+        cfg["youtube_mode"] = self._yt_cred["mode_combo"].currentData() or "cookie"
+        old_token = cfg.get("apify_token", "")
+        new_token = self._ig_cred["token_input"].text().strip() if self._ig_cred["token_input"] else ""
+        cfg["apify_token"] = new_token
+        cfg["apify_ig_actor"] = self._ig_cred["actor_input"].text().strip()
         save_config(cfg)
+        # Reset cached Apify client if token or actor changed
+        if old_token != new_token:
+            try:
+                from ..downloader import reset_apify_client
+                reset_apify_client()
+            except Exception:
+                pass
         self._hint_label.setText(t("settings_saved"))
         self.saved.emit()
 
@@ -547,6 +719,20 @@ class SettingsPage(QWidget):
         p = str(get_download_dir())
         os.makedirs(p, exist_ok=True)
         os.startfile(p)
+
+    @Slot()
+    def _on_reset_cookie(self, platform: str = ""):
+        from pathlib import Path as _Path
+        from ..utils.config import load_config as _lc
+        cfg = _lc()
+        cookie_file = cfg.get("cookie_file") or str(_Path.home() / ".lumio" / "cookies.txt")
+        p = _Path(cookie_file)
+        if p.exists():
+            p.unlink()
+        self._update_ig_cookie_status()
+        self._update_x_cookie_status()
+        self._update_yt_cookie_status()
+        self._hint_label.setText(t("cookie_reset_done"))
 
     @Slot()
     def _on_import_cookie(self):

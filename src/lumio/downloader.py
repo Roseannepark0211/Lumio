@@ -12,8 +12,31 @@ import http.cookiejar
 import requests
 import yt_dlp
 
-from .utils.config import get_cookie_path, get_file_conflict_policy, get_storage_mode
+from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
+
+# --- Apify client singleton (lazy-init, reset on token change) ---
+_apify_client_instance = None
+
+
+def _get_apify_client():
+    global _apify_client_instance
+    if _apify_client_instance is None:
+        from .apify_client import ApifyIGClient
+        from .utils.config import get_apify_token, load_config
+        token = get_apify_token()
+        actor_id = load_config().get("apify_ig_actor", "")
+        if not token or not actor_id:
+            raise ValueError("Apify Token 或 Actor ID 未配置，请在设置页面填写")
+        _apify_client_instance = ApifyIGClient(token=token, actor_id=actor_id)
+    return _apify_client_instance
+
+
+def reset_apify_client():
+    """Clear cached Apify client (called when token/actor config changes)."""
+    global _apify_client_instance
+    _apify_client_instance = None
+
 
 # --- Conflict ask callback (set by Downloader instance) ---
 _conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
@@ -379,6 +402,8 @@ def _ig_search_user(session: requests.Session, username: str) -> dict:
 
 def fetch_profile_info(username: str) -> dict:
     """Return profile metadata via GraphQL search API."""
+    if get_platform_mode("instagram") == "api":
+        return _get_apify_client().fetch_profile_info(username)
     session = _ig_api_session()
     user = _ig_search_user(session, username)
     return {
@@ -392,6 +417,8 @@ def fetch_profile_info(username: str) -> dict:
 
 def enumerate_profile_posts(username: str, limit: int, callback=None, cancel_event=None) -> list:
     """Return up to `limit` post dicts via mobile feed API with pagination."""
+    if get_platform_mode("instagram") == "api":
+        return _get_apify_client().enumerate_profile_posts(username, limit, callback, cancel_event)
     session = _ig_api_session()
 
     # Get user_id from search
@@ -1044,6 +1071,8 @@ def extract_info(url: str) -> VideoInfo:
     if parsed.platform == Platform.YOUTUBE:
         return _yt_extract_info(url)
     elif parsed.platform == Platform.INSTAGRAM:
+        if get_platform_mode("instagram") == "api":
+            return _get_apify_client().extract_post_info(url)
         return _ig_extract_info(url)
     elif parsed.platform == Platform.X:
         return _x_extract_info(url)
@@ -1312,6 +1341,93 @@ def _ig_download_with_pause(task, pause_event, on_progress):
                         if task._cancelled:
                             raise _CancelledError()
                         pause_event.wait()  # blocks when paused
+                        if task._cancelled:
+                            raise _CancelledError()
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size:
+                            item_pct = downloaded / total_size * 100
+                            task.progress = (idx + item_pct / 100) / total * 100
+                            task.speed = f"{idx + 1}/{total}"
+                            task.filename = str(filename)
+                            if on_progress:
+                                on_progress(task)
+            except _CancelledError:
+                filename.unlink(missing_ok=True)
+                raise
+        finally:
+            resp.close()
+        downloaded_any = True
+
+    if not downloaded_any:
+        _cleanup_empty_dir(post_out_dir)
+
+    task.status = "done"
+    task.progress = 100
+    task.filename = str(post_out_dir)
+
+
+def _apify_download_with_pause(task, pause_event, on_progress):
+    """Download IG post via Apify API (replaces _ig_download_with_pause in API mode)."""
+    info = _get_apify_client().extract_post_info(task.url)
+    if not info.items:
+        raise ValueError("Apify returned no media items")
+
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+
+    out_dir = _resolve_output_dir(task)
+
+    # Organized mode: create per-post subdirectory
+    shortcode = _ig_shortcode_from_url(task.url) or "unknown"
+    post_out_dir = out_dir
+    if get_storage_mode() == "organized":
+        post_stem = task.author or shortcode
+        if task.post_time:
+            post_stem = f"{post_stem}_{task.post_time}"
+        post_out_dir = out_dir / post_stem
+
+    post_out_dir.mkdir(parents=True, exist_ok=True)
+
+    items = info.items
+    name_stem = _safe_filename(task.custom_name or task.author or shortcode)
+    if task.post_time:
+        name_stem = f"{name_stem}_{task.post_time}"
+    total = len(items)
+    pad = len(str(total))
+    policy = get_file_conflict_policy()
+    downloaded_any = False
+
+    for idx, item in enumerate(items):
+        ext = "mp4" if item.is_video else "jpg"
+        suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
+        filename = post_out_dir / f"{name_stem}{suffix}.{ext}"
+
+        if filename.exists() and policy == "skip":
+            continue
+
+        resp = requests.get(item.url, stream=True, timeout=30,
+                            headers=_resume_headers(filename))
+        try:
+            is_resume = resp.status_code == 206
+            if resp.status_code == 416:
+                continue
+            resp.raise_for_status()
+
+            total_size = int(resp.headers.get("content-length", 0))
+            if is_resume:
+                downloaded = filename.stat().st_size
+                total_size += downloaded
+            else:
+                downloaded = 0
+
+            try:
+                with open(filename, "ab" if is_resume else "wb") as f:
+                    for chunk in resp.iter_content(8192):
+                        if task._cancelled:
+                            raise _CancelledError()
+                        pause_event.wait()
                         if task._cancelled:
                             raise _CancelledError()
                         f.write(chunk)
@@ -1634,7 +1750,10 @@ def start_download_with_pause(
             elif parsed.platform == Platform.YOUTUBE:
                 _yt_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.INSTAGRAM:
-                _ig_download_with_pause(task, pause_event, on_progress)
+                if get_platform_mode("instagram") == "api":
+                    _apify_download_with_pause(task, pause_event, on_progress)
+                else:
+                    _ig_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.X:
                 _x_download_with_pause(task, pause_event, on_progress)
         except _CancelledError:

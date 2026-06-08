@@ -23,6 +23,12 @@ DEFAULTS = {
     "telegram_enabled": False,
     "telegram_poll_interval": 10,
     "telegram_api_base": "https://api.telegram.org",
+    # Platform credentials
+    "apify_token": "",
+    "apify_ig_actor": "",
+    "instagram_mode": "cookie",   # "cookie" | "api"
+    "x_mode": "cookie",           # "cookie" | "api"
+    "youtube_mode": "cookie",     # "cookie" | "api"
 }
 
 _cache: dict | None = None
@@ -86,3 +92,12 @@ def get_thumbs_dir() -> Path:
     d = _APP_DIR / "thumbs"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def get_platform_mode(platform: str) -> str:
+    """Return 'cookie' or 'api' for the given platform ('instagram', 'x', 'youtube')."""
+    return load_config().get(f"{platform}_mode", "cookie")
+
+
+def get_apify_token() -> str:
+    return load_config().get("apify_token", "")
