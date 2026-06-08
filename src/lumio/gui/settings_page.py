@@ -727,8 +727,37 @@ class SettingsPage(QWidget):
         cfg = _lc()
         cookie_file = cfg.get("cookie_file") or str(_Path.home() / ".lumio" / "cookies.txt")
         p = _Path(cookie_file)
-        if p.exists():
+        if not p.exists():
+            self._hint_label.setText(t("cookie_reset_done"))
+            return
+
+        # Platform → domain substrings to match in cookie file
+        domain_map = {
+            "instagram": ["instagram.com"],
+            "x": ["x.com", "twitter.com"],
+            "youtube": ["youtube.com"],
+        }
+        domains = domain_map.get(platform, [])
+        if not domains:
+            return
+
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        kept = []
+        for line in lines:
+            # Keep header/comment lines and lines not matching target domains
+            if line.startswith("#") or not line.strip():
+                kept.append(line)
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 1 and any(d in parts[0] for d in domains):
+                continue  # skip this platform's cookies
+            kept.append(line)
+
+        if kept:
+            p.write_text("".join(kept), encoding="utf-8")
+        else:
             p.unlink()
+
         self._update_ig_cookie_status()
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
