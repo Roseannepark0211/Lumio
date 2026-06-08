@@ -314,6 +314,8 @@ _TRANSLATIONS = {
         "telegram_sync_stopped": "轮询已停止",
         "telegram_api_base": "API 地址",
         "telegram_api_base_hint": "默认使用 Telegram 官方 API。如需下载大文件（>20MB），可部署本地 Bot API Server 并填写地址，如 http://localhost:8081",
+        "telegram_copied": "已复制",
+        "telegram_bound": "已绑定",
     },
     "en": {
         "app_title": "Lumio",
@@ -626,6 +628,8 @@ _TRANSLATIONS = {
         "telegram_sync_stopped": "Polling stopped",
         "telegram_api_base": "API Base URL",
         "telegram_api_base_hint": "Default: Telegram official API. For large files (>20MB), deploy a local Bot API Server and enter the URL, e.g. http://localhost:8081",
+        "telegram_copied": "Copied",
+        "telegram_bound": "Linked",
     },
 }
 

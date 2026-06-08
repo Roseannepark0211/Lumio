@@ -496,7 +496,8 @@ class SettingsPage(QWidget):
     def _on_check_update(self):
         self._update_btn.setEnabled(False)
         self._update_result.setText(t("update_checking"))
-        from ..notification_manager import NotificationManager
+        from ..notification_manager import Notification, NotificationManager
+        from .. import __version__
         import threading
 
         def _check():
@@ -716,7 +717,7 @@ class SettingsPage(QWidget):
 
     def _on_tg_regen(self):
         svc = TelegramService(inbox_manager=None)
-        code = svc.generate_pair_code("")
+        code = svc.generate_pair_code()
         self._tg_pair_code.setText(code)
         self._tg_pair_hint.setText(t("telegram_pair_hint"))
 
@@ -724,7 +725,7 @@ class SettingsPage(QWidget):
         code = self._tg_pair_code.text()
         if code and code != "—":
             QApplication.clipboard().setText(code)
-            self._tg_copy_btn.setText("✅ 已复制")
+            self._tg_copy_btn.setText("✅ " + t("telegram_copied"))
             self._tg_copy_btn.setStyleSheet("QPushButton { background: none; border: none; color: #4ADE80; font-size: 13px; }")
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1500, self._tg_reset_copy_btn)
@@ -752,17 +753,6 @@ class SettingsPage(QWidget):
         else:
             self._tg_pair_code.setText("—")
             self._tg_pair_hint.setText("")
-
-    def _tg_update_bound(self):
-        svc = TelegramService(inbox_manager=None)
-        device = svc.get_bound_device()
-        if device:
-            self._tg_bound_row.setVisible(True)
-            self._tg_bound_label.setText(
-                f"✅ @{device.telegram_username or 'unknown'} (ID: {device.telegram_user_id})"
-            )
-        else:
-            self._tg_bound_row.setVisible(False)
 
     def _tg_refresh_state(self):
         """统一刷新 Telegram 区域可见性。"""
@@ -792,7 +782,7 @@ class SettingsPage(QWidget):
         if device:
             self._tg_bound_area.setVisible(True)
             self._tg_bound_label.setText(
-                f"✅ 已绑定 @{device.telegram_username or 'unknown'}（ID: {device.telegram_user_id}）"
+                f"✅ {t('telegram_bound')} @{device.telegram_username or 'unknown'}（ID: {device.telegram_user_id}）"
             )
         else:
             self._tg_bound_area.setVisible(False)

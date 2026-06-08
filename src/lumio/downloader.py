@@ -1590,7 +1590,7 @@ def _direct_download_with_pause(task, pause_event, on_progress):
     if "cdninstagram" in task.direct_url or "fbcdn" in task.direct_url:
         headers["Referer"] = "https://www.instagram.com/"
 
-    resp = requests.get(task.direct_url, stream=True, timeout=30, headers=headers)
+    resp = requests.get(task.direct_url, stream=True, timeout=120, headers=headers)
     try:
         resp.raise_for_status()
         total_size = int(resp.headers.get("content-length", 0))
@@ -1609,8 +1609,11 @@ def _direct_download_with_pause(task, pause_event, on_progress):
         task.filename = str(filename)
         task.status = "done"
         task.progress = 100
+    except _CancelledError:
+        Path(filename).unlink(missing_ok=True)
+        raise
     except Exception:
-        resp.close()
+        Path(filename).unlink(missing_ok=True)
         raise
     finally:
         resp.close()

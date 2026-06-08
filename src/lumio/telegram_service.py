@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 import requests
 from PySide6.QtCore import QObject, Signal
 
-from .models import InboxItem, TelegramDevice, TelegramUpdate
+from .models import InboxItem, TelegramDevice
 from .utils.config import load_config, save_config
 from .utils.database import get_engine, get_session_factory
 from .utils.url_parser import parse_url
@@ -30,7 +31,6 @@ def _get_api_base() -> str:
 def _build_api_url(token: str, method: str) -> str:
     base = _get_api_base()
     return f"{base}/bot{token}/{method}"
-_MEDIA_DIR = Path.home() / ".lumio" / "inbox_media"
 
 
 class TelegramService(QObject):
@@ -59,7 +59,6 @@ class TelegramService(QObject):
         engine = get_engine()
         try:
             TelegramDevice.__table__.create(engine, checkfirst=True)
-            TelegramUpdate.__table__.create(engine, checkfirst=True)
         except Exception as e:
             logger.debug("TG migrate: %s", e)
 
@@ -78,8 +77,8 @@ class TelegramService(QObject):
 
     # ── 配对码 ──────────────────────────────────────────────────────
 
-    def generate_pair_code(self, token: str) -> str:
-        """生成配对码并返回 Bot 用户名。"""
+    def generate_pair_code(self) -> str:
+        """生成配对码。"""
         code = f"{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
         # 保存到 config
         cfg = load_config()
@@ -153,7 +152,6 @@ class TelegramService(QObject):
             for _ in range(interval * 2):
                 if not self._running:
                     return
-                import time
                 time.sleep(0.5)
 
     def _poll_once(self, token: str, proxy: str = "") -> None:
@@ -171,13 +169,11 @@ class TelegramService(QObject):
             update_id = update.get("update_id", 0)
             try:
                 self._handle_update(token, update, proxy)
-                # 只在处理成功后推进 offset
-                if update_id >= last_ok_offset:
-                    last_ok_offset = update_id + 1
             except Exception as e:
                 logger.warning("TG update %d failed: %s", update_id, e)
-                # 失败不推进 offset，下次重试
-                break
+            # 无论成功失败都推进 offset，避免毒消息阻塞
+            if update_id >= last_ok_offset:
+                last_ok_offset = update_id + 1
 
         # 保存 offset
         if last_ok_offset > self._offset:
@@ -256,6 +252,15 @@ class TelegramService(QObject):
         elif msg.get("animation"):
             item_id = self._process_animation(token, user_id, msg, unique_url, content, forward_from, proxy, post_time)
             content_type = "video"
+        elif msg.get("sticker"):
+            item_id = self._process_sticker(token, user_id, msg, unique_url, content, forward_from, proxy, post_time)
+            content_type = "image"
+        elif msg.get("voice"):
+            item_id = self._process_voice(token, user_id, msg, unique_url, content, forward_from, proxy, post_time)
+            content_type = "file"
+        elif msg.get("audio"):
+            item_id = self._process_audio(token, user_id, msg, unique_url, content, forward_from, proxy, post_time)
+            content_type = "file"
         elif msg.get("document"):
             item_id = self._process_document(token, user_id, msg, unique_url, content, forward_from, proxy, post_time)
             content_type = "file"
@@ -488,7 +493,24 @@ class TelegramService(QObject):
                         file_path = group_dir / f"{idx + 1}.jpg"
                         Path(raw_path).rename(file_path)
                         break
+                elif msg.get("document"):
+                    doc = msg["document"]
+                    fid = doc["file_id"]
+                    suffix = Path(doc.get("file_name", "")).suffix or ".bin"
+                    raw_path = self._download_tg_file(token, fid, proxy, suffix=suffix)
+                    if raw_path:
+                        file_path = group_dir / f"{idx + 1}{suffix}"
+                        Path(raw_path).rename(file_path)
+                        break
+                elif msg.get("audio"):
+                    fid = msg["audio"]["file_id"]
+                    raw_path = self._download_tg_file(token, fid, proxy, suffix=".mp3")
+                    if raw_path:
+                        file_path = group_dir / f"{idx + 1}.mp3"
+                        Path(raw_path).rename(file_path)
+                        break
                 else:
+                    logger.warning("TG media_group unsupported type: group=%s idx=%d", group_id, idx)
                     break
 
                 if attempt == 0:
@@ -653,6 +675,78 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=anim.get("duration", 0) or None,
+        )
+        self._update_item_file(item_id, local_path)
+        return item_id
+
+    def _process_sticker(self, token: str, telegram_user_id: int, msg: dict, unique_url: str, content: str, forward_from: str, proxy: str, post_time: str = "") -> str | None:
+        """处理贴纸（sticker）。"""
+        sticker = msg.get("sticker")
+        if not sticker:
+            return None
+        file_id = sticker["file_id"]
+        is_animated = sticker.get("is_animated", False)
+        is_video = sticker.get("is_video", False)
+        suffix = ".tgs" if is_animated else (".webm" if is_video else ".webp")
+        local_path = self._download_tg_file(token, file_id, proxy, suffix=suffix)
+        if not local_path:
+            return None
+        item_id = self._inbox.add_item(
+            url=unique_url,
+            source="telegram",
+            type_="image",
+            title=content[:80] or "Telegram Sticker",
+            author=forward_from or msg.get("from", {}).get("username", ""),
+            content=content,
+            post_time=post_time,
+        )
+        self._update_item_file(item_id, local_path)
+        return item_id
+
+    def _process_voice(self, token: str, telegram_user_id: int, msg: dict, unique_url: str, content: str, forward_from: str, proxy: str, post_time: str = "") -> str | None:
+        """处理语音消息（voice）。"""
+        voice = msg.get("voice")
+        if not voice:
+            return None
+        file_id = voice["file_id"]
+        local_path = self._download_tg_file(token, file_id, proxy, suffix=".ogg")
+        if not local_path:
+            return None
+        duration = voice.get("duration", 0)
+        item_id = self._inbox.add_item(
+            url=unique_url,
+            source="telegram",
+            type_="file",
+            title=content[:80] or "Telegram Voice",
+            author=forward_from or msg.get("from", {}).get("username", ""),
+            content=content,
+            post_time=post_time,
+            duration=duration if duration else None,
+        )
+        self._update_item_file(item_id, local_path)
+        return item_id
+
+    def _process_audio(self, token: str, telegram_user_id: int, msg: dict, unique_url: str, content: str, forward_from: str, proxy: str, post_time: str = "") -> str | None:
+        """处理音频文件（audio）。"""
+        audio = msg.get("audio")
+        if not audio:
+            return None
+        file_id = audio["file_id"]
+        suffix = Path(audio.get("file_name", "")).suffix or ".mp3"
+        local_path = self._download_tg_file(token, file_id, proxy, suffix=suffix)
+        if not local_path:
+            return None
+        duration = audio.get("duration", 0)
+        title = audio.get("title", "") or audio.get("file_name", "") or "Telegram Audio"
+        item_id = self._inbox.add_item(
+            url=unique_url,
+            source="telegram",
+            type_="file",
+            title=title[:80],
+            author=forward_from or msg.get("from", {}).get("username", ""),
+            content=content,
+            post_time=post_time,
+            duration=duration if duration else None,
         )
         self._update_item_file(item_id, local_path)
         return item_id

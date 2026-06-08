@@ -76,7 +76,7 @@ class InboxItemWidget(QWidget):
         self._title.setToolTip(full_title)
         info.addWidget(self._title)
 
-        meta_text = self.item.author
+        meta_text = self.item.author or ""
         if self.item.platform:
             meta_text += f"  ·  {self.item.platform}" if meta_text else self.item.platform
         if getattr(self.item, "source", "") == "telegram":
@@ -352,8 +352,9 @@ class InboxPage(QWidget):
                     thumbnail = thumbnail or info.thumbnail or ""
                     platform = info.platform or platform
                     self._update_inbox_info(item_id, info)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("TG extract_info failed: %s", e)
 
         custom = title if not author else ""
         if not custom and not author:
