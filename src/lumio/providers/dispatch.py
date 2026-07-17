@@ -32,7 +32,7 @@ def media_info_to_video_info(media: MediaInfo, url: str) -> object:
     Lazy-imports VideoInfo to avoid circular dependency:
       downloader → providers.dispatch → downloader
     """
-    from ..downloader import VideoInfo as _VideoInfo
+    from ..utils.media_utils import VideoInfo as _VideoInfo
 
     items = [_to_downloader_item(it) for it in media.media_items]
 

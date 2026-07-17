@@ -205,8 +205,9 @@ class DownloadManager(QObject):
 
     def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir, batch_id="") -> str:
         media_json = ""
-        # Pre-resolve media items for IG in API mode (avoids re-fetching during download)
-        if info.platform == "instagram" and info.items:
+        # Serialize media items for all platforms (IG Apify, Weibo, Bilibili, etc.)
+        # avoids re-fetching during download
+        if info.items:
             import json as _json
             media_json = _json.dumps([
                 {"url": it.url, "is_video": it.is_video, "index": it.index}

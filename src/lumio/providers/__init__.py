@@ -12,6 +12,7 @@ from .base import (
     Platform,
 )
 from .detector import detect_domestic
+from .weibo import WeiboProvider  # noqa: F401 — triggers @register
 from .registry import (
     get_all_platforms,
     get_provider,
