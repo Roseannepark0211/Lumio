@@ -1831,10 +1831,11 @@ def _items_download_with_pause(
             on_progress(task)
 
     if not downloaded_any:
-        _cleanup_empty_dir(out_dir)
+        _cleanup_empty_dir(post_out_dir)
 
     task.status = "done"
     task.progress = 100
+    task.filename = str(post_out_dir)
 
 
 def start_download_with_pause(

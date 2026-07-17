@@ -38,6 +38,21 @@ class Platform(Enum):
         }
 
 
+
+class MediaType(Enum):
+    """媒体类型枚举。
+
+    替代 is_video bool 标记，支持更多媒体类型。
+    """
+    IMAGE = "image"
+    VIDEO = "video"
+    LIVE_PHOTO = "live_photo"
+    GIF = "gif"
+    AUDIO = "audio"
+    UNKNOWN = "unknown"
+
+
+
 @dataclass
 class MediaItem:
     """单条媒体资源（图片或视频）。"""

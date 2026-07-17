@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Callable
+import logging
 
 from PySide6.QtCore import QObject, Signal
 
@@ -17,6 +18,9 @@ if TYPE_CHECKING:
     from .downloader import DownloadTask, start_download_with_pause
 from .history_manager import HistoryManager, HistoryRecord
 from .utils.config import get_queue_path, load_config
+
+
+logger = logging.getLogger(__name__)
 
 
 class _ConflictAskHandler(QObject):
@@ -551,6 +555,7 @@ class DownloadManager(QObject):
                     batch_id=qt.batch_id,
                 )
             except Exception as e:
+                logger.exception('Failed to add item to library for task %s: %s', qt.task_id, e)
                 return
             item = self._library_manager.get_item(item_id)
             if item:

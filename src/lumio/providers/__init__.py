@@ -9,6 +9,7 @@ from .base import (
     FormatOption,
     MediaInfo,
     MediaItem,
+    MediaType,
     Platform,
 )
 from .detector import detect_domestic
@@ -22,13 +23,14 @@ from .registry import (
 )
 
 __all__ = [
-    # 类型
-    "BaseProvider",
-    "FormatOption",
-    "MediaInfo",
-    "MediaItem",
-    "Platform",
-    # URL 检测
+        # 类型
+        "BaseProvider",
+        "FormatOption",
+        "MediaInfo",
+        "MediaItem",
+        "MediaType",
+        "Platform",
+        # URL 检测
     "detect_domestic",
     # 注册表
     "get_all_platforms",
