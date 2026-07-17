@@ -60,6 +60,28 @@ class SettingsPage(QWidget):
         title.setObjectName("page_title")
         inner.addWidget(title)
 
+
+        # ---- General section ----
+        self._build_general_group(inner)
+
+        # ---- Download section ----
+        self._build_download_group(inner)
+
+        # ---- Platform Credentials section ----
+        self._build_cred_group(inner)
+
+        # ---- Telegram section ----
+        self._build_tg_group(inner)
+
+        # ---- About section ----
+        self._build_about_group(inner)
+
+        inner.addStretch()
+
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+    def _build_general_group(self, inner):
         # ---- General section ----
         general_group = QGroupBox(t("settings_general"))
         gg = QVBoxLayout(general_group)
@@ -81,6 +103,8 @@ class SettingsPage(QWidget):
 
         inner.addWidget(general_group)
 
+
+    def _build_download_group(self, inner):
         # ---- Download section ----
         dl_group = QGroupBox(t("download_settings"))
         dl_inner = QVBoxLayout(dl_group)
@@ -237,6 +261,8 @@ class SettingsPage(QWidget):
 
         inner.addWidget(dl_group)
 
+
+    def _build_cred_group(self, inner):
         # ---- Platform Credentials section ----
         cred_group = QGroupBox(t("platform_credentials"))
         cg = QVBoxLayout(cred_group)
@@ -450,6 +476,8 @@ class SettingsPage(QWidget):
 
         inner.addWidget(cred_group)
 
+
+    def _build_tg_group(self, inner):
         # ---- Telegram section ----
         tg_group = QGroupBox(t("telegram_integration"))
         tg_outer = QVBoxLayout(tg_group)
@@ -566,6 +594,8 @@ class SettingsPage(QWidget):
 
         inner.addWidget(tg_group)
 
+
+    def _build_about_group(self, inner):
         # ---- About section ----
         about_group = QGroupBox("About")
         ag = QVBoxLayout(about_group)
@@ -593,10 +623,7 @@ class SettingsPage(QWidget):
 
         inner.addWidget(about_group)
 
-        inner.addStretch()
 
-        scroll.setWidget(content)
-        root.addWidget(scroll, 1)
 
     # ---- Cookie status ----
 
