@@ -27,97 +27,84 @@ class _CheckWorker(QThread):
     def run(self):
         all_ok = True
         results = []  # (name, passed: bool, hint: str)
+        is_packaged = getattr(sys, 'frozen', False)
 
-        # 1. Python
-        ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        self.log.emit(f"Python {ver}", "[OK]")
-        results.append(("Python", True, ""))
-
-        # 2. FFmpeg
-        try:
-            from ..downloader import _find_ffmpeg
-            ff = _find_ffmpeg()
-            if ff:
-                self.log.emit(f"FFmpeg: {Path(ff).name}", "[OK]")
-                results.append(("FFmpeg", True, ""))
-            else:
-                raise FileNotFoundError
-        except Exception:
-            self.log.emit("FFmpeg: installing...", "[FIXED]")
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "imageio-ffmpeg", "-q"],
-                    capture_output=True, timeout=120,
-                )
-                from ..downloader import _find_ffmpeg
-                if _find_ffmpeg():
-                    self.log.emit("FFmpeg: installed", "[OK]")
-                    results.append(("FFmpeg", True, ""))
-                else:
-                    self.log.emit("FFmpeg: install failed", "[WARN]")
-                    results.append(("FFmpeg", False, "pip install imageio-ffmpeg"))
-                    all_ok = False
-            except Exception as e:
-                self.log.emit(f"FFmpeg: {e}", "[FAIL]")
-                results.append(("FFmpeg", False, "pip install imageio-ffmpeg"))
-                all_ok = False
-
-        # 3. yt-dlp
-        try:
-            import yt_dlp
-            self.log.emit(f"yt-dlp {yt_dlp.version.__version__}", "[OK]")
-            results.append(("yt-dlp", True, ""))
-        except ImportError:
-            self.log.emit("yt-dlp: installing...", "[FIXED]")
-            try:
-                subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "yt-dlp", "-q"],
-                    capture_output=True, timeout=120,
-                )
-                import yt_dlp
-                self.log.emit("yt-dlp: installed", "[OK]")
-                results.append(("yt-dlp", True, ""))
-            except Exception as e:
-                self.log.emit(f"yt-dlp: {e}", "[FAIL]")
-                results.append(("yt-dlp", False, "pip install yt-dlp"))
-                all_ok = False
-
-        # 4. Config directory
+        # ---- setup: ensure dirs exist (always needed, not counted as checks) ----
         from ..utils.config import _APP_DIR
-        if _APP_DIR.exists():
-            self.log.emit(f"Config dir: {_APP_DIR}", "[OK]")
-        else:
-            _APP_DIR.mkdir(parents=True, exist_ok=True)
-            self.log.emit("Config dir: created", "[FIXED]")
-        results.append((t("init_check_config"), True, ""))
-
-        # 5. Config file
+        _APP_DIR.mkdir(parents=True, exist_ok=True)
         cfg = load_config()
         save_config(cfg)
-        self.log.emit("Config file", "[OK]")
-        results.append((t("init_check_config"), True, ""))
-
-        # 6. Cookie directory
-        cookie_dir = Path(cfg["cookie_file"]).parent
-        cookie_dir.mkdir(parents=True, exist_ok=True)
-        self.log.emit("Cookie directory", "[OK]")
-        results.append((t("init_check_cookie_dir"), True, ""))
-
-        # 7. Download directory
+        Path(cfg["cookie_file"]).parent.mkdir(parents=True, exist_ok=True)
         dl_dir = get_download_dir()
-        if dl_dir.exists():
-            self.log.emit(f"Download dir: {dl_dir}", "[OK]")
-        else:
-            dl_dir.mkdir(parents=True, exist_ok=True)
-            self.log.emit("Download dir: created", "[FIXED]")
-        results.append((t("init_check_download_dir"), True, ""))
+        dl_dir.mkdir(parents=True, exist_ok=True)
 
-        # 8. Network
+        if is_packaged:
+            # Packaged env: Python/FFmpeg/yt-dlp all bundled, pip install won't work.
+            # Only check what actually matters at runtime.
+            pass
+        else:
+            # Dev env: verify runtime deps, attempt auto-install if missing.
+            # 1. FFmpeg
+            try:
+                from ..downloader import _find_ffmpeg
+                ff = _find_ffmpeg()
+                if ff:
+                    self.log.emit(f"FFmpeg: {Path(ff).name}", "[OK]")
+                    results.append(("FFmpeg", True, ""))
+                else:
+                    raise FileNotFoundError
+            except Exception:
+                self.log.emit("FFmpeg: installing...", "[FIXED]")
+                try:
+                    subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "imageio-ffmpeg", "-q"],
+                        capture_output=True, timeout=120,
+                    )
+                    from ..downloader import _find_ffmpeg
+                    if _find_ffmpeg():
+                        self.log.emit("FFmpeg: installed", "[OK]")
+                        results.append(("FFmpeg", True, ""))
+                    else:
+                        self.log.emit("FFmpeg: install failed", "[WARN]")
+                        results.append(("FFmpeg", False, "pip install imageio-ffmpeg"))
+                        all_ok = False
+                except Exception as e:
+                    self.log.emit(f"FFmpeg: {e}", "[FAIL]")
+                    results.append(("FFmpeg", False, "pip install imageio-ffmpeg"))
+                    all_ok = False
+
+            # 2. yt-dlp
+            try:
+                import yt_dlp
+                self.log.emit(f"yt-dlp {yt_dlp.version.__version__}", "[OK]")
+                results.append(("yt-dlp", True, ""))
+            except ImportError:
+                self.log.emit("yt-dlp: installing...", "[FIXED]")
+                try:
+                    subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "yt-dlp", "-q"],
+                        capture_output=True, timeout=120,
+                    )
+                    import yt_dlp
+                    self.log.emit("yt-dlp: installed", "[OK]")
+                    results.append(("yt-dlp", True, ""))
+                except Exception as e:
+                    self.log.emit(f"yt-dlp: {e}", "[FAIL]")
+                    results.append(("yt-dlp", False, "pip install yt-dlp"))
+                    all_ok = False
+
+        # ---- common checks (both envs) ----
+        # Network
         import requests
         network_ok = False
-        for url in ["https://www.youtube.com", "https://www.instagram.com", "https://x.com"]:
+        for url in [
+            "https://www.baidu.com",
+            "https://www.youtube.com",
+            "https://www.instagram.com",
+            "https://x.com",
+        ]:
             try:
-                requests.head(url, timeout=5, allow_redirects=True)
+                requests.head(url, timeout=3, allow_redirects=True)
                 self.log.emit(f"Network: {url}", "[OK]")
                 network_ok = True
                 break
@@ -130,7 +117,7 @@ class _CheckWorker(QThread):
         else:
             results.append((t("init_check_network"), True, ""))
 
-        # 9. File write permission
+        # File write permission
         test_file = dl_dir / ".lumio_write_test"
         try:
             test_file.write_text("test", encoding="utf-8")

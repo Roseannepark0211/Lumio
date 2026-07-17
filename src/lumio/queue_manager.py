@@ -66,6 +66,7 @@ class QueueTask:
     custom_name: str = ""
     batch_id: str = ""
     direct_url: str = ""  # Pre-resolved download URL (e.g. from X-Sou)
+    media_items_json: str = ""  # Pre-resolved media items JSON (Apify, avoids re-fetching)
 
     # Display metadata (frozen at enqueue time)
     title: str = ""
@@ -106,6 +107,7 @@ class QueueTask:
             platform=self.platform,
             batch_id=self.batch_id,
             direct_url=self.direct_url,
+            media_items_json=self.media_items_json,
         )
 
     def to_dict(self) -> dict:
@@ -118,6 +120,7 @@ class QueueTask:
             "custom_name": self.custom_name,
             "batch_id": self.batch_id,
             "direct_url": self.direct_url,
+            "media_items_json": self.media_items_json,
             "title": self.title,
             "platform": self.platform,
             "author": self.author,
@@ -201,6 +204,14 @@ class DownloadManager(QObject):
         self._schedule()
 
     def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir, batch_id="") -> str:
+        media_json = ""
+        # Pre-resolve media items for IG in API mode (avoids re-fetching during download)
+        if info.platform == "instagram" and info.items:
+            import json as _json
+            media_json = _json.dumps([
+                {"url": it.url, "is_video": it.is_video, "index": it.index}
+                for it in info.items
+            ])
         qt = QueueTask(
             url=info.url,
             format_id=format_id,
@@ -214,6 +225,7 @@ class DownloadManager(QObject):
             post_time=info.post_time,
             thumbnail_url=info.thumbnail,
             max_retries=self._max_retries,
+            media_items_json=media_json,
         )
         return self.add_task(qt)
 

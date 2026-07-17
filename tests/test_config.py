@@ -1,4 +1,4 @@
-"""Tests for utils/config.py — config read/write, caching, defaults."""
+﻿"""Tests for utils/config.py 鈥?config read/write, caching, defaults."""
 import json
 import pytest
 from pathlib import Path
@@ -30,7 +30,7 @@ class TestLoadConfig:
     def test_defaults_when_no_file(self):
         result = cfg_mod.load_config()
         assert result["lang"] == "zh"
-        assert result["theme"] == "dark"
+        assert result["theme"] == "light"
         assert result["max_concurrent"] == 3
         assert result["max_retries"] == 3
         assert result["storage_mode"] == "simple"
@@ -43,12 +43,12 @@ class TestLoadConfig:
         assert result["lang"] == "en"
         assert result["max_concurrent"] == 8
         # defaults still present
-        assert result["theme"] == "dark"
+        assert result["theme"] == "light"
 
     def test_caches_after_first_read(self, tmp_path):
         cfg_mod._CONFIG_FILE.write_text(json.dumps({"lang": "en"}), encoding="utf-8")
         first = cfg_mod.load_config()
-        # Modify file on disk — cache should NOT reflect change
+        # Modify file on disk 鈥?cache should NOT reflect change
         cfg_mod._CONFIG_FILE.write_text(json.dumps({"lang": "zh"}), encoding="utf-8")
         second = cfg_mod.load_config()
         assert second["lang"] == "en"

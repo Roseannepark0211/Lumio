@@ -14,7 +14,7 @@ DEFAULTS = {
     "max_concurrent": 3,
     "max_retries": 3,
     "lang": "zh",
-    "theme": "dark",
+    "theme": "light",
     "storage_mode": "simple",
     "file_conflict_policy": "rename",
     "auto_download_inbox": False,

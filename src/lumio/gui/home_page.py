@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..downloader import VideoInfo, _build_format_options, extract_info, x_sou_search
+from ..downloader import VideoInfo, _build_format_options, extract_info
+from ..x_sou_client import x_sou_search
 from ..i18n import t
 from ..queue_manager import DownloadManager
 from ..utils.config import get_download_dir

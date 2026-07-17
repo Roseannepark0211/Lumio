@@ -26,7 +26,8 @@ def main():
     sys.exit(app.exec())
 
 
-def _show_main(app, cfg):
+def _init_app_components(app, cfg):
+    """Initialise shared components and return (manager, inbox_manager, window)."""
     from .api_server import start_server, stop_server
     from .gui.window import MainWindow
     from .inbox_manager import InboxManager
@@ -42,18 +43,24 @@ def _show_main(app, cfg):
 
     window = MainWindow(manager, inbox_manager=inbox_manager)
     window.show()
-    # Prevent GC: store references on the app object
-    app._lumio_manager = manager
-    app._lumio_inbox_manager = inbox_manager
-    app._lumio_window = window
 
-    # Telegram Bot 轮询（item_added 信号已在 inbox_page._connect_signals 中连接，无需重复）
+    # Telegram Bot 轮询
     if cfg.get("telegram_enabled") and cfg.get("telegram_bot_token"):
         from .telegram_service import TelegramService
         tg_service = TelegramService(inbox_manager)
         tg_service.start_polling()
         app.aboutToQuit.connect(tg_service.stop_polling)
         app._lumio_tg_service = tg_service
+
+    return manager, inbox_manager, window
+
+
+def _show_main(app, cfg):
+    manager, inbox_manager, window = _init_app_components(app, cfg)
+    # Prevent GC: store references on the app object
+    app._lumio_manager = manager
+    app._lumio_inbox_manager = inbox_manager
+    app._lumio_window = window
 
 
 def _show_init(app, cfg):
@@ -67,37 +74,13 @@ def _show_init(app, cfg):
     def on_init_done():
         cfg["init_completed"] = True
         save_config(cfg)
-
-        from .api_server import start_server, stop_server
-        from .gui.window import MainWindow
-        from .inbox_manager import InboxManager
-        from .queue_manager import DownloadManager
-
-        manager = DownloadManager()
-        manager.load_queue()
-        app.aboutToQuit.connect(manager.shutdown)
-
-        inbox_manager = InboxManager()
-        start_server(inbox_manager, port=cfg.get("api_port", 38900))
-        app.aboutToQuit.connect(stop_server)
-
-        window = MainWindow(manager, inbox_manager=inbox_manager)
-        window.show()
+        manager, inbox_manager, window = _init_app_components(app, cfg)
         init_page.close()
         # Prevent GC
         app._lumio_manager = manager
         app._lumio_inbox_manager = inbox_manager
         app._lumio_window = window
         app._lumio_init_page = init_page
-
-        # Telegram Bot 轮询
-        if cfg.get("telegram_enabled") and cfg.get("telegram_bot_token"):
-            from .telegram_service import TelegramService
-            tg_service = TelegramService(inbox_manager)
-            tg_service.start_polling()
-            app.aboutToQuit.connect(tg_service.stop_polling)
-            app._lumio_tg_service = tg_service
-
     init_page.check_completed.connect(on_init_done)
     init_page.start_checks()
 

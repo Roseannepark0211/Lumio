@@ -20,24 +20,62 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..downloader import enumerate_profile_posts, fetch_profile_info, _post_to_queue_task
+from ..downloader import enumerate_profile_posts, _post_to_queue_task, _ig_api_session, _ig_search_user
 from ..i18n import t
-from ..utils.config import get_download_dir
+from ..utils.config import get_download_dir, get_platform_mode
 
 
-class _ProfileInfoWorker(QThread):
-    finished = Signal(object)  # dict or Exception
+class _CombinedProfileWorker(QThread):
+    """Single worker: fetches profile info + all posts (both API and cookie mode)."""
+    progress = Signal(int, int)
+    finished = Signal(object, object)  # (profile_dict_or_err, posts_list_or_err)
 
-    def __init__(self, username: str):
+    def __init__(self, username: str, limit: int, cancel_event: threading.Event):
         super().__init__()
         self._username = username
+        self._limit = limit
+        self._cancel_event = cancel_event
 
     def run(self):
         try:
-            info = fetch_profile_info(self._username)
-            self.finished.emit(info)
+            if get_platform_mode("instagram") == "api":
+                from ..apify_client import get_apify_client
+                client = get_apify_client()
+                posts = client.enumerate_profile_posts(
+                    self._username, self._limit,
+                    callback=lambda cur, tot: self.progress.emit(cur, tot),
+                    cancel_event=self._cancel_event,
+                )
+                if not posts:
+                    self.finished.emit(ValueError("No posts returned"), [])
+                    return
+                first = posts[0]
+                info = {
+                    "username": first.get("ownerUsername", self._username),
+                    "full_name": first.get("ownerFullName", ""),
+                    "profile_pic_url": first.get("ownerProfilePicUrl"),
+                    "post_count": 0,
+                    "user_id": str(first.get("ownerId", "")),
+                }
+            else:
+                # Cookie mode: one search for user info + feed pagination
+                session = _ig_api_session()
+                user = _ig_search_user(session, self._username)
+                info = {
+                    "username": user.get("username", self._username),
+                    "full_name": user.get("full_name", ""),
+                    "profile_pic_url": user.get("profile_pic_url"),
+                    "post_count": 0,
+                    "user_id": str(user.get("pk", "")),
+                }
+                posts = enumerate_profile_posts(
+                    self._username, self._limit,
+                    callback=lambda cur, tot: self.progress.emit(cur, tot),
+                    cancel_event=self._cancel_event,
+                )
+            self.finished.emit(info, posts if posts else [])
         except Exception as e:
-            self.finished.emit(e)
+            self.finished.emit(e, [])
 
 
 class _ProfileEnumerateWorker(QThread):
@@ -72,6 +110,7 @@ class ProfileDialog(QDialog):
         self._profile_info: dict | None = None
         self._cancel_event = threading.Event()
         self._enumerate_worker: _ProfileEnumerateWorker | None = None
+        self._cached_posts: list | None = None  # Pre-fetched posts (API mode only)
 
         self.setWindowTitle(t("profile_dialog_title"))
         self.setMinimumWidth(460)
@@ -168,9 +207,29 @@ class ProfileDialog(QDialog):
         root.addLayout(btn_row)
 
     def _start_fetch_info(self):
-        self._info_worker = _ProfileInfoWorker(self._username)
-        self._info_worker.finished.connect(self._on_info_done)
-        self._info_worker.start()
+        self._progress_widget.show()
+        self._progress_label.setText(t("profile_fetching"))
+        self._progress_bar.setRange(0, 0)
+        self._add_btn.setEnabled(False)
+        self._combined_worker = _CombinedProfileWorker(
+            self._username, 500, self._cancel_event
+        )
+        self._combined_worker.progress.connect(self._on_enumerate_progress)
+        self._combined_worker.finished.connect(self._on_combined_done)
+        self._combined_worker.start()
+
+    @Slot(object, object)
+    def _on_combined_done(self, info_result, posts_result):
+        self._progress_widget.hide()
+        if isinstance(info_result, Exception):
+            err_msg = str(info_result)
+            if "429" in err_msg:
+                err_msg = t("profile_rate_limited")
+            QMessageBox.warning(self, t("error"), t("profile_error", err=err_msg))
+            self.reject()
+            return
+        self._cached_posts = posts_result
+        self._on_info_done(info_result)
 
     @Slot(object)
     def _on_info_done(self, result):
@@ -249,6 +308,12 @@ class ProfileDialog(QDialog):
         if start > end:
             start, end = end, start
 
+        # API mode: posts already cached from combined fetch
+        if self._cached_posts is not None:
+            self._finalize_tasks(self._cached_posts[start - 1:end])
+            return
+
+        # Cookie mode: need to enumerate posts now
         self._progress_widget.show()
         self._progress_label.setText(t("profile_fetching"))
         self._progress_bar.setRange(0, 0)
@@ -295,7 +360,13 @@ class ProfileDialog(QDialog):
         end = self._to_spin.value()
         if start > end:
             start, end = end, start
-        posts = posts[start - 1:end]
+        self._finalize_tasks(posts[start - 1:end])
+
+    def _finalize_tasks(self, posts: list):
+        if not posts:
+            QMessageBox.information(self, t("profile_no_posts"), t("profile_no_posts"))
+            self._reset_controls()
+            return
 
         custom_name = self._name_input.text().strip() or f"@{self._username}"
         output_dir = Path(get_download_dir())
