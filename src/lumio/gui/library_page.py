@@ -100,6 +100,7 @@ class LibraryPage(QWidget):
         self._platform_combo.addItem("YouTube", "youtube")
         self._platform_combo.addItem("Instagram", "instagram")
         self._platform_combo.addItem("X (Twitter)", "x")
+        self._platform_combo.addItem("Weibo", "weibo")
         self._platform_combo.currentIndexChanged.connect(self._apply_filter)
         filter_row.addWidget(self._platform_combo)
 

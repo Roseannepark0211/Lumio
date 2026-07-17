@@ -12,7 +12,9 @@ from typing import Callable
 
 from PySide6.QtCore import QObject, Signal
 
-from .downloader import DownloadTask, start_download_with_pause
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .downloader import DownloadTask, start_download_with_pause
 from .history_manager import HistoryManager, HistoryRecord
 from .utils.config import get_queue_path, load_config
 
@@ -96,6 +98,7 @@ class QueueTask:
             self.created_at = time.time()
 
     def to_download_task(self) -> DownloadTask:
+        from .downloader import DownloadTask
         return DownloadTask(
             url=self.url,
             format_id=self.format_id,
@@ -489,6 +492,7 @@ class DownloadManager(QObject):
                     self.task_finished.emit(qt.task_id, False, t.error)
             self._emit_batch_progress()
 
+        from .downloader import start_download_with_pause
         thread = start_download_with_pause(dt, event, on_progress=on_progress, on_done=on_done)
         with self._lock:
             self._active[qt.task_id] = thread

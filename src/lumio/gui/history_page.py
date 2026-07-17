@@ -59,6 +59,7 @@ class HistoryPage(QWidget):
         self._filter_combo.addItem("YouTube", "youtube")
         self._filter_combo.addItem("Instagram", "instagram")
         self._filter_combo.addItem("X (Twitter)", "x")
+        self._filter_combo.addItem("Weibo", "weibo")
         self._filter_combo.currentIndexChanged.connect(self._apply_filter)
         header.addWidget(self._filter_combo)
 

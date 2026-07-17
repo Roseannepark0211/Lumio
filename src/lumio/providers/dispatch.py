@@ -14,13 +14,14 @@ from .detector import detect_domestic
 from .registry import get_provider
 
 
-def _to_downloader_item(item) -> dict:
-    """Convert provider MediaItem to a plain dict (avoids circular import)."""
-    return {
-        "url": item.url,
-        "is_video": item.is_video,
-        "index": item.index,
-    }
+def _to_downloader_item(item):
+    """Convert provider MediaItem to media_utils.MediaItem for queue/GUI compatibility."""
+    from ..utils.media_utils import MediaItem as _DownloaderMediaItem
+    return _DownloaderMediaItem(
+        url=item.url,
+        is_video=item.is_video,
+        index=item.index,
+    )
 
 
 def media_info_to_video_info(media: MediaInfo, url: str) -> object:

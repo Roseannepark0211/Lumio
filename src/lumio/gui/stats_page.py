@@ -65,6 +65,7 @@ class StatsPage(QWidget):
         yt_count = sum(1 for r in records if r.platform == "youtube")
         ig_count = sum(1 for r in records if r.platform == "instagram")
         x_count = sum(1 for r in records if r.platform == "x")
+        weibo_count = sum(1 for r in records if r.platform == "weibo")
         total_size = sum(r.file_size for r in records)
         success_count = sum(1 for r in records if getattr(r, "success", True))
         success_rate = f"{success_count / total * 100:.1f}%" if total > 0 else "—"
@@ -82,13 +83,14 @@ class StatsPage(QWidget):
             row1.addWidget(card)
         root.addLayout(row1)
 
-        # Row 2: platform breakdown (3 cards)
+        # Row 2: platform breakdown (4 cards)
         row2 = QHBoxLayout()
         row2.setSpacing(16)
         self._yt_card = _stat_card("YouTube", str(yt_count), "#2563eb")
         self._ig_card = _stat_card("Instagram", str(ig_count), "#e1306c")
         self._x_card = _stat_card("X (Twitter)", str(x_count), "#1d9bf0")
-        for card in (self._yt_card, self._ig_card, self._x_card):
+        self._weibo_card = _stat_card("Weibo", str(weibo_count), "#e6162d")
+        for card in (self._yt_card, self._ig_card, self._x_card, self._weibo_card):
             row2.addWidget(card)
         row2.addStretch()
         root.addLayout(row2)
@@ -101,6 +103,7 @@ class StatsPage(QWidget):
         yt_count = sum(1 for r in records if r.platform == "youtube")
         ig_count = sum(1 for r in records if r.platform == "instagram")
         x_count = sum(1 for r in records if r.platform == "x")
+        weibo_count = sum(1 for r in records if r.platform == "weibo")
         total_size = sum(r.file_size for r in records)
         success_count = sum(1 for r in records if getattr(r, "success", True))
         success_rate = f"{success_count / total * 100:.1f}%" if total > 0 else "—"
@@ -115,6 +118,7 @@ class StatsPage(QWidget):
             (self._yt_card, str(yt_count)),
             (self._ig_card, str(ig_count)),
             (self._x_card, str(x_count)),
+            (self._weibo_card, str(weibo_count)),
         ]:
             layout = card.layout()
             if layout and layout.count() > 0:

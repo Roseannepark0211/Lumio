@@ -1162,7 +1162,7 @@ def _effective_name(task: DownloadTask) -> str:
         return "%(title)s"
     if task.post_time:
         name = f"{name}_{task.post_time}"
-    return name
+    return _safe_filename(name)
 
 
 # ---- Pause-aware download (V2 queue system) ----
@@ -1268,7 +1268,7 @@ def _ig_download_with_pause(task, pause_event, on_progress):
     if get_storage_mode() == "organized":
         post_stem = task.author or shortcode
         if task.post_time:
-            post_stem = f"{post_stem}_{task.post_time}"
+            post_stem = _safe_filename(f"{post_stem}_{task.post_time}")
         post_out_dir = out_dir / post_stem
 
     post_out_dir.mkdir(parents=True, exist_ok=True)
@@ -1278,7 +1278,7 @@ def _ig_download_with_pause(task, pause_event, on_progress):
     # Build a unique stem: author_postTime (or custom_name, or shortcode)
     name_stem = _safe_filename(task.custom_name or task.author or shortcode)
     if task.post_time:
-        name_stem = f"{name_stem}_{task.post_time}"
+        name_stem = _safe_filename(f"{name_stem}_{task.post_time}")
     total = len(items)
     pad = len(str(total))
     policy = get_file_conflict_policy()
@@ -1369,7 +1369,7 @@ def _apify_download_with_pause(task, pause_event, on_progress):
     if get_storage_mode() == "organized":
         post_stem = task.author or shortcode
         if task.post_time:
-            post_stem = f"{post_stem}_{task.post_time}"
+            post_stem = _safe_filename(f"{post_stem}_{task.post_time}")
         post_out_dir = out_dir / post_stem
 
     post_out_dir.mkdir(parents=True, exist_ok=True)
@@ -1377,7 +1377,7 @@ def _apify_download_with_pause(task, pause_event, on_progress):
     items = media_items
     name_stem = _safe_filename(task.custom_name or task.author or shortcode)
     if task.post_time:
-        name_stem = f"{name_stem}_{task.post_time}"
+        name_stem = _safe_filename(f"{name_stem}_{task.post_time}")
     total = len(items)
     pad = len(str(total))
     policy = get_file_conflict_policy()
@@ -1611,7 +1611,7 @@ def _x_download_with_pause(task, pause_event, on_progress):
             on_progress(task)
 
     if not downloaded_any:
-        _cleanup_empty_dir(out_dir)
+        _cleanup_empty_dir(post_out_dir)
 
     task.status = "done"
     task.progress = 100
@@ -1745,7 +1745,16 @@ def _items_download_with_pause(
         on_progress(task)
 
     out_dir = _resolve_output_dir(task)
-    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Organized mode: create per-post subdirectory
+    post_out_dir = out_dir
+    if get_storage_mode() == "organized":
+        post_stem = task.author or task.title or "post"
+        if task.post_time:
+            post_stem = _safe_filename(f"{post_stem}_{task.post_time}")
+        post_out_dir = out_dir / post_stem
+
+    post_out_dir.mkdir(parents=True, exist_ok=True)
 
     name_stem = _effective_name(task)
     if name_stem == "%(title)s":
@@ -1759,7 +1768,7 @@ def _items_download_with_pause(
     for idx, item in enumerate(media_items):
         ext = "mp4" if item.is_video else "jpg"
         suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
-        filename = out_dir / f"{name_stem}{suffix}.{ext}"
+        filename = post_out_dir / f"{name_stem}{suffix}.{ext}"
 
         if filename.exists() and policy == "skip":
             continue

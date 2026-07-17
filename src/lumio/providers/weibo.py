@@ -12,11 +12,16 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 import html as _html
 
 from .base import BaseProvider, MediaInfo, MediaItem, Platform
 from .registry import register
+import logging
+
+import requests as _requests
+
+logger = logging.getLogger(__name__)
 
 _WEIBO_API = "https://m.weibo.cn/statuses/show?id={}"
 
@@ -32,8 +37,10 @@ def _extract_post_id(url: str) -> Optional[str]:
 
 def _fetch_json(api_url: str, timeout: int = 15) -> Optional[dict]:
     """调用 HTTP API 并解析 JSON。
-    
+
     如已有微博 cookie，会自动附加 Cookie 头以绕过访客系统拦截。
+
+    返回 dict（API JSON）或 None（HTTP/JSON/网络错误，或返回了 HTML 页面）。
     """
     cookies = _get_weibo_cookies()
     req = urllib.request.Request(
@@ -46,18 +53,33 @@ def _fetch_json(api_url: str, timeout: int = 15) -> Optional[dict]:
             ),
             "Referer": "https://m.weibo.cn/",
             "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
             **({"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())} if cookies else {}),
         },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="replace"))
+            raw = resp.read()
+            # 检查 Content-Type：如果返回了 HTML（访客系统/反爬），不是 JSON
+            ct = resp.headers.get('Content-Type', '')
+            if 'text/html' in ct or 'text/plain' in ct:
+                text = raw.decode('utf-8', errors='replace')
+                if '<html' in text[:200] or 'Sina Visitor' in text[:500] or 'passport' in text[:500]:
+                    logger.warning('weibo API returned HTML (Sina Visitor System), need cookies for %s', api_url[:50])
+                    return None
+            return json.loads(raw.decode('utf-8', errors='replace'))
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         return None
 
 
 def _fetch_html(url: str, timeout: int = 15) -> Optional[str]:
-    """Fetch an HTML page, with optional cookie support."""
+    """Fetch HTML page, trying requests.Session first, then urllib fallback."""
+    # 1) Try requests.Session with MozillaCookieJar first
+    result = _fetch_with_session(url, as_json=False, timeout=timeout)
+    if result is not None:
+        return result
+
+    # 2) Fallback: urllib with manual Cookie header
     cookies = _get_weibo_cookies()
     req = urllib.request.Request(
         url,
@@ -68,12 +90,17 @@ def _fetch_html(url: str, timeout: int = 15) -> Optional[str]:
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             **({"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())} if cookies else {}),
         },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+            text = resp.read().decode("utf-8", errors="replace")
+            if 'Sina Visitor' in text[:500] or 'passport' in text[:300]:
+                logger.warning('weibo page returned Sina Visitor System for %s', url[:50])
+                return None
+            return text
     except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return None
 
@@ -157,13 +184,14 @@ def _extract_images_from_pics(pics: list[dict]) -> list[MediaItem]:
 
 def _extract_video(page_info: dict, index: int = 0) -> Optional[MediaItem]:
     """从 page_info 提取视频 MediaItem。"""
-    if page_info.get("type") != "video":
+    if page_info.get("type") not in ("video", "livephoto"):
         return None
     media_info = page_info.get("media_info", {})
     url = (
         media_info.get("mp4_hd_url")
         or media_info.get("mp4_url")
         or media_info.get("stream_url")
+        or media_info.get("livephoto_mp4")
         or ""
     )
     if not url:
@@ -193,15 +221,6 @@ def _get_thumbnail(data: dict) -> str:
 
 
 def _get_weibo_cookies() -> dict[str, str]:
-    """从 NetScape cookie 文件中读取微博 Cookie。
-
-    解析 .weibo.cn / .weibo.com 域的 cookie 返回 {name: value} 字典。
-    Cookie 文件路径从配置的 `cookie_file`（或独立的 `weibo_cookie_file`）读取。
-    无 cookie 时静默返回空字典。
-
-    Returns:
-        dict: cookie 键值对，失败时返回空 dict
-    """
     try:
         from ..utils.config import load_config
         cfg = load_config()
@@ -212,7 +231,11 @@ def _get_weibo_cookies() -> dict[str, str]:
         if not path.exists():
             return {}
         cookies: dict[str, str] = {}
-        with open(path, encoding='utf-8') as f:
+        try:
+            f = open(path, encoding='utf-8', errors='replace')
+        except UnicodeDecodeError:
+            f = open(path, encoding='latin-1')
+        with f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#'):
@@ -227,6 +250,90 @@ def _get_weibo_cookies() -> dict[str, str]:
         return cookies
     except Exception:
         return {}
+
+
+def _fetch_with_session(url: str, *, as_json: bool = False, timeout: int = 15) -> Optional[Union[dict, str]]:
+    """Fetch using requests.Session + MozillaCookieJar for proper Netscape cookie file support."""
+    try:
+        from http.cookiejar import MozillaCookieJar as _MozillaCookieJar
+        from ..utils.config import load_config
+        cfg = load_config()
+        cookie_file = cfg.get('weibo_cookie_file', '') or cfg.get('cookie_file', '')
+
+        session = _requests.Session()
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://weibo.com/",
+        })
+
+        if cookie_file and Path(cookie_file).exists():
+            try:
+                jar = _MozillaCookieJar(str(cookie_file))
+                jar.load(ignore_discard=True, ignore_expires=True)
+                session.cookies = jar
+
+                # MozillaCookieJar filters by domain: cookies bound to weibo.com
+                # won't be sent to m.weibo.cn.  Manually inject Weibo cookies to
+                # ensure they reach the API servers regardless of domain mismatch.
+                _weibo_cookies = _get_weibo_cookies()
+                if _weibo_cookies:
+                    from http.cookiejar import Cookie as _Cookie
+                    for name, value in _weibo_cookies.items():
+                        c = _Cookie(
+                            version=0, name=name, value=value,
+                            port=None, port_specified=False,
+                            domain='', domain_specified=False, domain_initial_dot=False,
+                            path='/', path_specified=True,
+                            secure=False, expires=None, discard=True,
+                            comment=None, comment_url=None, rest={},
+                            rfc2109=False,
+                        )
+                        session.cookies.set_cookie(c)
+            except Exception:
+                pass
+
+        if as_json:
+            session.headers.update({
+                "Accept": "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+            })
+        else:
+            session.headers.update({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            })
+
+        resp = session.get(url, timeout=timeout)
+
+        if as_json:
+            ct = resp.headers.get('Content-Type', '')
+            if 'text/html' in ct or 'text/plain' in ct:
+                text = resp.text[:500]
+                if '<html' in text or 'Sina Visitor' in text or 'passport' in text:
+                    logger.warning('weibo API returned HTML (Sina Visitor System) via session, need cookies for %s', url[:50])
+                    return None
+            try:
+                data = resp.json()
+                if data.get("ok") == -100:
+                    logger.warning('weibo API returned ok=-100 (login required) via session for %s', url[:50])
+                    return None
+                return data
+            except ValueError:
+                return None
+        else:
+            text = resp.text
+            if 'Sina Visitor' in text[:500] or 'passport' in text[:300]:
+                logger.warning('weibo page returned Sina Visitor System via session, need cookies for %s', url[:50])
+                return None
+            return text
+    except Exception as e:
+        logger.debug('Session fetch failed for %s: %s', url[:50], e)
+        return None
+
 
 @register
 class WeiboProvider(BaseProvider):
@@ -301,12 +408,18 @@ class WeiboProvider(BaseProvider):
             except Exception:
                 pass
             # All fallbacks failed
+            _no_cookies = not bool(_get_weibo_cookies())
+            _cookie_hint = (
+                "需要微博 Cookie，请在 设置 → 平台凭证 → 微博 中导入包含 SUB 和 SUBP 的 Netscape Cookie 文件"
+                if _no_cookies else
+                "微博 Cookie 可能已过期或缺少必要字段（SUB/SUBP），请重新导出 Cookie"
+            )
             return MediaInfo(
                 platform=Platform.WEIBO,
                 url=url,
                 title="微博（解析失败）",
                 author="",
-                description=f"无法解析微博内容，post_id: {post_id}，请检查网络或Cookie配置",
+                description=f"无法解析微博内容（post_id: {post_id}）。{_cookie_hint}",
             )
 
         d = raw.get("data", {}) or {}
