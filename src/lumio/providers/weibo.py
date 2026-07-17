@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+import html as _html
 
 from .base import BaseProvider, MediaInfo, MediaItem, Platform
 from .registry import register
@@ -53,6 +54,89 @@ def _fetch_json(api_url: str, timeout: int = 15) -> Optional[dict]:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         return None
+
+
+def _fetch_html(url: str, timeout: int = 15) -> Optional[str]:
+    """Fetch an HTML page, with optional cookie support."""
+    cookies = _get_weibo_cookies()
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            **({"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())} if cookies else {}),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        return None
+
+
+def _extract_items_from_html(html: str, post_id: str) -> tuple[list[MediaItem], str, str]:
+    """Parse Weibo page HTML to extract media items, title, and thumbnail."""
+    items: list[MediaItem] = []
+    title = ""
+    thumbnail = ""
+    seen_urls: set[str] = set()
+
+    # 1. og:title
+    m = re.search(r'''<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']''', html)
+    if m:
+        title = _html.unescape(m.group(1)).strip()[:80]
+
+    # 2. og:image (thumbnail)
+    m = re.search(r'''<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']''', html)
+    if m:
+        thumbnail = m.group(1)
+
+    # 3. og:video
+    m = re.search(r'''<meta\s+property=["']og:video["']\s+content=["']([^"']+)["']''', html)
+    if m:
+        url = m.group(1)
+        seen_urls.add(url)
+        items.append(MediaItem(url=url, is_video=True, index=len(items)))
+
+    # 4. sinaimg.cn in img tags
+    for idx, m in enumerate(re.finditer(r'''<img[^>]+src=["'](https?://[^"']*sinaimg[^"']*)["']''', html)):
+        url = m.group(1)
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        items.append(MediaItem(url=url, is_video=False, index=len(items)))
+
+    # 5. sinaimg.cn in any attribute (WB_IMG_U / data-src / etc)
+    for m in re.finditer(r'(https?://[^"' + chr(39) + r'\s]*sinaimg[^"' + chr(39) + r'\s]*(?:jpg|jpeg|png|gif|webp))', html):
+        url = m.group(1)
+        if url in seen_urls:
+            continue
+        # Prefer large/original size
+        url = re.sub(r'/(thumb|small|orj\d+|mw\d+)/', '/large/', url)
+        seen_urls.add(url)
+        items.append(MediaItem(url=url, is_video=False, index=len(items)))
+
+    # 6. Video URLs (mp4/m3u8)
+    for m in re.finditer(r'(https?://[^"' + chr(39) + r'\s]*video[^"' + chr(39) + r'\s]*(?:mp4|m3u8))', html, re.IGNORECASE):
+        url = m.group(1)
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        items.append(MediaItem(url=url, is_video=True, index=len(items)))
+
+    # Deduplicate by url, keep first occurrence
+    deduped: list[MediaItem] = []
+    dedup_seen: set[str] = set()
+    for it in items:
+        if it.url not in dedup_seen:
+            dedup_seen.add(it.url)
+            deduped.append(it)
+
+    return deduped, title, thumbnail
 
 
 def _extract_images_from_pics(pics: list[dict]) -> list[MediaItem]:
@@ -168,14 +252,61 @@ class WeiboProvider(BaseProvider):
         api_url = _WEIBO_API.format(post_id)
         raw = _fetch_json(api_url)
 
-        # API 失败 — 返回降级信息
+        # API 失败 -> 尝试 HTML 页面爬取做党底
         if raw is None or raw.get("ok") != 1:
+            # Fallback 1: m.weibo.cn HTML page scraping
+            m_url = f"https://m.weibo.cn/status/{post_id}"
+            html = _fetch_html(m_url)
+            if html:
+                html_items, html_title, html_thumb = _extract_items_from_html(html, post_id)
+                if html_items:
+                    return MediaInfo(
+                        platform=Platform.WEIBO,
+                        url=url,
+                        title=html_title or f"微博 {post_id[:8]}",
+                        author="",
+                        description=html_title or f"微博 {post_id[:8]}",
+                        media_items=html_items,
+                        thumbnail=html_thumb,
+                    )
+            # Fallback 2: try weibo.com API (ajax endpoint)
+            try:
+                wb_url = f"https://weibo.com/ajax/statuses/show?id={post_id}"
+                wb_raw = _fetch_json(wb_url)
+                if wb_raw and wb_raw.get("ok") == 1:
+                    d = wb_raw.get("data", {}) or wb_raw
+                    wb_items = []
+                    pics = d.get("pics", [])
+                    if pics:
+                        wb_items.extend(_extract_images_from_pics(pics))
+                    page_info = d.get("page_info", {})
+                    if page_info:
+                        video = _extract_video(page_info, len(wb_items))
+                        if video:
+                            wb_items.append(video)
+                    text_raw = d.get("text_raw", "") or d.get("text", "") or ""
+                    wb_title = _clean_title(text_raw)
+                    user = d.get("user", {}) or {}
+                    wb_author = user.get("screen_name", "") or ""
+                    wb_thumb = _get_thumbnail(d)
+                    return MediaInfo(
+                        platform=Platform.WEIBO,
+                        url=url,
+                        title=wb_title,
+                        author=wb_author,
+                        description=wb_title,
+                        media_items=wb_items,
+                        thumbnail=wb_thumb,
+                    )
+            except Exception:
+                pass
+            # All fallbacks failed
             return MediaInfo(
                 platform=Platform.WEIBO,
                 url=url,
                 title="微博（解析失败）",
                 author="",
-                description=f"无法解析微博内容，post_id: {post_id}",
+                description=f"无法解析微博内容，post_id: {post_id}，请检查网络或Cookie配置",
             )
 
         d = raw.get("data", {}) or {}

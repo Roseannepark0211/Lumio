@@ -68,12 +68,18 @@ def check_yt_cookie_status() -> str:
     return _check_cookie_expiry(["youtube.com"], ["LOGIN_INFO"])
 
 
+def check_weibo_cookie_status() -> str:
+    return _check_cookie_expiry(["weibo.cn", "weibo.com"], ["SUB", "SUBP"])
+
+
+
 def check_all_cookies() -> dict[str, str]:
     """Return status for all platforms."""
     return {
         "instagram": check_ig_cookie_status(),
         "x": check_x_cookie_status(),
         "youtube": check_yt_cookie_status(),
+        "weibo": check_weibo_cookie_status(),
     }
 
 
