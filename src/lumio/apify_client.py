@@ -139,7 +139,7 @@ class ApifyIGClient:
 
         Filters out comment-related fields, only keeps media data.
         """
-        from .downloader import VideoInfo
+        from .utils.media_utils import VideoInfo
         items = self._extract_media_items(item)
         caption = (item.get("caption") or "").strip()
         title = caption[:80] if caption else "Instagram post"
@@ -162,7 +162,7 @@ class ApifyIGClient:
 
         Handles Sidecar (carousel), Image, and Video types.
         """
-        from .downloader import MediaItem
+        from .utils.media_utils import MediaItem
         item_type = item.get("type", "")
 
         # Sidecar (carousel): use childPosts
@@ -194,7 +194,7 @@ class ApifyIGClient:
     @staticmethod
     def _child_posts_to_media_items(children: list[dict]) -> list[MediaItem]:
         """Convert Apify childPosts array → MediaItem list."""
-        from .downloader import MediaItem
+        from .utils.media_utils import MediaItem
         media_items = []
         for idx, child in enumerate(children):
             child_type = child.get("type", "Image")

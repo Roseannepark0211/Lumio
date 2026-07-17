@@ -1,6 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
+
 
 _VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv"}
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
@@ -52,3 +54,25 @@ def format_size(size_bytes: int, zero_default: str = "—") -> str:
     if size_bytes < 1024 * 1024 * 1024:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
     return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+@dataclass
+class MediaItem:
+    """Single media resource (image or video) for download pipeline."""
+    url: str
+    is_video: bool
+    index: int = 0
+
+
+@dataclass
+class VideoInfo:
+    """Unified media metadata result from URL extraction."""
+    title: str
+    url: str
+    thumbnail: str | None
+    duration: int | None  # seconds
+    formats: list[dict]  # raw yt-dlp format dicts (YouTube only)
+    platform: str
+    author: str = ""  # uploader / channel / IG username
+    items: list[MediaItem] = field(default_factory=list)
+    post_time: str = ""

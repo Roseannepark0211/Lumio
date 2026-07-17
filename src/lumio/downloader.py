@@ -14,6 +14,7 @@ import yt_dlp
 
 from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
+from .utils.media_utils import MediaItem, VideoInfo
 
 # --- Conflict ask callback (set by Downloader instance) ---
 _conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
@@ -124,25 +125,6 @@ def _find_ffmpeg() -> str | None:
     except Exception:
         return None
 
-
-@dataclass
-class MediaItem:
-    url: str
-    is_video: bool
-    index: int = 0
-
-
-@dataclass
-class VideoInfo:
-    title: str
-    url: str
-    thumbnail: str | None
-    duration: int | None  # seconds
-    formats: list[dict]  # raw yt-dlp format dicts (YouTube only)
-    platform: str
-    author: str = ""  # uploader / channel / IG username
-    items: list[MediaItem] = field(default_factory=list)
-    post_time: str = ""
 
 
 @dataclass
@@ -1737,6 +1719,115 @@ def _direct_download_with_pause(task, pause_event, on_progress):
         resp.close()
 
 
+def _items_download_with_pause(
+    task: DownloadTask,
+    pause_event: threading.Event,
+    on_progress: ProgressCallback | None = None,
+):
+    """通用媒体文件下载（用于国内平台如微博、小红书等）。
+
+    读取 task.media_items_json 中的媒体列表，逐个下载。
+    图片和视频均通过 requests 直链下载，支持断点续传（视频）。
+    """
+    import json as _json
+
+    items_data = _json.loads(task.media_items_json)
+    media_items = [
+        MediaItem(url=i["url"], is_video=i["is_video"], index=i.get("index", 0))
+        for i in items_data
+    ]
+
+    if not media_items:
+        raise ValueError("没有可下载的媒体项目")
+
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    name_stem = _effective_name(task)
+    if name_stem == "%(title)s":
+        name_stem = _safe_filename(task.title or "download")
+
+    total = len(media_items)
+    pad = len(str(total))
+    policy = get_file_conflict_policy()
+    downloaded_any = False
+
+    for idx, item in enumerate(media_items):
+        ext = "mp4" if item.is_video else "jpg"
+        suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
+        filename = out_dir / f"{name_stem}{suffix}.{ext}"
+
+        if filename.exists() and policy == "skip":
+            continue
+
+        resolved = _resolve_conflict_path(filename, policy)
+        if resolved is None:
+            continue
+        filename = resolved
+
+        if item.is_video:
+            headers = _resume_headers(filename)
+            resp = requests.get(item.url, stream=True, timeout=30, headers=headers)
+            try:
+                is_resume = resp.status_code == 206
+                if resp.status_code == 416:
+                    continue
+                resp.raise_for_status()
+                total_size = int(resp.headers.get("content-length", 0))
+                if is_resume:
+                    downloaded = filename.stat().st_size
+                    total_size += downloaded
+                else:
+                    downloaded = 0
+                try:
+                    with open(filename, "ab" if is_resume else "wb") as f:
+                        for chunk in resp.iter_content(8192):
+                            if task._cancelled:
+                                raise _CancelledError()
+                            pause_event.wait()
+                            if task._cancelled:
+                                raise _CancelledError()
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size:
+                                pct = downloaded / total_size * 100
+                                task.progress = (idx + pct / 100) / total * 100
+                                task.speed = f"{idx + 1}/{total}"
+                                task.filename = str(filename)
+                                if on_progress:
+                                    on_progress(task)
+                except _CancelledError:
+                    filename.unlink(missing_ok=True)
+                    raise
+            finally:
+                resp.close()
+        else:
+            # Image — simple GET
+            resp = requests.get(item.url, timeout=30)
+            try:
+                resp.raise_for_status()
+                filename.write_bytes(resp.content)
+            finally:
+                resp.close()
+
+        downloaded_any = True
+        task.progress = (idx + 1) / total * 100
+        task.speed = f"{idx + 1}/{total}"
+        task.filename = str(filename)
+        if on_progress:
+            on_progress(task)
+
+    if not downloaded_any:
+        _cleanup_empty_dir(out_dir)
+
+    task.status = "done"
+    task.progress = 100
+
+
 def start_download_with_pause(
     task: DownloadTask,
     pause_event: threading.Event,
@@ -1758,6 +1849,12 @@ def start_download_with_pause(
                     _ig_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.X:
                 _x_download_with_pause(task, pause_event, on_progress)
+            else:
+                # Phase 2: domestic platform items download (Weibo, Bilibili, etc.)
+                if task.media_items_json:
+                    _items_download_with_pause(task, pause_event, on_progress)
+                else:
+                    raise ValueError(f"不支持的平台或缺少媒体信息: {task.url}")
         except _CancelledError:
             task.status = "error"
             task.error = "Cancelled"
