@@ -51,7 +51,7 @@ def _fetch_json(api_url: str, timeout: int = 15) -> Optional[dict]:
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         return None
 
