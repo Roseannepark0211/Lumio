@@ -1065,6 +1065,11 @@ def extract_info(url: str) -> VideoInfo:
     elif parsed.platform == Platform.X:
         return _x_extract_info(url)
     else:
+        # Phase 1 Step 2: try domestic platform providers
+        from .providers.dispatch import resolve_via_providers as _resolve
+        result = _resolve(url)
+        if result is not None:
+            return result
         raise ValueError(f"Unsupported URL: {url}")
 
 

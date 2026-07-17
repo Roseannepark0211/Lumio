@@ -304,10 +304,14 @@ class HomePage(QWidget):
         parsed = parse_url(first_line)
 
         if parsed.platform == Platform.UNSUPPORTED:
-            QMessageBox.warning(
-                self, t("unsupported"), t("unsupported_msg") + first_line
-            )
-            return
+            # Phase 1 Step 2: try domestic platforms before giving up
+            from ..providers.detector import detect_domestic as _dd
+            if not _dd(first_line):
+                QMessageBox.warning(
+                    self, t("unsupported"), t("unsupported_msg") + first_line
+                )
+                return
+            # Domestic URL — continue to extraction below
 
         # Instagram profile -> batch dialog
         if parsed.platform == Platform.INSTAGRAM and parsed.kind == "profile":
@@ -432,9 +436,12 @@ class HomePage(QWidget):
         for url in urls:
             parsed = parse_url(url)
             if parsed.platform == Platform.UNSUPPORTED:
-                invalid.append(url[:40])
-            else:
-                valid.append(parsed.url)
+                # Phase 1 Step 2: try domestic platforms
+                from ..providers.detector import detect_domestic as _dd
+                if not _dd(url):
+                    invalid.append(url[:40])
+                    continue
+            valid.append(parsed.url)
 
         if invalid:
             QMessageBox.warning(
