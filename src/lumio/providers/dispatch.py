@@ -1,26 +1,65 @@
-"""Provider dispatch — bridge between Provider system and existing download flow.
+﻿"""Provider dispatch — bridge between Provider system and existing download flow.
 
 Phase 1 Step 2:
   Provider → MediaInfo → VideoInfo → Queue
   (The "DownloadTask" bridge from the design doc)
+
+V4.0 additions:
+  - URL normalization before detection (Section 20)
+  - URL → MediaInfo cache (Section 23)
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
+from . import cache as provider_cache
 from .base import MediaInfo
 from .detector import detect_domestic
 from .registry import get_provider
+from .url_normalizer import normalize_url
+
+logger = logging.getLogger(__name__)
 
 
 def _to_downloader_item(item):
-    """Convert provider MediaItem to media_utils.MediaItem for queue/GUI compatibility."""
+    """Convert provider MediaItem to media_utils.MediaItem for queue/GUI compatibility.
+
+    V4.0 Phase 3: passes all fields including media_type, extension, live_photo, etc.
+    """
     from ..utils.media_utils import MediaItem as _DownloaderMediaItem
+    from .base import LivePhoto as _LivePhoto
+
+    # Convert LivePhoto dataclass to dict for serialization
+    lp_dict = None
+    if item.live_photo is not None:
+        if isinstance(item.live_photo, _LivePhoto):
+            lp_dict = {
+                "image": item.live_photo.image,
+                "video": item.live_photo.video,
+                "cover": item.live_photo.cover,
+            }
+        elif isinstance(item.live_photo, dict):
+            lp_dict = item.live_photo
+        else:
+            lp_dict = None
+
     return _DownloaderMediaItem(
         url=item.url,
         is_video=item.is_video,
         index=item.index,
+        media_type=item.media_type.value if hasattr(item.media_type, "value") else str(item.media_type),
+        width=item.width,
+        height=item.height,
+        extension=item.extension,
+        size=item.size,
+        quality=item.quality,
+        mime=item.mime,
+        id=item.id,
+        filename=item.filename,
+        live_photo=lp_dict,
+        original_url=item.original_url,
     )
 
 
@@ -72,14 +111,30 @@ def resolve_via_providers(url: str) -> Optional[object]:
 
     This is called as a fallback in downloader.extract_info().
     """
-    result = detect_domestic(url)
+    # Step 1: normalize short URLs (t.cn -> weibo.com, etc.)
+    normalized = normalize_url(url)
+
+    # Step 2: check cache
+    cached = provider_cache.get(normalized)
+    if cached is not None:
+        logger.debug("resolve_via_providers: cache hit for %s", normalized[:60])
+        return media_info_to_video_info(cached, url)
+
+    result = detect_domestic(normalized)
     if result is None:
         return None
 
     _platform, _kind = result
-    provider = get_provider(url)
+    provider = get_provider(normalized)
     if provider is None:
         return None
 
-    media_info = provider.extract_info(url)
+    media_info = provider.extract_info(normalized)
+
+    # Step 3: cache the result
+    try:
+        provider_cache.set(normalized, media_info)
+    except Exception:
+        pass
+
     return media_info_to_video_info(media_info, url)

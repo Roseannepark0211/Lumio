@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 _VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv"}
@@ -58,10 +59,30 @@ def format_size(size_bytes: int, zero_default: str = "—") -> str:
 
 @dataclass
 class MediaItem:
-    """Single media resource (image or video) for download pipeline."""
+    """Single media resource (image/video/live_photo/audio/document) for download pipeline.
+
+    Extended in V4.0 Phase 3 to support full media type system (MediaType),
+    Live Photo dual-file download, and format metadata.
+    """
     url: str
     is_video: bool
     index: int = 0
+    media_type: str = ""  # "image" / "video" / "live_photo" / "gif" / "audio" / "document" / ""
+    width: int = 0
+    height: int = 0
+    extension: str = ""
+    size: int = 0
+    quality: str = ""
+    mime: str = ""
+    id: str = ""
+    filename: str = ""
+    live_photo: Optional[dict] = None  # {"image": str, "video": str, "cover": str} for Live Photo dual download
+    original_url: str = ""
+
+    def __post_init__(self):
+        """Backward-compat: set media_type from is_video when not explicitly set."""
+        if not self.media_type:
+            self.media_type = "video" if self.is_video else "image"
 
 
 @dataclass

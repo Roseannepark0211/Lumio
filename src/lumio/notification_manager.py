@@ -144,11 +144,23 @@ class NotificationManager(QObject):
 
     def _check_cookies(self) -> None:
         try:
-            from .gui.cookie_checker import check_ig_cookie_status, check_x_cookie_status, check_yt_cookie_status
+            from .gui.cookie_checker import (
+                check_ig_cookie_status,
+                check_x_cookie_status,
+                check_yt_cookie_status,
+                check_douyin_cookie_status,
+                check_xiaohongshu_cookie_status,
+                check_bilibili_cookie_status,
+                check_kuaishou_cookie_status,
+            )
             missing = []
             for name, checker in [("Instagram", check_ig_cookie_status),
                                   ("X", check_x_cookie_status),
-                                  ("YouTube", check_yt_cookie_status)]:
+                                  ("YouTube", check_yt_cookie_status),
+                                  ("抖音", check_douyin_cookie_status),
+                                  ("小红书", check_xiaohongshu_cookie_status),
+                                  ("B站", check_bilibili_cookie_status),
+                                  ("快手", check_kuaishou_cookie_status)]:
                 status = checker()
                 if status in ("missing", "expired"):
                     missing.append(name)

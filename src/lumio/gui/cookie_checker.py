@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import time
 from pathlib import Path
@@ -71,6 +71,21 @@ def check_yt_cookie_status() -> str:
 def check_weibo_cookie_status() -> str:
     return _check_cookie_expiry(["weibo.cn", "weibo.com"], ["SUB", "SUBP"])
 
+def check_douyin_cookie_status() -> str:
+    return _check_cookie_expiry(["douyin.com"], ["sessionid"])
+
+
+def check_xiaohongshu_cookie_status() -> str:
+    return _check_cookie_expiry(["xiaohongshu.com", "xhslink.com"], ["sessionid", "web_session"])
+
+
+def check_bilibili_cookie_status() -> str:
+    return _check_cookie_expiry(["bilibili.com", "b23.tv"], ["SESSDATA", "bili_jct"])
+
+
+def check_kuaishou_cookie_status() -> str:
+    return _check_cookie_expiry(["kuaishou.com"], ["kuaishou.login"])
+
 
 
 def check_all_cookies() -> dict[str, str]:
@@ -80,6 +95,10 @@ def check_all_cookies() -> dict[str, str]:
         "x": check_x_cookie_status(),
         "youtube": check_yt_cookie_status(),
         "weibo": check_weibo_cookie_status(),
+        "douyin": check_douyin_cookie_status(),
+        "xiaohongshu": check_xiaohongshu_cookie_status(),
+        "bilibili": check_bilibili_cookie_status(),
+        "kuaishou": check_kuaishou_cookie_status(),
     }
 
 

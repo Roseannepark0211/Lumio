@@ -229,7 +229,8 @@ class TestWeiboProviderExtractInfo:
         assert info.author == "测试用户"
         assert info.title == "今天的天气真好啊"
         assert "2025-01-15" in info.post_time
-        assert info.thumbnail == "https://example.com/thumb.jpg"
+        # extract_info 优先从 pics 第一张图取缩略图
+        assert info.thumbnail == "https://wx1.sinaimg.cn/large/001.jpg"
 
     @patch("lumio.providers.weibo._fetch_json", return_value=_MOCK_API_RESPONSE)
     def test_media_items_images_and_video(self, mock_fetch):

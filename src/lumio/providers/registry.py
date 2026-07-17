@@ -1,4 +1,4 @@
-"""Provider registry — 管理和发现所有平台 Provider。
+﻿"""Provider registry — 管理和发现所有平台 Provider。
 
 支持手动注册和自动发现两种方式。
 在 Phase 1 中仅实现手动注册。
@@ -10,6 +10,8 @@ from typing import Optional
 
 from .base import BaseProvider, Platform
 from .detector import detect_domestic
+from .url_normalizer import normalize_url
+from . import cache as provider_cache
 
 
 # 全局注册表: Platform -> Provider 类
@@ -35,8 +37,11 @@ def get_provider(url: str) -> Optional[BaseProvider]:
     """根据 URL 获取匹配的 Provider 实例。
 
     先通过 detect_domestic() 识别平台，再查注册表。
+    URL 会先经过规范化处理（短链接解析）。
     """
-    result = detect_domestic(url)
+    # 规范化短链接（t.cn -> weibo.com 等）
+    normalized = normalize_url(url)
+    result = detect_domestic(normalized)
     if result is None:
         return None
     platform, _ = result
@@ -61,5 +66,6 @@ def is_registered(platform: Platform) -> bool:
 
 
 def clear() -> None:
-    """清空注册表（仅用于测试）。"""
+    """清空注册表和缓存（仅用于测试）。"""
     _registry.clear()
+    provider_cache.clear_cache()

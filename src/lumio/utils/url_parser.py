@@ -1,7 +1,8 @@
-import re
+﻿import re
 from dataclasses import dataclass
 
 from ..providers.base import Platform
+from ..providers.url_normalizer import normalize_url
 
 
 @dataclass
@@ -36,9 +37,14 @@ def parse_url(raw: str) -> ParsedURL:
     text = raw.strip()
 
     # Bare @username → Instagram profile URL
+    # Must check BEFORE normalize_url to avoid "https://@username" mangling
     at_match = re.match(r"^@([\w.]+)$", text)
     if at_match:
-        text = f"instagram.com/{at_match.group(1)}"
+        text = f"https://instagram.com/{at_match.group(1)}/"
+        return ParsedURL(url=text, platform=Platform.INSTAGRAM, kind="profile")
+
+    # V4.0: 解析短链接（t.cn → weibo.com 等）
+    text = normalize_url(text)
 
     # Normalise: ensure scheme present
     if not text.startswith(("http://", "https://")):
@@ -81,5 +87,12 @@ def parse_url(raw: str) -> ParsedURL:
                 parsed_url = urlparse(text)
                 clean = urlunparse(parsed_url._replace(query="", fragment=""))
             return ParsedURL(url=clean, platform=Platform.X, kind=kind)
+
+    # Fallback: try domestic platforms via detect_domestic()
+    from ..providers.detector import detect_domestic
+    result = detect_domestic(text)
+    if result is not None:
+        platform, kind = result
+        return ParsedURL(url=text, platform=platform, kind=kind)
 
     return ParsedURL(url=text, platform=Platform.UNSUPPORTED, kind="unknown")

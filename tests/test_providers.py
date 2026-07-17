@@ -294,7 +294,7 @@ class TestDispatch:
                 FormatOption(format_id="best", label="Best quality", type="video"),
             ],
         )
-
+    
         vi = media_info_to_video_info(media, media.url)
         assert vi.title == "Test Post"
         assert vi.url == "https://weibo.com/12345/AbCdEf"
@@ -304,10 +304,10 @@ class TestDispatch:
         assert vi.author == "test_user"
         assert vi.post_time == "2025-01-01 12:00:00"
         assert len(vi.items) == 2
-        assert vi.items[0]["url"] == "https://example.com/img1.jpg"
-        assert vi.items[0]["is_video"] is False
-        assert vi.items[1]["url"] == "https://example.com/vid1.mp4"
-        assert vi.items[1]["is_video"] is True
+        assert vi.items[0].url == "https://example.com/img1.jpg"
+        assert vi.items[0].is_video is False
+        assert vi.items[1].url == "https://example.com/vid1.mp4"
+        assert vi.items[1].is_video is True
         assert len(vi.formats) == 1
         assert vi.formats[0]["format_id"] == "best"
 

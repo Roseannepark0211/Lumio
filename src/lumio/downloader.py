@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import threading
 from dataclasses import dataclass, field
@@ -14,11 +15,21 @@ import yt_dlp
 
 from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
+from .providers.registry import get_provider_for
 from .utils.media_utils import MediaItem, VideoInfo
+
+logger = logging.getLogger(__name__)
 
 # --- Conflict ask callback (set by Downloader instance) ---
 _conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
 
+_DOWNLOAD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+}
 
 def _ask_user_conflict(file_path: Path) -> str:
     """Ask user how to handle a file conflict. Blocks until response."""
@@ -346,7 +357,7 @@ def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retri
 
 def _extract_apify_media_items(item: dict) -> list[dict]:
     """Extract media items list from an Apify result item.
-    Returns list of {"url": str, "is_video": bool, "index": int}.
+    Returns list of {"url": str, "is_video": bool, "index": int, "media_type": str}.
     """
     item_type = item.get("type", "")
     items = []
@@ -354,17 +365,17 @@ def _extract_apify_media_items(item: dict) -> list[dict]:
         for idx, child in enumerate(item["childPosts"]):
             child_type = child.get("type", "Image")
             if child_type == "Video" and child.get("videoUrl"):
-                items.append({"url": child["videoUrl"], "is_video": True, "index": idx})
+                items.append({"url": child["videoUrl"], "is_video": True, "index": idx, "media_type": "video"})
             elif child.get("displayUrl"):
-                items.append({"url": child["displayUrl"], "is_video": False, "index": idx})
+                items.append({"url": child["displayUrl"], "is_video": False, "index": idx, "media_type": "image"})
     elif item.get("images"):
         for idx, url in enumerate(item["images"]):
             if url:
-                items.append({"url": url, "is_video": False, "index": idx})
+                items.append({"url": url, "is_video": False, "index": idx, "media_type": "image"})
     elif item.get("videoUrl"):
-        items.append({"url": item["videoUrl"], "is_video": True, "index": 0})
+        items.append({"url": item["videoUrl"], "is_video": True, "index": 0, "media_type": "video"})
     elif item.get("displayUrl"):
-        items.append({"url": item["displayUrl"], "is_video": False, "index": 0})
+        items.append({"url": item["displayUrl"], "is_video": False, "index": 0, "media_type": "image"})
     return items
 
 
@@ -1756,6 +1767,9 @@ def _items_download_with_pause(
 
     post_out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Track output dir early so on_done can find it even on partial failure
+    task.filename = str(post_out_dir)
+
     name_stem = _effective_name(task)
     if name_stem == "%(title)s":
         name_stem = _safe_filename(task.title or "download")
@@ -1764,6 +1778,7 @@ def _items_download_with_pause(
     pad = len(str(total))
     policy = get_file_conflict_policy()
     downloaded_any = False
+    failed_count = 0
 
     for idx, item in enumerate(media_items):
         ext = "mp4" if item.is_video else "jpg"
@@ -1778,64 +1793,123 @@ def _items_download_with_pause(
             continue
         filename = resolved
 
-        if item.is_video:
-            headers = _resume_headers(filename)
-            resp = requests.get(item.url, stream=True, timeout=30, headers=headers)
-            try:
-                is_resume = resp.status_code == 206
-                if resp.status_code == 416:
-                    continue
-                resp.raise_for_status()
-                total_size = int(resp.headers.get("content-length", 0))
-                if is_resume:
-                    downloaded = filename.stat().st_size
-                    total_size += downloaded
-                else:
-                    downloaded = 0
+        try:
+            if item.is_video:
+                headers = _resume_headers(filename)
+                # Add provider-specific headers (Referer, UA, etc.)
                 try:
-                    with open(filename, "ab" if is_resume else "wb") as f:
-                        for chunk in resp.iter_content(8192):
-                            if task._cancelled:
-                                raise _CancelledError()
-                            pause_event.wait()
-                            if task._cancelled:
-                                raise _CancelledError()
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size:
-                                pct = downloaded / total_size * 100
-                                task.progress = (idx + pct / 100) / total * 100
-                                task.speed = f"{idx + 1}/{total}"
-                                task.filename = str(filename)
-                                if on_progress:
-                                    on_progress(task)
-                except _CancelledError:
-                    filename.unlink(missing_ok=True)
-                    raise
-            finally:
-                resp.close()
-        else:
-            # Image — simple GET
-            resp = requests.get(item.url, timeout=30)
-            try:
-                resp.raise_for_status()
-                filename.write_bytes(resp.content)
-            finally:
-                resp.close()
+                    from .providers.base import Platform as _P
+                    prov = get_provider_for(_P(task.platform))
+                    if prov:
+                        pheaders = prov.get_request_headers()
+                        for k, v in pheaders.items():
+                            headers.setdefault(k, v)
+                except Exception:
+                    pass
+                resp = requests.get(item.url, stream=True, timeout=30, headers=headers)
+                try:
+                    is_resume = resp.status_code == 206
+                    if resp.status_code == 416:
+                        continue
+                    resp.raise_for_status()
+                    total_size = int(resp.headers.get("content-length", 0))
+                    if is_resume:
+                        downloaded = filename.stat().st_size
+                        total_size += downloaded
+                    else:
+                        downloaded = 0
+                    try:
+                        with open(filename, "ab" if is_resume else "wb") as f:
+                            for chunk in resp.iter_content(8192):
+                                if task._cancelled:
+                                    raise _CancelledError()
+                                pause_event.wait()
+                                if task._cancelled:
+                                    raise _CancelledError()
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size:
+                                    pct = downloaded / total_size * 100
+                                    task.progress = (idx + pct / 100) / total * 100
+                                    task.speed = f"{idx + 1}/{total}"
+                                    task.filename = str(filename)
+                                    if on_progress:
+                                        on_progress(task)
+                    except _CancelledError:
+                        filename.unlink(missing_ok=True)
+                        raise
+                finally:
+                    resp.close()
+            else:
+                # Image — use provider headers if available, fall back to domain-based
+                img_headers = dict(_DOWNLOAD_HEADERS)
+                try:
+                    from .providers.base import Platform as _P
+                    prov = get_provider_for(_P(task.platform))
+                    if prov:
+                        pheaders = prov.get_request_headers()
+                        img_headers.update(pheaders)
+                except Exception:
+                    pass
+                # Domain-based fallback as safety net
+                if "sinaimg" in item.url or "weibo" in item.url:
+                    img_headers.setdefault("Referer", "https://weibo.com/")
+                elif "xiaohongshu" in item.url or "xhscdn" in item.url:
+                    img_headers.setdefault("Referer", "https://www.xiaohongshu.com/")
+                elif "cdninstagram" in item.url or "fbcdn" in item.url:
+                    img_headers.setdefault("Referer", "https://www.instagram.com/")
+                resp = requests.get(item.url, timeout=30, headers=img_headers)
+                try:
+                    resp.raise_for_status()
+                    # Detect extension from content-type if possible
+                    ct = resp.headers.get("content-type", "")
+                    if "gif" in ct:
+                        ext = "gif"
+                    elif "png" in ct:
+                        ext = "png"
+                    elif "webp" in ct:
+                        ext = "webp"
+                    elif "jpeg" in ct or "jpg" in ct:
+                        ext = "jpg"
+                    else:
+                        ext = ext  # fallback to original
+                    # Rebuild filename with correct extension
+                    new_filename = post_out_dir / f"{name_stem}{suffix}.{ext}"
+                    if new_filename != filename:
+                        # Check conflict for new extension
+                        if new_filename.exists() and policy == "skip":
+                            continue
+                        resolved2 = _resolve_conflict_path(new_filename, policy)
+                        if resolved2 is None:
+                            continue
+                        new_filename = resolved2
+                        filename = new_filename
+                    filename.write_bytes(resp.content)
+                finally:
+                    resp.close()
 
-        downloaded_any = True
-        task.progress = (idx + 1) / total * 100
-        task.speed = f"{idx + 1}/{total}"
-        task.filename = str(filename)
-        if on_progress:
-            on_progress(task)
+            downloaded_any = True
+            task.progress = (idx + 1) / total * 100
+            task.speed = f"{idx + 1}/{total}"
+            task.filename = str(filename)
+            if on_progress:
+                on_progress(task)
+        except _CancelledError:
+            raise
+        except Exception as e:
+            failed_count += 1
+            logger.warning('Failed to download item %d/%d for %s: %s', idx + 1, total, task.url, e)
+            # Continue with next item — don't let one failure kill the batch
 
     if not downloaded_any:
         _cleanup_empty_dir(post_out_dir)
+        raise ValueError(f"所有 {total} 个媒体项目都下载失败")
 
     task.status = "done"
     task.progress = 100
     task.filename = str(post_out_dir)
+    if failed_count:
+        logger.info('Downloaded %d/%d items for %s (%d failed)', downloaded_any, total, task.url, failed_count)
 
 
 def start_download_with_pause(
@@ -1872,6 +1946,14 @@ def start_download_with_pause(
         except Exception as e:
             task.status = "error"
             task.error = str(e)
+            # Use provider classify_error if available
+            try:
+                from .providers.base import Platform as _P
+                prov = get_provider_for(_P(task.platform))
+                if prov:
+                    task.error_category = prov.classify_error(e)
+            except Exception:
+                pass
             _cleanup_empty_dir(_resolve_output_dir(task))
 
         if on_done:

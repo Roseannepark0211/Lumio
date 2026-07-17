@@ -49,20 +49,47 @@ class MediaType(Enum):
     LIVE_PHOTO = "live_photo"
     GIF = "gif"
     AUDIO = "audio"
+    DOCUMENT = "document"
     UNKNOWN = "unknown"
 
 
 
+
+
+@dataclass
+class LivePhoto:
+    image: str = ""
+    video: str = ""
+    cover: str = ""
+
 @dataclass
 class MediaItem:
-    """单条媒体资源（图片或视频）。"""
+    """单条媒体资源（图片/视频/Live Photo/音频/文档）。
+
+    所有 Provider 的 media_items 列表中的元素。
+    新增平台应使用 media_type 字段而非 is_video。
+    """
     url: str
-    is_video: bool
+    is_video: bool = False
     index: int = 0
     width: int = 0
     height: int = 0
     extension: str = ""
     original_url: str = ""
+    media_type: MediaType = MediaType.UNKNOWN
+    size: int = 0
+    quality: str = ""
+    mime: str = ""
+    id: str = ""
+    filename: str = ""
+    live_photo: Optional[LivePhoto] = None
+
+    def __post_init__(self):
+        if self.media_type == MediaType.UNKNOWN:
+            if self.is_video:
+                self.media_type = MediaType.VIDEO
+            else:
+                self.media_type = MediaType.IMAGE
 
 
 @dataclass
@@ -95,6 +122,7 @@ class MediaInfo:
     media_items: list[MediaItem] = field(default_factory=list)
     formats: list[FormatOption] = field(default_factory=list)
     raw_data: dict[str, Any] = field(default_factory=dict)
+    type: str = ""
 
 
 class BaseProvider(ABC):
@@ -122,3 +150,50 @@ class BaseProvider(ABC):
     def extract_info(self, url: str) -> MediaInfo:
         """解析 URL，返回统一的媒体信息。"""
         ...
+
+    def get_request_headers(self) -> dict[str, str]:
+        """返回此平台 HTTP 请求的默认请求头。
+
+        子类可重写此方法添加 Referer/Cookie/UA 等。
+        """
+        return {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+        }
+
+
+    def classify_error(self, error: Exception | str) -> str:
+        """将异常分类为预定义的错误类别。
+
+        返回 ErrorCategory 的 value 字符串。
+        默认调用 error_types.classify_error() 分类。
+        各 Provider 可重写此方法添加平台特定的错误判断。
+        """
+        from ..utils.error_types import classify_error as _ce
+        return _ce(error).value
+
+    def enumerate_profile_posts(
+        self,
+        identifier: str,
+        limit: int = 20,
+        callback=None,
+        cancel_event=None,
+    ) -> list[dict]:
+        """枚举用户主页的帖子列表。
+
+        Args:
+            identifier: 用户 ID / 用户名（从 URL 提取）
+            limit: 最大枚举数量
+            callback: 可选进度回调 callback(current, total)
+            cancel_event: 可选取消事件 threading.Event
+
+        Returns:
+            帖子信息列表，每项含 {title, url, thumbnail} 三个键
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} 不支持主页批量枚举，"
+            "请使用单条链接解析下载。"
+        )

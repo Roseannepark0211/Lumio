@@ -319,7 +319,9 @@ class MainWindow(QMainWindow):
         elif dialog_type == "youtube":
             self._open_yt_dialog(arg, tab=tab)
         elif dialog_type == "x":
-            self._open_x_dialog(arg)
+           self._open_x_dialog(arg)
+        elif dialog_type in ("weibo", "xiaohongshu", "bilibili", "douyin", "kuaishou"):
+            self._open_domestic_dialog(arg, dialog_type)
 
     def _open_profile_dialog(self, username: str):
         from .profile_dialog import ProfileDialog
@@ -369,6 +371,20 @@ class MainWindow(QMainWindow):
         self._sidebar.set_active("downloads")
         self._stack.setCurrentIndex(self._page_index("downloads"))
 
+
+    def _open_domestic_dialog(self, identifier: str, platform_value: str):
+        from .domestic_dialog import DomesticBatchDialog
+        dlg = DomesticBatchDialog(platform_value, identifier, self)
+        dlg.batch_add_requested.connect(self._on_domestic_batch_add)
+        dlg.exec()
+
+    @Slot(object)
+    def _on_domestic_batch_add(self, tasks):
+        for qt in tasks:
+            self._manager.add_task(qt)
+        self._show_toast(t("batch_added", n=len(tasks)))
+        self._sidebar.set_active("downloads")
+        self._stack.setCurrentIndex(self._page_index("downloads"))
     # ---- Restart ----
 
     @Slot()

@@ -413,20 +413,48 @@ class SettingsPage(QWidget):
             "微博 (Weibo):", "weibo", False,
             t("weibo_cookie_hint"), "check_weibo_cookie_status",
         )
-
+        self._dy_cred = _add_platform_block(
+            "抖音 (Douyin):", "douyin", False,
+            t("douyin_cookie_hint"), "check_douyin_cookie_status",
+        )
+        self._xhs_cred = _add_platform_block(
+            "小红书 (Xiaohongshu):", "xiaohongshu", False,
+            t("xiaohongshu_cookie_hint"), "check_xiaohongshu_cookie_status",
+        )
+        self._bili_cred = _add_platform_block(
+            "Bilibili:", "bilibili", False,
+            t("bilibili_cookie_hint"), "check_bilibili_cookie_status",
+        )
+        self._ks_cred = _add_platform_block(
+            "快手 (Kuaishou):", "kuaishou", False,
+            t("kuaishou_cookie_hint"), "check_kuaishou_cookie_status",
+        )
+ 
         # Wire cookie status updates + import
         self._update_ig_cookie_status()
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
         self._update_wb_cookie_status()
+        self._update_dy_cookie_status()
+        self._update_xhs_cookie_status()
+        self._update_bili_cookie_status()
+        self._update_ks_cookie_status()
         self._ig_cred["import_btn"].clicked.connect(self._on_import_cookie)
         self._x_cred["import_btn"].clicked.connect(self._on_import_cookie)
         self._yt_cred["import_btn"].clicked.connect(self._on_import_cookie)
         self._wb_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._dy_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._xhs_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._bili_cred["import_btn"].clicked.connect(self._on_import_cookie)
+        self._ks_cred["import_btn"].clicked.connect(self._on_import_cookie)
         self._ig_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("instagram"))
         self._x_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("x"))
         self._yt_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("youtube"))
         self._wb_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("weibo"))
+        self._dy_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("douyin"))
+        self._xhs_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("xiaohongshu"))
+        self._bili_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("bilibili"))
+        self._ks_cred["reset_btn"].clicked.connect(lambda: self._on_reset_cookie("kuaishou"))
 
         # Wire IG API validation
         def _on_validate_apify():
@@ -666,11 +694,31 @@ class SettingsPage(QWidget):
         from .cookie_checker import check_weibo_cookie_status
         self._set_cookie_label(self._wb_cred["status_lbl"], check_weibo_cookie_status())
 
+    def _update_dy_cookie_status(self):
+        from .cookie_checker import check_douyin_cookie_status
+        self._set_cookie_label(self._dy_cred["status_lbl"], check_douyin_cookie_status())
+
+    def _update_xhs_cookie_status(self):
+        from .cookie_checker import check_xiaohongshu_cookie_status
+        self._set_cookie_label(self._xhs_cred["status_lbl"], check_xiaohongshu_cookie_status())
+
+    def _update_bili_cookie_status(self):
+        from .cookie_checker import check_bilibili_cookie_status
+        self._set_cookie_label(self._bili_cred["status_lbl"], check_bilibili_cookie_status())
+
+    def _update_ks_cookie_status(self):
+        from .cookie_checker import check_kuaishou_cookie_status
+        self._set_cookie_label(self._ks_cred["status_lbl"], check_kuaishou_cookie_status())
+
     def _on_check_cookies(self):
         self._update_ig_cookie_status()
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
         self._update_wb_cookie_status()
+        self._update_dy_cookie_status()
+        self._update_xhs_cookie_status()
+        self._update_bili_cookie_status()
+        self._update_ks_cookie_status()
         self._hint_label.setText(t("cookie_check_done"))
 
     # ---- Actions ----
@@ -690,6 +738,10 @@ class SettingsPage(QWidget):
         cfg["x_mode"] = self._x_cred["mode_combo"].currentData() or "cookie"
         cfg["youtube_mode"] = self._yt_cred["mode_combo"].currentData() or "cookie"
         cfg["weibo_mode"] = self._wb_cred["mode_combo"].currentData() or "cookie"
+        cfg["douyin_mode"] = self._dy_cred["mode_combo"].currentData() or "cookie"
+        cfg["xiaohongshu_mode"] = self._xhs_cred["mode_combo"].currentData() or "cookie"
+        cfg["bilibili_mode"] = self._bili_cred["mode_combo"].currentData() or "cookie"
+        cfg["kuaishou_mode"] = self._ks_cred["mode_combo"].currentData() or "cookie"
         old_token = cfg.get("apify_token", "")
         new_token = self._ig_cred["token_input"].text().strip() if self._ig_cred["token_input"] else ""
         cfg["apify_token"] = new_token
@@ -777,6 +829,10 @@ class SettingsPage(QWidget):
             "x": ["x.com", "twitter.com"],
             "youtube": ["youtube.com"],
             "weibo": ["weibo.cn", "weibo.com"],
+            "douyin": ["douyin.com"],
+            "xiaohongshu": ["xiaohongshu.com", "xhslink.com"],
+            "bilibili": ["bilibili.com", "b23.tv"],
+            "kuaishou": ["kuaishou.com"],
         }
         domains = domain_map.get(platform, [])
         if not domains:
@@ -803,6 +859,10 @@ class SettingsPage(QWidget):
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
         self._update_wb_cookie_status()
+        self._update_dy_cookie_status()
+        self._update_xhs_cookie_status()
+        self._update_bili_cookie_status()
+        self._update_ks_cookie_status()
         self._hint_label.setText(t("cookie_reset_done"))
 
     @Slot()
@@ -850,7 +910,11 @@ class SettingsPage(QWidget):
             merged = "\n".join(header_lines + list(existing.values())) + "\n"
             dest.write_text(merged, encoding="utf-8")
 
-            from .cookie_checker import check_ig_cookie_status, check_x_cookie_status, check_weibo_cookie_status
+            from .cookie_checker import (
+                check_ig_cookie_status, check_x_cookie_status, check_weibo_cookie_status,
+                check_douyin_cookie_status, check_xiaohongshu_cookie_status,
+                check_bilibili_cookie_status, check_kuaishou_cookie_status,
+            )
             ig_status = check_ig_cookie_status()
             x_status = check_x_cookie_status()
             wb_status = check_weibo_cookie_status()
@@ -864,6 +928,10 @@ class SettingsPage(QWidget):
             self._update_x_cookie_status()
             self._update_yt_cookie_status()
             self._update_wb_cookie_status()
+            self._update_dy_cookie_status()
+            self._update_xhs_cookie_status()
+            self._update_bili_cookie_status()
+            self._update_ks_cookie_status()
         except Exception as e:
             QMessageBox.critical(self, t("error"), t("cookie_import_fail", err=str(e)))
 
@@ -893,6 +961,10 @@ class SettingsPage(QWidget):
         self._update_x_cookie_status()
         self._update_yt_cookie_status()
         self._update_wb_cookie_status()
+        self._update_dy_cookie_status()
+        self._update_xhs_cookie_status()
+        self._update_bili_cookie_status()
+        self._update_ks_cookie_status()
 
     # ---- Telegram handlers ----
 

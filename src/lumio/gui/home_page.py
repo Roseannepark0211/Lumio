@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -306,12 +306,34 @@ class HomePage(QWidget):
         if parsed.platform == Platform.UNSUPPORTED:
             # Phase 1 Step 2: try domestic platforms before giving up
             from ..providers.detector import detect_domestic as _dd
-            if not _dd(first_line):
+            domestic_result = _dd(first_line)
+            if not domestic_result:
                 QMessageBox.warning(
                     self, t("unsupported"), t("unsupported_msg") + first_line
                 )
                 return
-            # Domestic URL — continue to extraction below
+            # Phase 1 Step 3: domestic profile URL → batch dialog
+            _dom_platform, _dom_kind = domestic_result
+            if _dom_kind == "profile":
+                import re as _re
+                identifier = ""
+                for _pat in [
+                    r"weibo\.com/(\d+)",
+                    r"m\.weibo\.cn/u/(\d+)",
+                    r"xiaohongshu\.com/user/profile/([a-f0-9]+)",
+                    r"bilibili\.com/space/(\d+)",
+                    r"space\.bilibili\.com/(\d+)",
+                    r"douyin\.com/user/([\w.]+)",
+                ]:
+                    _m = _re.search(_pat, first_line)
+                    if _m:
+                        identifier = _m.group(1)
+                        break
+                if not identifier:
+                    identifier = first_line.rstrip("/").split("/")[-1]
+                self.request_batch_dialog.emit(_dom_platform.value, identifier, "")
+                return
+            # Domestic post URL — continue to extraction below
 
         # Instagram profile -> batch dialog
         if parsed.platform == Platform.INSTAGRAM and parsed.kind == "profile":
@@ -778,3 +800,4 @@ class HomePage(QWidget):
             for qt in tasks:
                 self._manager.add_task(qt)
             self.search_batch_added.emit(len(tasks))
+

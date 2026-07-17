@@ -216,10 +216,32 @@ class DownloadManager(QObject):
         # avoids re-fetching during download
         if info.items:
             import json as _json
-            media_json = _json.dumps([
-                {"url": it.url, "is_video": it.is_video, "index": it.index}
-                for it in info.items
-            ])
+            def _it_to_dict(it):
+                d = {"url": it.url, "is_video": it.is_video, "index": it.index}
+                if hasattr(it, "media_type") and it.media_type:
+                    d["media_type"] = it.media_type
+                if hasattr(it, "width") and it.width:
+                    d["width"] = it.width
+                if hasattr(it, "height") and it.height:
+                    d["height"] = it.height
+                if hasattr(it, "extension") and it.extension:
+                    d["extension"] = it.extension
+                if hasattr(it, "size") and it.size:
+                    d["size"] = it.size
+                if hasattr(it, "quality") and it.quality:
+                    d["quality"] = it.quality
+                if hasattr(it, "mime") and it.mime:
+                    d["mime"] = it.mime
+                if hasattr(it, "id") and it.id:
+                    d["id"] = it.id
+                if hasattr(it, "filename") and it.filename:
+                    d["filename"] = it.filename
+                if hasattr(it, "live_photo") and it.live_photo is not None:
+                    d["live_photo"] = it.live_photo if isinstance(it.live_photo, dict) else {"image": str(it.live_photo), "video": "", "cover": ""}
+                if hasattr(it, "original_url") and it.original_url:
+                    d["original_url"] = it.original_url
+                return d
+            media_json = _json.dumps([_it_to_dict(it) for it in info.items])
         qt = QueueTask(
             url=info.url,
             format_id=format_id,

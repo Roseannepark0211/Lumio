@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional, Union
 import html as _html
 
-from .base import BaseProvider, MediaInfo, MediaItem, Platform
+from .base import BaseProvider, FormatOption, MediaInfo, MediaItem, Platform
 from .registry import register
 import logging
 
@@ -183,7 +183,7 @@ def _extract_images_from_pics(pics: list[dict]) -> list[MediaItem]:
 
 
 def _extract_video(page_info: dict, index: int = 0) -> Optional[MediaItem]:
-    """从 page_info 提取视频 MediaItem。"""
+    """从 page_info 提取视频 MediaItem，含 Live Photo 支持。"""
     if page_info.get("type") not in ("video", "livephoto"):
         return None
     media_info = page_info.get("media_info", {})
@@ -196,7 +196,22 @@ def _extract_video(page_info: dict, index: int = 0) -> Optional[MediaItem]:
     )
     if not url:
         return None
-    return MediaItem(url=url.replace("\\", ""), is_video=True, index=index)
+    url = url.replace("\\", "")
+    is_live = page_info.get("type") == "livephoto"
+    kwargs = dict(url=url, is_video=True, index=index)
+    if is_live:
+        lp_image = (
+            page_info.get("page_pic", {}).get("url", "")
+            or media_info.get("livephoto_static_url", "")
+            or ""
+        )
+        kwargs["media_type"] = "live_photo"
+        kwargs["live_photo"] = {
+            "image": lp_image,
+            "video": url,
+            "cover": page_info.get("page_pic", {}).get("url", ""),
+        }
+    return MediaItem(**kwargs)
 
 
 def _clean_title(text: str) -> str:
@@ -335,6 +350,46 @@ def _fetch_with_session(url: str, *, as_json: bool = False, timeout: int = 15) -
         return None
 
 
+
+def _extract_video_fullinfo(media_info: dict) -> list[FormatOption]:
+    formats = []
+    seen = set()
+    for label, key, w, h in [
+        ("1080p", "video_1080p_url", 1920, 1080),
+        ("720p", "stream_url_hd", 1280, 720),
+        ("540p", "stream_url", 960, 540),
+        ("HD", "mp4_hd_url", 1280, 720),
+        ("SD", "mp4_url", 640, 360),
+    ]:
+        url = media_info.get(key, "")
+        if url and url not in seen:
+            seen.add(url)
+            formats.append(FormatOption(
+                format_id=key, label=label + (" (mp4)" if label in ("HD","SD") else ""),
+                type="video", ext="mp4", width=w, height=h,
+            ))
+    return formats
+
+def _classify_weibo_type(data: dict) -> str:
+    if "mix_media_info" in data or "live_photos" in data:
+        return "livephoto"
+    pi = data.get("page_info", {})
+    has_video = pi.get("type") in ("video", "livephoto") and bool(
+        pi.get("media_info", {}).get("stream_url") or pi.get("media_info", {}).get("mp4_url"))
+    has_pics = bool(data.get("pics"))
+    if has_video and has_pics: return "mixed"
+    if has_video: return "video"
+    if has_pics: return "images"
+    return "unknown"
+
+def _build_image_from_pic_ids(pic_ids: list[str]) -> list:
+    hosts = ["wx1","wx2","wx3","wx4"]
+    items = []
+    for idx, pid in enumerate(pic_ids):
+        url = f"https://{hosts[idx % 4]}.sinaimg.cn/large/{pid}.jpg"
+        items.append(MediaItem(url=url, is_video=False, index=idx))
+    return items
+
 @register
 class WeiboProvider(BaseProvider):
     """微博内容解析 Provider。
@@ -375,6 +430,7 @@ class WeiboProvider(BaseProvider):
                         description=html_title or f"微博 {post_id[:8]}",
                         media_items=html_items,
                         thumbnail=html_thumb,
+                        formats=[],
                     )
             # Fallback 2: try weibo.com API (ajax endpoint)
             try:
@@ -404,6 +460,7 @@ class WeiboProvider(BaseProvider):
                         description=wb_title,
                         media_items=wb_items,
                         thumbnail=wb_thumb,
+                        formats=[],
                     )
             except Exception:
                 pass
@@ -448,6 +505,11 @@ class WeiboProvider(BaseProvider):
             video = _extract_video(page_info, len(items))
             if video:
                 items.append(video)
+        formats = []
+        if page_info:
+            mi = page_info.get("media_info", {})
+            if mi:
+                formats = _extract_video_fullinfo(mi)
 
         # 主条目无媒体时尝试转发内容
         if not items:
@@ -469,8 +531,10 @@ class WeiboProvider(BaseProvider):
                     r_user = retweeted.get("user", {}) or {}
                     author = r_user.get("screen_name", "") or ""
 
-        thumbnail = _get_thumbnail(d)
+        pics_thumb = pics[0].get("large",{}).get("url","") or pics[0].get("url","") if pics else ""
+        thumbnail = pics_thumb or _get_thumbnail(d)
 
+        mt = _classify_weibo_type(d)
         return MediaInfo(
             platform=Platform.WEIBO,
             url=url,
@@ -481,5 +545,136 @@ class WeiboProvider(BaseProvider):
             thumbnail=thumbnail,
             description=title,
             media_items=items,
-            raw_data=d,
+            formats=formats,
+            raw_data={**d, "_media_type": mt},
         )
+    def get_request_headers(self) -> dict[str, str]:
+        return {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": "https://weibo.com/",
+        }
+
+    def classify_error(self, error: Exception | str) -> str:
+        text = str(error).lower()
+        if any(kw in text for kw in ("sub","subp","weibo cookie","sina visitor","need login","login required","passport","not authorized")):
+            from ..utils.error_types import ErrorCategory
+            return ErrorCategory.COOKIE_EXPIRED.value
+        from ..utils.error_types import classify_error as _ce
+        return _ce(error).value
+
+    def enumerate_profile_posts(
+        self,
+        identifier: str,
+        limit: int = 20,
+        callback=None,
+        cancel_event=None,
+    ) -> list[dict]:
+        """枚举微博用户主页帖文。
+
+        两阶段 API：
+        1. m.weibo.cn/api/container/getIndex?type=uid&value={uid} → containerid
+        2. 分页取 cards[].mblog
+
+        Args:
+            identifier: 用户 uid（纯数字）
+            limit: 最大枚举数量
+            callback: 进度回调 callback(current, total)
+            cancel_event: 取消事件
+
+        Returns:
+            list[dict]，每项含 {title, url, thumbnail}
+        """
+        uid = identifier.strip()
+        if not uid.isdigit():
+            logger.warning("Weibo enumerate_profile_posts: identifier is not a numeric UID: %s", identifier)
+            return []
+
+        result: list[dict] = []
+        page = 1
+        containerid = ""
+
+        # Phase 1: get containerid
+        container_api = (
+            f"https://m.weibo.cn/api/container/getIndex"
+            f"?type=uid&value={uid}"
+        )
+        data = _fetch_json(container_api)
+        if not data or data.get("ok") != 1:
+            logger.warning("Weibo enumerate_profile_posts: failed to get containerid for uid=%s", uid)
+            return []
+
+        tabs = data.get("data", {}).get("tabs", [])
+        for tab in tabs:
+            if tab.get("tab_type") == "weibo":
+                containerid = tab.get("containerid", "")
+                break
+        if not containerid:
+            containerid = data.get("data", {}).get("cardlistInfo", {}).get("containerid", "")
+        if not containerid:
+            logger.warning("Weibo enumerate_profile_posts: no containerid found for uid=%s", uid)
+            return []
+
+        # Phase 2: paginate
+        while len(result) < limit:
+            if cancel_event and cancel_event.is_set():
+                break
+
+            api = (
+                f"https://m.weibo.cn/api/container/getIndex"
+                f"?type=uid&value={uid}"
+                f"&containerid={containerid}"
+                f"&page={page}"
+            )
+            page_data = _fetch_json(api)
+            if not page_data or page_data.get("ok") != 1:
+                break
+
+            cards = page_data.get("data", {}).get("cards", [])
+            if not cards:
+                break
+
+            for card in cards:
+                if cancel_event and cancel_event.is_set():
+                    break
+
+                mblog = card.get("mblog")
+                if not mblog:
+                    continue
+
+                # title: text_raw stripped of HTML
+                text_raw = mblog.get("text_raw", "") or mblog.get("text", "") or ""
+                title = re.sub(r"<[^>]+>", "", text_raw).strip()[:80]
+                if not title:
+                    title = "微博"
+
+                # thumbnail: first pic large url
+                pics = mblog.get("pics", [])
+                thumbnail = ""
+                if pics:
+                    thumbnail = pics[0].get("large", {}).get("url", "") or pics[0].get("url", "")
+                    if not thumbnail:
+                        pid = pics[0].get("pid", "")
+                        if pid:
+                            thumbnail = f"https://wx1.sinaimg.cn/large/{pid}.jpg"
+
+                post_id = mblog.get("id", "")
+                if not post_id:
+                    continue
+                url = f"https://m.weibo.cn/status/{post_id}"
+
+                result.append({
+                    "title": title,
+                    "url": url,
+                    "thumbnail": thumbnail,
+                })
+
+                if len(result) >= limit:
+                    break
+
+            if callback:
+                callback(len(result), limit)
+
+            page += 1
+
+        logger.info("Weibo enumerate_profile_posts: uid=%s, found %d posts", uid, len(result))
+        return result
