@@ -15,29 +15,6 @@ import yt_dlp
 from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
 
-# --- Apify client singleton (lazy-init, reset on token change) ---
-_apify_client_instance = None
-
-
-def _get_apify_client():
-    global _apify_client_instance
-    if _apify_client_instance is None:
-        from .apify_client import ApifyIGClient
-        from .utils.config import get_apify_token, load_config
-        token = get_apify_token()
-        actor_id = load_config().get("apify_ig_actor", "")
-        if not token or not actor_id:
-            raise ValueError("Apify Token 或 Actor ID 未配置，请在设置页面填写")
-        _apify_client_instance = ApifyIGClient(token=token, actor_id=actor_id)
-    return _apify_client_instance
-
-
-def reset_apify_client():
-    """Clear cached Apify client (called when token/actor config changes)."""
-    global _apify_client_instance
-    _apify_client_instance = None
-
-
 # --- Conflict ask callback (set by Downloader instance) ---
 _conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
 
@@ -180,6 +157,7 @@ class DownloadTask:
     platform: str = ""
     batch_id: str = ""
     direct_url: str = ""  # Pre-resolved download URL (e.g. from X-Sou)
+    media_items_json: str = ""  # Pre-resolved media items JSON (Apify, avoids re-fetching)
     status: str = "pending"
     progress: float = 0.0
     speed: str = ""
@@ -319,29 +297,56 @@ def _ig_media_to_items(media: dict) -> list[MediaItem]:
 
 
 def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retries: int = 3, batch_id: str = ""):
-    """Create QueueTask from Instagram API post dict (mobile or GraphQL format)."""
+    """Create QueueTask from Instagram post dict (mobile API / GraphQL / Apify format)."""
+    import json as _json
     from .queue_manager import QueueTask
-    # Mobile API format
-    shortcode = post_data.get("code", post_data.get("shortcode", ""))
-    is_video = post_data.get("video", post_data.get("is_video", False))
-    caption_obj = post_data.get("caption", {})
-    caption = caption_obj.get("text", "") if isinstance(caption_obj, dict) else ""
-    title = caption[:80] or "Instagram post"
-    owner = post_data.get("user", {}).get("username", post_data.get("owner", {}).get("username", ""))
-    ts = post_data.get("taken_at_timestamp", post_data.get("taken_at", 0))
-    post_time = ""
-    if ts:
-        from datetime import datetime, timezone
-        post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
-    # Thumbnail: mobile API uses image_versions2, GraphQL uses display_url
-    thumb = ""
-    if "image_versions2" in post_data:
-        candidates = post_data["image_versions2"].get("candidates", [])
-        if candidates:
-            thumb = candidates[0].get("url", "")
-    if not thumb:
-        thumb = post_data.get("display_url", "")
-    url = f"https://www.instagram.com/p/{shortcode}/"
+
+    # Detect Apify format (has "type" = "Image"/"Video"/"Sidecar")
+    is_apify = post_data.get("type") in ("Image", "Video", "Sidecar")
+
+    if is_apify:
+        shortcode = post_data.get("shortCode", "")
+        caption = (post_data.get("caption") or "").strip()
+        title = caption[:80] or "Instagram post"
+        owner = post_data.get("ownerUsername", "")
+        # Parse ISO timestamp
+        ts_str = post_data.get("timestamp", "")
+        post_time = ""
+        if ts_str:
+            from datetime import datetime, timezone
+            try:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                post_time = dt.strftime("%Y%m%d_%H%M%S")
+            except (ValueError, AttributeError):
+                pass
+        thumb = post_data.get("displayUrl", "")
+        url = post_data.get("url", f"https://www.instagram.com/p/{shortcode}/")
+        # Extract media items and serialize to JSON
+        media_items = _extract_apify_media_items(post_data)
+        media_json = _json.dumps(media_items) if media_items else ""
+    else:
+        # Mobile API / GraphQL format (original logic)
+        shortcode = post_data.get("code", post_data.get("shortcode", ""))
+        is_video = post_data.get("video", post_data.get("is_video", False))
+        caption_obj = post_data.get("caption", {})
+        caption = caption_obj.get("text", "") if isinstance(caption_obj, dict) else ""
+        title = caption[:80] or "Instagram post"
+        owner = post_data.get("user", {}).get("username", post_data.get("owner", {}).get("username", ""))
+        ts = post_data.get("taken_at_timestamp", post_data.get("taken_at", 0))
+        post_time = ""
+        if ts:
+            from datetime import datetime, timezone
+            post_time = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+        thumb = ""
+        if "image_versions2" in post_data:
+            candidates = post_data["image_versions2"].get("candidates", [])
+            if candidates:
+                thumb = candidates[0].get("url", "")
+        if not thumb:
+            thumb = post_data.get("display_url", "")
+        url = f"https://www.instagram.com/p/{shortcode}/"
+        media_json = ""
+
     return QueueTask(
         url=url,
         output_dir=str(output_dir),
@@ -353,7 +358,32 @@ def _post_to_queue_task(post_data: dict, custom_name: str, output_dir, max_retri
         post_time=post_time,
         thumbnail_url=thumb,
         max_retries=max_retries,
+        media_items_json=media_json,
     )
+
+
+def _extract_apify_media_items(item: dict) -> list[dict]:
+    """Extract media items list from an Apify result item.
+    Returns list of {"url": str, "is_video": bool, "index": int}.
+    """
+    item_type = item.get("type", "")
+    items = []
+    if item_type == "Sidecar" and item.get("childPosts"):
+        for idx, child in enumerate(item["childPosts"]):
+            child_type = child.get("type", "Image")
+            if child_type == "Video" and child.get("videoUrl"):
+                items.append({"url": child["videoUrl"], "is_video": True, "index": idx})
+            elif child.get("displayUrl"):
+                items.append({"url": child["displayUrl"], "is_video": False, "index": idx})
+    elif item.get("images"):
+        for idx, url in enumerate(item["images"]):
+            if url:
+                items.append({"url": url, "is_video": False, "index": idx})
+    elif item.get("videoUrl"):
+        items.append({"url": item["videoUrl"], "is_video": True, "index": 0})
+    elif item.get("displayUrl"):
+        items.append({"url": item["displayUrl"], "is_video": False, "index": 0})
+    return items
 
 
 def _ig_api_session() -> requests.Session:
@@ -403,6 +433,7 @@ def _ig_search_user(session: requests.Session, username: str) -> dict:
 def fetch_profile_info(username: str) -> dict:
     """Return profile metadata via GraphQL search API."""
     if get_platform_mode("instagram") == "api":
+        from .apify_client import get_apify_client as _get_apify_client
         return _get_apify_client().fetch_profile_info(username)
     session = _ig_api_session()
     user = _ig_search_user(session, username)
@@ -418,6 +449,7 @@ def fetch_profile_info(username: str) -> dict:
 def enumerate_profile_posts(username: str, limit: int, callback=None, cancel_event=None) -> list:
     """Return up to `limit` post dicts via mobile feed API with pagination."""
     if get_platform_mode("instagram") == "api":
+        from .apify_client import get_apify_client as _get_apify_client
         return _get_apify_client().enumerate_profile_posts(username, limit, callback, cancel_event)
     session = _ig_api_session()
 
@@ -1017,52 +1049,7 @@ def _x_extract_info(url: str) -> VideoInfo:
 
 # ---- X-Sou Search API ----
 
-_XSOU_BASE = "https://x-sou.com/api"
-
-
-def x_sou_search(query: str, page: int = 1, limit: int = 20) -> dict:
-    """Search X-Sou for videos. Returns {data: [...], total: int, page: int}.
-
-    query can be:
-    - keyword: "NASA 火箭"
-    - @username: "@elonmusk" → auto-converts to "from:elonmusk"
-    """
-    q = query.strip()
-    if q.startswith("@"):
-        q = f"from:{q[1:]}"
-    resp = requests.get(
-        f"{_XSOU_BASE}/search",
-        params={"q": q, "type": "video", "page": page, "limit": limit},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def x_sou_download_video(video_url: str, dest_path: Path, cancel_event=None) -> bool:
-    """Download a video from X-Sou direct URL. Returns True if successful."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Referer": "https://x.com/",
-    }
-    resp = requests.get(video_url, stream=True, timeout=30, headers=headers)
-    try:
-        if resp.status_code == 403:
-            return False
-        resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(dest_path, "wb") as f:
-            for chunk in resp.iter_content(8192):
-                if cancel_event and cancel_event.is_set():
-                    dest_path.unlink(missing_ok=True)
-                    return False
-                f.write(chunk)
-                downloaded += len(chunk)
-        return True
-    finally:
-        resp.close()
-
+from .x_sou_client import x_sou_search, x_sou_download_video
 
 # ---- Public API ----
 
@@ -1072,6 +1059,7 @@ def extract_info(url: str) -> VideoInfo:
         return _yt_extract_info(url)
     elif parsed.platform == Platform.INSTAGRAM:
         if get_platform_mode("instagram") == "api":
+            from .apify_client import get_apify_client as _get_apify_client
             return _get_apify_client().extract_post_info(url)
         return _ig_extract_info(url)
     elif parsed.platform == Platform.X:
@@ -1369,9 +1357,18 @@ def _ig_download_with_pause(task, pause_event, on_progress):
 
 def _apify_download_with_pause(task, pause_event, on_progress):
     """Download IG post via Apify API (replaces _ig_download_with_pause in API mode)."""
-    info = _get_apify_client().extract_post_info(task.url)
-    if not info.items:
-        raise ValueError("Apify returned no media items")
+    from .apify_client import get_apify_client as _get_apify_client
+    import json as _json
+    # Use pre-resolved media items if available (from batch enumeration),
+    # otherwise fetch via Apify Actor run.
+    if task.media_items_json:
+        raw_items = _json.loads(task.media_items_json)
+        media_items = [MediaItem(url=i["url"], is_video=i["is_video"], index=i.get("index", 0)) for i in raw_items]
+    else:
+        info = _get_apify_client().extract_post_info(task.url)
+        if not info.items:
+            raise ValueError("Apify returned no media items")
+        media_items = info.items
 
     task.status = "downloading"
     if on_progress:
@@ -1390,7 +1387,7 @@ def _apify_download_with_pause(task, pause_event, on_progress):
 
     post_out_dir.mkdir(parents=True, exist_ok=True)
 
-    items = info.items
+    items = media_items
     name_stem = _safe_filename(task.custom_name or task.author or shortcode)
     if task.post_time:
         name_stem = f"{name_stem}_{task.post_time}"

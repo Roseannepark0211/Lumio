@@ -10,7 +10,6 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from .downloader import MediaItem, VideoInfo
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +139,7 @@ class ApifyIGClient:
 
         Filters out comment-related fields, only keeps media data.
         """
+        from .downloader import VideoInfo
         items = self._extract_media_items(item)
         caption = (item.get("caption") or "").strip()
         title = caption[:80] if caption else "Instagram post"
@@ -162,6 +162,7 @@ class ApifyIGClient:
 
         Handles Sidecar (carousel), Image, and Video types.
         """
+        from .downloader import MediaItem
         item_type = item.get("type", "")
 
         # Sidecar (carousel): use childPosts
@@ -193,6 +194,7 @@ class ApifyIGClient:
     @staticmethod
     def _child_posts_to_media_items(children: list[dict]) -> list[MediaItem]:
         """Convert Apify childPosts array → MediaItem list."""
+        from .downloader import MediaItem
         media_items = []
         for idx, child in enumerate(children):
             child_type = child.get("type", "Image")
@@ -240,3 +242,27 @@ class ApifyIGClient:
             thumbnail_url=thumb,
             max_retries=max_retries,
         )
+
+
+# --- Module-level Apify client singleton ---
+
+_apify_client_instance: ApifyIGClient | None = None
+
+
+def get_apify_client() -> ApifyIGClient:
+    """Get or create the Apify client singleton (lazy-init, reset on token change)."""
+    global _apify_client_instance
+    if _apify_client_instance is None:
+        from .utils.config import get_apify_token, load_config
+        token = get_apify_token()
+        actor_id = load_config().get("apify_ig_actor", "")
+        if not token or not actor_id:
+            raise ValueError("Apify Token or Actor ID not configured; please fill in the settings page")
+        _apify_client_instance = ApifyIGClient(token=token, actor_id=actor_id)
+    return _apify_client_instance
+
+
+def reset_apify_client() -> None:
+    """Clear cached Apify client (called when token/actor config changes)."""
+    global _apify_client_instance
+    _apify_client_instance = None
