@@ -1,4 +1,4 @@
-﻿"""Platform detection — URL 到平台的识别，用于国内平台。
+"""Platform detection — URL 到平台的识别，用于国内平台。
 
 先匹配国内平台 URL 模式，再回退到现有 url_parser。
 """
@@ -24,8 +24,12 @@ _DOMESTIC_PATTERNS: dict[Platform, list[tuple[re.Pattern, str]]] = {
     ],
     Platform.XIAOHONGSHU: [
         (re.compile(r"xiaohongshu\.com/explore/([a-f0-9]+)"), "post"),
+        # discovery/item/{note_id} 是 PC 分享链接路径（带 xsec_token 鉴权）
+        (re.compile(r"xiaohongshu\.com/discovery/item/([a-f0-9]+)"), "post"),
         (re.compile(r"xiaohongshu\.com/user/profile/([a-f0-9]+)"), "profile"),
-        (re.compile(r"xhslink\.com/[a-zA-Z0-9]+"), "post"),
+        # 移动端分享短链：xhslink.com（旧）/ xhslink.cn（新）
+        # normalize_url 会先 302 展开成 xiaohongshu.com/discovery/item/...，这里是兜底
+        (re.compile(r"xhslink\.(?:com|cn)/[a-zA-Z0-9]+"), "post"),
     ],
     Platform.BILIBILI: [
         (re.compile(r"bilibili\.com/video/(BV[\w]+)"), "video"),
@@ -36,8 +40,12 @@ _DOMESTIC_PATTERNS: dict[Platform, list[tuple[re.Pattern, str]]] = {
     ],
     Platform.DOUYIN: [
         (re.compile(r"douyin\.com/video/(\d+)"), "video"),
+        # 图文帖（note）：与视频共用 aweme detail API，aweme_id 在路径里
+        (re.compile(r"douyin\.com/note/(\d+)"), "post"),
         (re.compile(r"douyin\.com/user/([\w.]+)"), "profile"),
         (re.compile(r"iesdouyin\.com/[\w]+"), "video"),
+        # v.douyin.com/{code}/ 移动端分享短链（normalize_url 会先 302 展开，这里是兜底）
+        (re.compile(r"v\.douyin\.com/[\w]+"), "video"),
     ],
     Platform.KUAISHOU: [
         (re.compile(r"kuaishou\.com/short-video/([\w]+)"), "video"),

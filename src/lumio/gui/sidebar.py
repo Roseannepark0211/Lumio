@@ -142,7 +142,7 @@ class SidebarWidget(QFrame):
         btn.clicked.connect(lambda checked, cid=collection_id: self._on_collection_nav(cid))
         btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         btn.customContextMenuRequested.connect(
-            lambda pos, cid=collection_id: self._show_collection_menu(pos, cid))
+            lambda pos, b=btn, cid=collection_id: self._show_collection_menu(pos, b, cid))
         self._collection_buttons[collection_id] = btn
         self._collections_list.addWidget(btn)
 
@@ -156,11 +156,11 @@ class SidebarWidget(QFrame):
                                     count: int, total_size: int):
         btn.setText(f"  {icon}   {name}  ({count})")
 
-    def _show_collection_menu(self, pos, collection_id: int):
+    def _show_collection_menu(self, pos, btn, collection_id: int):
         menu = QMenu(self)
         rename_action = menu.addAction(t("collection_rename"))
         delete_action = menu.addAction(t("collection_delete"))
-        action = menu.exec(self.sender().mapToGlobal(pos))
+        action = menu.exec(btn.mapToGlobal(pos))
         if action == rename_action:
             self.collection_rename_requested.emit(collection_id)
         elif action == delete_action:

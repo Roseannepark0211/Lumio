@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QButtonGroup,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -278,13 +280,28 @@ class SettingsPage(QWidget):
             cookie_hint: str,
             cookie_check_fn: str,
         ):
-            # Header row: platform name + mode selector
-            header = QHBoxLayout()
-            name_lbl = QLabel(label)
-            name_lbl.setMinimumWidth(110)
-            header.addWidget(name_lbl)
-            header.addStretch()
+            # ===== 折叠头（QToolButton + 箭头） =====
+            toggle_btn = QToolButton()
+            toggle_btn.setText(label)
+            toggle_btn.setCheckable(True)
+            toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+            toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            toggle_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            toggle_btn.setStyleSheet(
+                "QToolButton { border: none; text-align: left; "
+                "font-weight: 600; padding: 6px 2px; }"
+                "QToolButton:hover { color: #5b8cff; }"
+            )
+            cg.addWidget(toggle_btn)
 
+            # ===== 内容容器（包裹模式选择器 + cookie + api 面板） =====
+            content = QWidget()
+            cl = QVBoxLayout(content)
+            cl.setContentsMargins(16, 2, 0, 6)
+            cl.setSpacing(6)
+
+            # Header row: mode selector
+            header = QHBoxLayout()
             mode_combo = NoWheelComboBox()
             mode_combo.addItem(t("mode_cookie"), "cookie")
             if has_api:
@@ -297,13 +314,15 @@ class SettingsPage(QWidget):
             idx = mode_combo.findData(saved_mode)
             if idx >= 0:
                 mode_combo.setCurrentIndex(idx)
+            header.addWidget(QLabel(t("credential_mode_label")))
             header.addWidget(mode_combo)
-            cg.addLayout(header)
+            header.addStretch()
+            cl.addLayout(header)
 
             # Cookie panel
             cookie_panel = QWidget()
             cp_layout = QVBoxLayout(cookie_panel)
-            cp_layout.setContentsMargins(16, 4, 0, 4)
+            cp_layout.setContentsMargins(0, 4, 0, 4)
             cp_layout.setSpacing(6)
 
             status_row = QHBoxLayout()
@@ -328,12 +347,12 @@ class SettingsPage(QWidget):
             hint.setContentsMargins(4, 0, 0, 0)
             cp_layout.addWidget(hint)
 
-            cg.addWidget(cookie_panel)
+            cl.addWidget(cookie_panel)
 
             # API panel
             api_panel = QWidget()
             ap_layout = QVBoxLayout(api_panel)
-            ap_layout.setContentsMargins(16, 4, 0, 4)
+            ap_layout.setContentsMargins(0, 4, 0, 4)
             ap_layout.setSpacing(8)
 
             if has_api:
@@ -374,7 +393,24 @@ class SettingsPage(QWidget):
 
             api_panel.setVisible(saved_mode == "api")
             cookie_panel.setVisible(saved_mode != "api")
-            cg.addWidget(api_panel)
+            cl.addWidget(api_panel)
+
+            # 默认折叠；若已配置 cookie 或处于 api 模式则默认展开
+            cookie_configured = bool(cfg_cred.get(f"{platform_key}_cookie"))
+            default_expanded = cookie_configured or saved_mode == "api"
+            content.setVisible(default_expanded)
+            toggle_btn.setChecked(default_expanded)
+            if default_expanded:
+                toggle_btn.setArrowType(Qt.ArrowType.DownArrow)
+
+            def _on_toggle(checked, b=toggle_btn, c=content):
+                c.setVisible(checked)
+                b.setArrowType(
+                    Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                )
+            toggle_btn.toggled.connect(_on_toggle)
+
+            cg.addWidget(content)
 
             # Wire mode switch
             def _on_mode_changed(idx, cp=cookie_panel, ap=api_panel):

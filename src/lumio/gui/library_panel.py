@@ -220,6 +220,10 @@ class LibraryItemWidget(QFrame):
         if not enabled:
             self._checkbox.setChecked(False)
 
+    def setChecked(self, checked: bool):
+        """Programmatically set checkbox state (used by select-all)."""
+        self._checkbox.setChecked(checked)
+
     def mousePressEvent(self, event):
         child = self.childAt(event.position().toPoint())
         if isinstance(child, (QPushButton, QCheckBox)):

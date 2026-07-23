@@ -165,6 +165,124 @@ def _extract_items_from_html(html: str, post_id: str) -> tuple[list[MediaItem], 
 
     return deduped, title, thumbnail
 
+# ---- Unified media extraction (v4.1) ----
+
+def _extract_all_media(data: dict) -> list[MediaItem]:
+    """Extract all media items from Weibo post data.
+
+    Handles:
+    - mix_media_info (carousel/album posts with mixed video+images)
+    - page_info (single video/video+image)
+    - pics (standalone images)
+
+    Returns videos first, then images (user preference).
+    """
+    videos: list[MediaItem] = []
+    images: list[MediaItem] = []
+    seen_urls: set[str] = set()
+
+    # 1. mix_media_info (carousel/album posts)
+    mix = data.get("mix_media_info", {}) or {}
+    for item in mix.get("items", []):
+        item_type = item.get("type", "")
+        item_data = item.get("data", {}) or {}
+        if item_type == "video":
+            mi = item_data.get("media_info", {}) or {}
+            url = (
+                mi.get("stream_url")
+                or mi.get("mp4_hd_url")
+                or mi.get("mp4_url")
+                or ""
+            ).replace("\\", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                videos.append(MediaItem(url=url, is_video=True, index=len(videos)))
+        elif item_type == "pic":
+            # Check for live photo (embedded video data)
+            lp_mi = (item_data.get("media_info") or {})
+            lp_vid = lp_mi.get("stream_url") or lp_mi.get("mp4_hd_url") or lp_mi.get("mp4_url") or ""
+            lp_vid = lp_vid.replace("\\", "")
+            if lp_vid and lp_vid not in seen_urls:
+                seen_urls.add(lp_vid)
+                videos.append(MediaItem(url=lp_vid, is_video=True, index=len(videos)))
+            pic_url = (
+                (item_data.get("large") or {}).get("url", "")
+                or item_data.get("url", "")
+            )
+            if pic_url and pic_url not in seen_urls:
+                seen_urls.add(pic_url)
+                images.append(MediaItem(url=pic_url, is_video=False, index=len(images)))
+
+    # 2. page_info (single video or live photo)
+    page_info = data.get("page_info", {}) or {}
+    if page_info and page_info.get("type") in ("video", "livephoto"):
+        mi = page_info.get("media_info", {}) or {}
+        url = (
+            mi.get("stream_url")
+            or mi.get("mp4_hd_url")
+            or mi.get("mp4_url")
+            or ""
+        ).replace("\\", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            videos.append(MediaItem(url=url, is_video=True, index=len(videos)))
+
+    # 3. live_photo / live_photos (live photos with embedded video)
+    #    API returns live_photo (singular) as a list of play-page URL strings.
+    #    Some API responses use live_photos (plural) as a list of dicts.
+    #    Accept both and handle each format.
+    #
+    #    重要：livephoto.us.sinaimg.cn 裸直链需要签名（?Expires&ssig&KID），
+    #    直接请求一律 403。必须保留 video.weibo.com/media/play?livephoto=...
+    #    播放页 URL，下载时服务器会 302 跳转到带签名的临时直链。
+    #    （类似 HelloTik 报告第十四章：302 + Signed URL 机制）
+    live_photos_raw = data.get("live_photo") or data.get("live_photos", []) or []
+    for lp_item in live_photos_raw:
+        lp_video = ""
+        lp_image = ""
+        if isinstance(lp_item, dict):
+            mi = (lp_item.get("media_info") or {})
+            lp_video = mi.get("stream_url") or mi.get("mp4_hd_url") or mi.get("mp4_url") or ""
+            lp_video = lp_video.replace("\\", "")
+            lp_image = lp_item.get("pic", {}).get("large", {}).get("url", "") or lp_item.get("pic", "").get("url", "") or lp_item.get("url", "")
+        elif isinstance(lp_item, str):
+            # 保留完整的 video.weibo.com 播放页 URL（含 livephoto= 参数）
+            # 不要解码成裸 livephoto.us.sinaimg.cn 直链（会 403）
+            if "video.weibo.com/media/play" in lp_item and "livephoto=" in lp_item:
+                lp_video = lp_item.replace("\\", "")
+        if lp_video and lp_video not in seen_urls:
+            seen_urls.add(lp_video)
+            videos.append(MediaItem(url=lp_video, is_video=True, index=len(videos)))
+        if lp_image and lp_image not in seen_urls:
+            seen_urls.add(lp_image)
+            images.append(MediaItem(url=lp_image, is_video=False, index=len(images)))
+
+    # 4. pics (standalone images)
+    pics = data.get("pics", [])
+    for pic in pics:
+        url = pic.get("large", {}).get("url", "") or pic.get("url", "")
+        if not url:
+            pid = pic.get("pid", "")
+            if pid:
+                url = f"https://wx1.sinaimg.cn/large/{pid}.jpg"
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            images.append(MediaItem(url=url, is_video=False, index=len(images)))
+    
+    result = videos + images
+    # 安全网：任何裸 livephoto.us.sinaimg.cn 直链需要签名才能访问（裸直链一律 403），
+    # 转换成 video.weibo.com 播放页 URL，下载时服务器会 302 跳转到带签名的临时直链。
+    # 覆盖所有可能产生裸直链的分支（dict 形式 live_photos、page_info 等）。
+    from urllib.parse import quote
+    for item in result:
+        if item.is_video and "livephoto.us.sinaimg.cn" in item.url and "video.weibo.com" not in item.url:
+            item.url = f"https://video.weibo.com/media/play?livephoto={quote(item.url, safe='')}"
+    for i, item in enumerate(result):
+        item.index = i
+    return result
+
+
+
 
 def _extract_images_from_pics(pics: list[dict]) -> list[MediaItem]:
     """从 pics 数组提取图片 MediaItem 列表。"""
@@ -212,6 +330,32 @@ def _extract_video(page_info: dict, index: int = 0) -> Optional[MediaItem]:
             "cover": page_info.get("page_pic", {}).get("url", ""),
         }
     return MediaItem(**kwargs)
+
+
+def _format_weibo_time(raw: str) -> str:
+    """将微博 API 的 created_at 格式化为 YYYYMMDD_HHMMSS。
+
+    微博 API 返回格式如 "Sun Jun 07 21:40:10 +0800 2026"
+    Library 日期过滤器用字符串比较，需要统一格式。
+    """
+    if not raw:
+        return ""
+    import datetime as _dt
+    for fmt in (
+        "%a %b %d %H:%M:%S %z %Y",       # "Sun Jun 07 21:40:10 +0800 2026"
+        "%a %b %d %H:%M:%S %Y",            # 无时区变体
+        "%Y-%m-%d %H:%M:%S",               # "2026-06-07 21:40:10"
+        "%Y-%m-%dT%H:%M:%S",               # ISO 格式
+        "%Y-%m-%dT%H:%M:%S%z",             # ISO + 时区
+    ):
+        try:
+            dt = _dt.datetime.strptime(raw.strip(), fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_dt.timezone.utc)
+            return dt.strftime("%Y%m%d_%H%M%S")
+        except ValueError:
+            continue
+    return raw  # 解析失败原样返回
 
 
 def _clean_title(text: str) -> str:
@@ -371,7 +515,7 @@ def _extract_video_fullinfo(media_info: dict) -> list[FormatOption]:
     return formats
 
 def _classify_weibo_type(data: dict) -> str:
-    if "mix_media_info" in data or "live_photos" in data:
+    if "mix_media_info" in data or data.get("live_photo") or data.get("live_photos"):
         return "livephoto"
     pi = data.get("page_info", {})
     has_video = pi.get("type") in ("video", "livephoto") and bool(
@@ -438,25 +582,20 @@ class WeiboProvider(BaseProvider):
                 wb_raw = _fetch_json(wb_url)
                 if wb_raw and wb_raw.get("ok") == 1:
                     d = wb_raw.get("data", {}) or wb_raw
-                    wb_items = []
-                    pics = d.get("pics", [])
-                    if pics:
-                        wb_items.extend(_extract_images_from_pics(pics))
-                    page_info = d.get("page_info", {})
-                    if page_info:
-                        video = _extract_video(page_info, len(wb_items))
-                        if video:
-                            wb_items.append(video)
+                    wb_items = _extract_all_media(d)
                     text_raw = d.get("text_raw", "") or d.get("text", "") or ""
                     wb_title = _clean_title(text_raw)
                     user = d.get("user", {}) or {}
                     wb_author = user.get("screen_name", "") or ""
                     wb_thumb = _get_thumbnail(d)
+                    wb_time = _format_weibo_time(d.get("created_at", ""))
                     return MediaInfo(
                         platform=Platform.WEIBO,
                         url=url,
                         title=wb_title,
                         author=wb_author,
+                        author_id=str(user.get("id", "")),
+                        post_time=wb_time,
                         description=wb_title,
                         media_items=wb_items,
                         thumbnail=wb_thumb,
@@ -490,26 +629,15 @@ class WeiboProvider(BaseProvider):
         author = user.get("screen_name", "") or ""
         author_id = str(user.get("id", ""))
 
-        # 时间
-        created_at = d.get("created_at", "")
+        # 时间 — 格式化为 YYYYMMDD_HHMMSS（Library 日期过滤器依赖此格式）
+        created_at = _format_weibo_time(d.get("created_at", ""))
 
-        # 媒体
-        items: list[MediaItem] = []
-
-        pics = d.get("pics", [])
-        if pics:
-            items.extend(_extract_images_from_pics(pics))
-
-        page_info = d.get("page_info", {})
-        if page_info:
-            video = _extract_video(page_info, len(items))
-            if video:
-                items.append(video)
+        # ??
+        items: list[MediaItem] = _extract_all_media(d)
         formats = []
-        if page_info:
-            mi = page_info.get("media_info", {})
-            if mi:
-                formats = _extract_video_fullinfo(mi)
+        mi = (d.get("page_info", {}) or {}).get("media_info", {})
+        if mi:
+            formats = _extract_video_fullinfo(mi)
 
         # 主条目无媒体时尝试转发内容
         if not items:
@@ -531,8 +659,7 @@ class WeiboProvider(BaseProvider):
                     r_user = retweeted.get("user", {}) or {}
                     author = r_user.get("screen_name", "") or ""
 
-        pics_thumb = pics[0].get("large",{}).get("url","") or pics[0].get("url","") if pics else ""
-        thumbnail = pics_thumb or _get_thumbnail(d)
+        thumbnail = _get_thumbnail(d) or (items[0].url if items else "")
 
         mt = _classify_weibo_type(d)
         return MediaInfo(

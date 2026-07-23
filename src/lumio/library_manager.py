@@ -439,13 +439,19 @@ class LibraryManager(QObject):
             if collection_id is not None:
                 q = q.join(ItemCollection).filter(ItemCollection.collection_id == collection_id)
             if date_from:
-                q = q.filter(
-                    (LibraryItem.post_time >= date_from) | (LibraryItem.post_time == "")
-                )
+                from datetime import datetime as _dt
+                try:
+                    dt_from = _dt.strptime(date_from, "%Y%m%d")
+                    q = q.filter(LibraryItem.created_at >= dt_from)
+                except ValueError:
+                    pass
             if date_to:
-                q = q.filter(
-                    (LibraryItem.post_time <= date_to + "z") | (LibraryItem.post_time == "")
-                )
+                from datetime import datetime as _dt, timedelta as _td
+                try:
+                    dt_to = _dt.strptime(date_to, "%Y%m%d") + _td(days=1)
+                    q = q.filter(LibraryItem.created_at < dt_to)
+                except ValueError:
+                    pass
             if batch_id:
                 q = q.filter(LibraryItem.batch_id == batch_id)
             items = q.order_by(LibraryItem.created_at.desc()).all()

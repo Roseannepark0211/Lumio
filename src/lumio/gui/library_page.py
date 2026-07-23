@@ -101,6 +101,10 @@ class LibraryPage(QWidget):
         self._platform_combo.addItem("Instagram", "instagram")
         self._platform_combo.addItem("X (Twitter)", "x")
         self._platform_combo.addItem("Weibo", "weibo")
+        self._platform_combo.addItem("Bilibili", "bilibili")
+        self._platform_combo.addItem("Douyin", "douyin")
+        self._platform_combo.addItem("Kuaishou", "kuaishou")
+        self._platform_combo.addItem("Xiaohongshu", "xiaohongshu")
         self._platform_combo.currentIndexChanged.connect(self._apply_filter)
         filter_row.addWidget(self._platform_combo)
 
@@ -179,6 +183,12 @@ class LibraryPage(QWidget):
         self._batch_label = QLabel("")
         self._batch_label.setObjectName("muted")
         batch_layout.addWidget(self._batch_label)
+
+        self._select_all_btn = QPushButton(t("library_batch_select_all"))
+        self._select_all_btn.setObjectName("secondary")
+        self._select_all_btn.setFixedHeight(28)
+        self._select_all_btn.clicked.connect(self._toggle_select_all)
+        batch_layout.addWidget(self._select_all_btn)
 
         batch_layout.addStretch()
 
@@ -408,6 +418,30 @@ class LibraryPage(QWidget):
 
     def _update_batch_label(self):
         self._batch_label.setText(t("library_batch_selected", n=len(self._selected)))
+        # 更新全选/取消全选按钮文字
+        all_visible = [wid for wid, w in self._item_widgets.items() if w.isVisible()]
+        all_selected = all_visible and all(wid in self._selected for wid in all_visible)
+        self._select_all_btn.setText(t("library_batch_deselect_all") if all_selected else t("library_batch_select_all"))
+
+    def _toggle_select_all(self):
+        """全选/取消全选当前可见的素材。"""
+        all_visible = [wid for wid, w in self._item_widgets.items() if w.isVisible()]
+        all_selected = all_visible and all(wid in self._selected for wid in all_visible)
+        if all_selected:
+            # 取消全选
+            for wid in all_visible:
+                self._selected.discard(wid)
+                w = self._item_widgets.get(wid)
+                if w:
+                    w.setChecked(False)
+        else:
+            # 全选
+            for wid in all_visible:
+                self._selected.add(wid)
+                w = self._item_widgets.get(wid)
+                if w:
+                    w.setChecked(True)
+        self._update_batch_label()
 
     def _batch_favorite(self):
         if not self._selected:

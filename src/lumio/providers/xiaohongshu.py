@@ -1,4 +1,4 @@
-﻿"""Lumio V4 — 小红书 (Xiaohongshu) Provider。
+"""Lumio V4 — 小红书 (Xiaohongshu) Provider。
 
 通过页面 HTML 爬取或 API 接口解析小红书笔记内容。
 - 支持 xhslink.com 短链接自动展开
@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 # 短链接展开 API
 _XHSLINK_EXPAND = "https://www.xiaohongshu.com"
 
-# 笔记正则
-_NOTE_ID_RE = re.compile(r"xiaohongshu\.com/explore/([a-f0-9]+)")
+# 笔记正则（explore/ 和 discovery/item/ 两种路径都支持）
+_NOTE_ID_RE = re.compile(r"xiaohongshu\.com/(?:explore/|discovery/item/)([a-f0-9]+)")
 _PROFILE_ID_RE = re.compile(r"xiaohongshu\.com/user/profile/([a-f0-9]+)")
-_SHORTLINK_RE = re.compile(r"xhslink\.com/[a-zA-Z0-9]+")
+_SHORTLINK_RE = re.compile(r"xhslink\.(?:com|cn)/[a-zA-Z0-9]+")
 
 
 def _extract_note_id(url: str) -> Optional[str]:
@@ -40,46 +40,116 @@ def _is_profile_url(url: str) -> bool:
     return bool(_PROFILE_ID_RE.search(url) or _SHORTLINK_RE.search(url))
 
 
-def _parse_media_type(note_data: dict) -> str:
-    """从笔记数据推断媒体类型。"""
-    note = note_data.get("note", {}) or note_data
-    if note.get("type") == "video" or note.get("video", {}).get("media"):
-        return "video"
-    return "image"
+def _pick_best_image_url(img: dict) -> str:
+    """从单张图片字段中选出最佳原图 URL。
+
+    新版 __INITIAL_STATE__ 字段是 camelCase：
+    - urlDefault: 默认展示图（WB_DFT 场景，带 token，可直接下载）
+    - url: 原图 URL（部分笔记为空）
+    - urlPre: 预览图（WB_PRV，画质低）
+    - infoList: 各场景 URL 列表
+    """
+    # 1) url 字段（最高优先级，原图）
+    url = (img.get("url") or "").strip()
+    if url and url.startswith("http"):
+        return url
+    # 2) urlDefault（WB_DFT 场景，可直接下载）
+    url = (img.get("urlDefault") or "").strip()
+    if url and url.startswith("http"):
+        return url
+    # 3) infoList 里找 WB_DFT 场景
+    info_list = img.get("infoList") or img.get("info_list") or []
+    for info in info_list:
+        scene = info.get("imageScene") or info.get("image_scene") or ""
+        if scene in ("WB_DFT", "CRD_DEFAULT") and info.get("url", "").startswith("http"):
+            return info["url"]
+    # 4) infoList 任意一条
+    for info in info_list:
+        if info.get("url", "").startswith("http"):
+            return info["url"]
+    # 5) urlPre 兜底
+    url = (img.get("urlPre") or "").strip()
+    if url and url.startswith("http"):
+        return url
+    return ""
 
 
-def _extract_image_items(note: dict) -> list[MediaItem]:
-    """从笔记数据中提取图片列表。"""
-    items: list[MediaItem] = []
-    image_list = note.get("image_list", []) or note.get("images", [])
-    for idx, img in enumerate(image_list):
-        url = (img.get("original", img.get("url", ""))
-               or img.get("info_list", [{}])[0].get("url", ""))
-        if not url:
+def _pick_best_video_url(stream: dict) -> str:
+    """从 stream 字典中选出最高画质视频 URL。
+
+    新版结构：stream.{h264,h265,av1}[].masterUrl / backupUrls
+    h264 兼容性最好优先用，其次按 qualityType/weight 排序。
+    """
+    for codec in ("h264", "h265", "av1", "h266"):
+        codec_list = stream.get(codec) or []
+        if not codec_list:
             continue
-        # 确保原图 URL
-        url = re.sub(r"![\w.]+$", "", url)
-        url = re.sub(r"~\w+", "", url)
-        items.append(MediaItem(url=url, is_video=False, index=idx))
-    return items
+        # 按 weight 降序（weight 越大画质越高）
+        sorted_list = sorted(
+            codec_list,
+            key=lambda x: x.get("weight", 0) if isinstance(x, dict) else 0,
+            reverse=True,
+        )
+        for v in sorted_list:
+            if not isinstance(v, dict):
+                continue
+            master = (v.get("masterUrl") or "").strip()
+            if master and master.startswith("http"):
+                return master
+            # fallback: backupUrls
+            for b in v.get("backupUrls") or []:
+                if isinstance(b, str) and b.startswith("http"):
+                    return b
+    return ""
 
 
-def _extract_video_item(note: dict) -> Optional[MediaItem]:
-    """从笔记数据中提取视频。"""
-    video = note.get("video", {}) or {}
-    media = video.get("media", {}) or {}
-    stream = media.get("stream", {}) or {}
-    # 取最高分辨率
-    master_url = stream.get("master_url", "")
-    if not master_url:
-        # fallback: 各分辨率
-        res_list = stream.get("resolution_list", [])
-        if res_list:
-            best = max(res_list, key=lambda x: x.get("width", 0) or x.get("height", 0))
-            master_url = best.get("url", "")
-    if master_url:
-        return MediaItem(url=master_url, is_video=True, index=0)
-    return None
+def _extract_media_items_from_note(note: dict) -> list[MediaItem]:
+    """从新版笔记数据（camelCase 字段）提取所有媒体项。
+
+    处理：
+    - 纯视频笔记：note.video.media.stream
+    - 图片/实况图笔记：note.imageList（含 livePhoto 字段，实况图含 stream 视频流）
+
+    返回顺序：视频在前，图片在后（用户偏好）。
+    """
+    videos: list[MediaItem] = []
+    images: list[MediaItem] = []
+    seen_urls: set[str] = set()
+
+    # 1) 纯视频笔记：note.video.media.stream
+    video = note.get("video") or {}
+    media = video.get("media") or {}
+    stream = media.get("stream") or {}
+    main_video_url = _pick_best_video_url(stream)
+    if main_video_url and main_video_url not in seen_urls:
+        seen_urls.add(main_video_url)
+        videos.append(MediaItem(url=main_video_url, is_video=True, index=len(videos)))
+
+    # 2) imageList（图片 + 实况图视频流）
+    #    兼容 camelCase (imageList) 和 snake_case (image_list) 两种字段名
+    image_list = note.get("imageList") or note.get("image_list") or note.get("images") or []
+    for img in image_list:
+        if not isinstance(img, dict):
+            continue
+        # 实况图：livePhoto=true 时含 stream 视频流，先取视频
+        is_livephoto = bool(img.get("livePhoto") or img.get("live_photo"))
+        if is_livephoto:
+            lp_stream = img.get("stream") or {}
+            lp_video_url = _pick_best_video_url(lp_stream)
+            if lp_video_url and lp_video_url not in seen_urls:
+                seen_urls.add(lp_video_url)
+                videos.append(MediaItem(url=lp_video_url, is_video=True, index=len(videos)))
+        # 图片原图
+        img_url = _pick_best_image_url(img)
+        if img_url and img_url not in seen_urls:
+            seen_urls.add(img_url)
+            images.append(MediaItem(url=img_url, is_video=False, index=len(images)))
+
+    # 重新编号，视频在前
+    result = videos + images
+    for i, item in enumerate(result):
+        item.index = i
+    return result
 
 
 @register
@@ -104,58 +174,38 @@ class XiaohongshuProvider(BaseProvider):
                 description="小红书个人主页批量下载暂未接入，请使用单条笔记 URL。",
             )
 
-        # 优先通过 API 获取
-        api_url = f"https://www.xiaohongshu.com/api/sns/v1/note/{note_id}"
+        # 新版 PC 分享链接带 xsec_token + xsec_source 鉴权参数，
+        # 抓取 HTML 时必须带上，否则被访客系统拦截返回登录页。
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        xsec_token = (qs.get("xsec_token", [""])[0] or "").strip()
+        xsec_source = (qs.get("xsec_source", [""])[0] or "").strip()
+        auth_query = {}
+        if xsec_token:
+            auth_query["xsec_token"] = xsec_token
+        if xsec_source:
+            auth_query["xsec_source"] = xsec_source
+
+        # 统一用 explore/ 路径抓取 HTML（discovery/item/ 路径也能用，但 explore/ 更通用）
+        html_path = f"/explore/{note_id}"
+        html_parsed = parsed._replace(path=html_path)
+        if auth_query:
+            html_parsed = html_parsed._replace(query=urlencode(auth_query))
+        else:
+            html_parsed = html_parsed._replace(query="")
+        html_url = urlunparse(html_parsed)
+
         client = NetworkClient(Platform.XIAOHONGSHU)
-        data = client.get_json(api_url)
+        html = client.get_html(
+            html_url,
+            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+        )
 
-        if data and data.get("success") and data.get("data"):
-            note = data["data"].get("note", data["data"])
-            title = note.get("title", "") or ""
-            desc = note.get("desc", "") or note.get("title", "") or ""
-            author_info = note.get("user", {}) or {}
-            author = author_info.get("nickname", "") or author_info.get("nick_name", "") or ""
-            author_id = author_info.get("user_id", "") or str(author_info.get("id", ""))
-            post_time = str(note.get("time", note.get("create_time", "")))
-            cover = note.get("cover", note.get("image_list", [{}])[0].get("url", "")) if note.get("image_list") else ""
-
-            # 图片
-            items = _extract_image_items(note)
-            # 视频
-            video = _extract_video_item(note)
-            if video:
-                items.append(video)
-            # 封面的图片
-            if cover and not cover.startswith("http"):
-                cover = ""
-
-            return MediaInfo(
-                platform=Platform.XIAOHONGSHU,
-                url=url,
-                title=title or "小红书",
-                author=author,
-                author_id=author_id,
-                post_time=post_time,
-                thumbnail=cover or "",
-                description=desc or title or "小红书笔记",
-                media_items=items,
-            )
-
-        # API 失败：尝试网页抓取
-        html_url = f"https://www.xiaohongshu.com/explore/{note_id}"
-        html = client.get_html(html_url)
         if html:
-            items, title, thumb = self._parse_from_html(html)
-            if items:
-                return MediaInfo(
-                    platform=Platform.XIAOHONGSHU,
-                    url=url,
-                    title=title or "小红书",
-                    author="",
-                    thumbnail=thumb or "",
-                    description=title or "小红书笔记",
-                    media_items=items,
-                )
+            info = self._parse_from_html(html, note_id, url)
+            if info is not None:
+                return info
 
         return MediaInfo(
             platform=Platform.XIAOHONGSHU,
@@ -165,51 +215,115 @@ class XiaohongshuProvider(BaseProvider):
             description=f"无法解析小红书笔记（note_id: {note_id}）。可能需要 Cookie 或笔记已删除。",
         )
 
-    def _parse_from_html(self, html: str) -> tuple[list[MediaItem], str, str]:
-        """从 HTML 页面提取媒体。"""
+    def _parse_from_html(
+        self, html: str, note_id: str, original_url: str
+    ) -> Optional[MediaInfo]:
+        """从 HTML 页面提取媒体信息。
+
+        优先解析 window.__INITIAL_STATE__（camelCase 新版结构），
+        数据路径: state.note.noteDetailMap[note_id].note
+        失败时回退到 og:* meta + 正则。
+        """
+        # 1) 解析 window.__INITIAL_STATE__
+        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.+?\})\s*</script>", html, re.DOTALL)
+        if m:
+            try:
+                # __INITIAL_STATE__ 里有 undefined 字面量，替换成 null 才能解析
+                raw = m.group(1).replace("undefined", "null")
+                state = json.loads(raw)
+                note_state = state.get("note", {}) or {}
+                note_detail_map = note_state.get("noteDetailMap", {}) or {}
+
+                # 查找 note 数据：优先 note_id key，否则取第一个
+                note = None
+                if note_id in note_detail_map:
+                    note = note_detail_map[note_id].get("note", {})
+                elif note_detail_map:
+                    first_key = next(iter(note_detail_map))
+                    note = note_detail_map[first_key].get("note", {})
+
+                if note and isinstance(note, dict):
+                    title = (note.get("title") or "").strip() or "小红书"
+                    desc = (note.get("desc") or "").strip()
+                    user = note.get("user", {}) or {}
+                    author = (user.get("nickname") or "").strip()
+                    author_id = (user.get("userId") or user.get("user_id") or "").strip()
+
+                    # 时间戳：新版是毫秒级
+                    post_time = ""
+                    ts = note.get("time") or note.get("create_time") or 0
+                    if ts:
+                        try:
+                            ts_int = int(ts)
+                            # 毫秒级时间戳（>1e12）需要 /1000
+                            if ts_int > 1e12:
+                                ts_int = ts_int // 1000
+                            import datetime as _dt
+                            dt = _dt.datetime.fromtimestamp(ts_int, tz=_dt.timezone.utc)
+                            post_time = dt.strftime("%Y%m%d_%H%M%S")
+                        except (ValueError, OSError):
+                            pass
+
+                    # 媒体项（视频在前、图片在后，实况图含视频流）
+                    items = _extract_media_items_from_note(note)
+
+                    # 缩略图：取首张图片
+                    thumbnail = ""
+                    if items:
+                        for it in items:
+                            if not it.is_video and it.url.startswith("http"):
+                                thumbnail = it.url
+                                break
+                        if not thumbnail:
+                            thumbnail = items[0].url
+
+                    return MediaInfo(
+                        platform=Platform.XIAOHONGSHU,
+                        url=original_url,
+                        title=title,
+                        author=author,
+                        author_id=author_id,
+                        post_time=post_time,
+                        thumbnail=thumbnail,
+                        description=desc or title or "小红书笔记",
+                        media_items=items,
+                    )
+            except (json.JSONDecodeError, AttributeError, ValueError) as e:
+                logger.warning("Xiaohongshu: failed to parse __INITIAL_STATE__: %s", e)
+
+        # 2) 回退：og:* meta + 正则提取
         items: list[MediaItem] = []
         title = ""
         thumbnail = ""
         seen: set[str] = set()
 
-        # ext: og:title
         m = re.search(r"""<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']""", html)
         if m:
             title = _html.unescape(m.group(1)).strip()[:80]
-
-        # og:image
         m = re.search(r"""<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']""", html)
         if m:
             thumbnail = m.group(1)
 
-        # window.__INITIAL_STATE__ JSON
-        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*({.*?});", html, re.DOTALL)
-        if m:
-            try:
-                state = json.loads(m.group(1))
-                note = state.get("note", {}) or {}
-                items = _extract_image_items(note)
-                video = _extract_video_item(note)
-                if video:
-                    items.append(video)
-                if not title:
-                    title = note.get("title", "") or note.get("desc", "")[:80] or ""
-                if not thumbnail and items:
-                    thumbnail = items[0].url
-                return items, title, thumbnail
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        # 图片 URL 提取
-        for idx, m in enumerate(re.finditer(r'(https?://[^"\'\s]*(?:xhscdn|xiaohongshu)[^"\'\s]*(?:jpg|jpeg|png|webp))',
-                                            html, re.IGNORECASE)):
-            url = m.group(1)
-            url = re.sub(r"[?!].*$", "", url)
+        for m in re.finditer(
+            r'(https?://[^"\'\s]*(?:xhscdn|xiaohongshu)[^"\'\s]*(?:jpg|jpeg|png|webp))',
+            html, re.IGNORECASE,
+        ):
+            url = re.sub(r"[?!].*$", "", m.group(1))
             if url not in seen:
                 seen.add(url)
                 items.append(MediaItem(url=url, is_video=False, index=len(items)))
 
-        return items, title, thumbnail
+        if not items:
+            return None
+        return MediaInfo(
+            platform=Platform.XIAOHONGSHU,
+            url=original_url,
+            title=title or "小红书",
+            author="",
+            thumbnail=thumbnail,
+            description=title or "小红书笔记",
+            media_items=items,
+        )
 
     def get_request_headers(self) -> dict[str, str]:
         return platform_headers(Platform.XIAOHONGSHU)

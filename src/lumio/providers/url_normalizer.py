@@ -1,13 +1,13 @@
-﻿"""URL 规范化模块（Section 20）。
+"""URL 规范化模块（Section 20）。
 
 处理分享短链接 → 原始链接的转换，确保后续检测流程
 能正确识别平台来源。
 
 支持的短域名：
 - t.cn       → Weibo（微博）
-- xhslink.com → Xiaohongshu（小红书，detector.py 已有正则匹配）
-- b23.tv     → Bilibili（B站，detector.py 已有正则匹配）
-- iesdouyin.com → Douyin（抖音，detector.py 已有正则匹配）
+- xhslink.com / xhslink.cn → Xiaohongshu（小红书）
+- b23.tv     → Bilibili（B站）
+- iesdouyin.com → Douyin（抖音）
 """
 
 from __future__ import annotations
@@ -21,12 +21,18 @@ logger = logging.getLogger(__name__)
 _SHORT_DOMAINS: list[str] = [
     "t.cn",
     "xhslink.com",
+    "xhslink.cn",
     "b23.tv",
     "iesdouyin.com",
+    "v.douyin.com",
 ]
 
-# 需要 HTTP 解析的域名（不能仅靠正则匹配）
-_RESOLVE_DOMAINS: set[str] = {"t.cn"}
+# 需要 HTTP 解析的域名（短链无法靠正则提取笔记 ID，必须 302 展开）
+# 所有短域名都需要 HTTP 解析才能拿到原始 URL
+_RESOLVE_DOMAINS: set[str] = {
+    "t.cn", "xhslink.com", "xhslink.cn",
+    "b23.tv", "iesdouyin.com", "v.douyin.com",
+}
 
 
 def is_short_url(url: str) -> bool:

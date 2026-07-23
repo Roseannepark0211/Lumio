@@ -35,6 +35,7 @@ config.json
 *.log
 www.instagram.com_cookies.txt
 x.com_cookies.txt
+weibo.com_cookies.txt
 
 # Media temp files
 *.mhtml

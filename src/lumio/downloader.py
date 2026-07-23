@@ -1700,8 +1700,19 @@ def _direct_download_with_pause(task, pause_event, on_progress):
     # IG CDN 需要 Referer
     if "cdninstagram" in task.direct_url or "fbcdn" in task.direct_url:
         headers["Referer"] = "https://www.instagram.com/"
+    # Weibo sinaimg.cn CDN (livephoto/video/image) 需要 Referer + Cookie 防 403
+    _wb_cookies = {}
+    if "sinaimg" in task.direct_url or "weibo" in task.direct_url:
+        headers.setdefault("Referer", "https://weibo.com/")
+        headers.setdefault("Accept", "*/*")
+        headers.setdefault("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+        try:
+            from .providers.weibo import _get_weibo_cookies
+            _wb_cookies = _get_weibo_cookies()
+        except Exception:
+            pass
 
-    resp = requests.get(task.direct_url, stream=True, timeout=120, headers=headers)
+    resp = requests.get(task.direct_url, stream=True, timeout=120, headers=headers, cookies=_wb_cookies or None)
     try:
         resp.raise_for_status()
         total_size = int(resp.headers.get("content-length", 0))
@@ -1797,6 +1808,7 @@ def _items_download_with_pause(
             if item.is_video:
                 headers = _resume_headers(filename)
                 # Add provider-specific headers (Referer, UA, etc.)
+                _wb_cookies = {}
                 try:
                     from .providers.base import Platform as _P
                     prov = get_provider_for(_P(task.platform))
@@ -1804,9 +1816,19 @@ def _items_download_with_pause(
                         pheaders = prov.get_request_headers()
                         for k, v in pheaders.items():
                             headers.setdefault(k, v)
+                    # Weibo sinaimg.cn CDN (especially livephoto.us.sinaimg.cn)
+                    # requires cookies for 403-free access
+                    if "sinaimg" in item.url or "weibo" in item.url:
+                        from .providers.weibo import _get_weibo_cookies
+                        _wb_cookies = _get_weibo_cookies()
                 except Exception:
                     pass
-                resp = requests.get(item.url, stream=True, timeout=30, headers=headers)
+                # sinaimg.cn 需要完整浏览器 UA + Referer
+                if "sinaimg" in item.url:
+                    headers.setdefault("Referer", "https://weibo.com/")
+                    headers.setdefault("Accept", "*/*")
+                    headers.setdefault("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                resp = requests.get(item.url, stream=True, timeout=30, headers=headers, cookies=_wb_cookies or None)
                 try:
                     is_resume = resp.status_code == 206
                     if resp.status_code == 416:
@@ -1843,6 +1865,7 @@ def _items_download_with_pause(
             else:
                 # Image — use provider headers if available, fall back to domain-based
                 img_headers = dict(_DOWNLOAD_HEADERS)
+                _img_cookies = {}
                 try:
                     from .providers.base import Platform as _P
                     prov = get_provider_for(_P(task.platform))
@@ -1854,11 +1877,18 @@ def _items_download_with_pause(
                 # Domain-based fallback as safety net
                 if "sinaimg" in item.url or "weibo" in item.url:
                     img_headers.setdefault("Referer", "https://weibo.com/")
+                    img_headers.setdefault("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                    # Weibo sinaimg.cn CDN requires cookies to avoid 403
+                    try:
+                        from .providers.weibo import _get_weibo_cookies
+                        _img_cookies = _get_weibo_cookies()
+                    except Exception:
+                        pass
                 elif "xiaohongshu" in item.url or "xhscdn" in item.url:
                     img_headers.setdefault("Referer", "https://www.xiaohongshu.com/")
                 elif "cdninstagram" in item.url or "fbcdn" in item.url:
                     img_headers.setdefault("Referer", "https://www.instagram.com/")
-                resp = requests.get(item.url, timeout=30, headers=img_headers)
+                resp = requests.get(item.url, timeout=30, headers=img_headers, cookies=_img_cookies or None)
                 try:
                     resp.raise_for_status()
                     # Detect extension from content-type if possible
