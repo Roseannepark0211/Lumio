@@ -1,0 +1,3 @@
+module Lumio
+singleton Theme Theme.qml
+Sidebar Sidebar.qml

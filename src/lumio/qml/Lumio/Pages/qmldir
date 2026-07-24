@@ -1,0 +1,9 @@
+module Lumio.Pages
+HomePage HomePage.qml
+DownloadsPage DownloadsPage.qml
+HistoryPage HistoryPage.qml
+LibraryPage LibraryPage.qml
+StatsPage StatsPage.qml
+SettingsPage SettingsPage.qml
+NotificationsPage NotificationsPage.qml
+InboxPage InboxPage.qml
