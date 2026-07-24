@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Inbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   INBOX PAGE — specific styles
+   Liquid Glass · Source indicators · Capture records
+   ============================================================ */
+
+.main { padding: 32px 48px 48px; }
+
+/* ---------- PAGE HEADER BADGE ---------- */
+.inbox-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 132, 255, 0.12);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.inbox-badge .num { color: var(--accent); font-weight: 600; }
+.inbox-badge .sep { color: var(--text-dim); margin: 0 4px; }
+
+/* ---------- SOURCE PILLS (All / Browser / Telegram) ---------- */
+.source-pills {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-pill);
+}
+
+.source-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  letter-spacing: 0.3px;
+}
+
+.source-pill:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.source-pill.active {
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  color: white;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset,
+              0 2px 8px -2px rgba(10, 132, 255, 0.5);
+}
+
+.source-pill .pill-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.source-pill[data-src="browser"]   { --src-color: var(--accent); }
+.source-pill[data-src="telegram"]  { --src-color: var(--plat-telegram); }
+
+.source-pill:not(.active) .pill-dot {
+  background: var(--src-color, var(--text-mute));
+  box-shadow: 0 0 6px var(--src-color, transparent);
+}
+
+/* ---------- FILTER TOOLBAR CARD ---------- */
+.filter-toolbar {
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(3, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-wrap .search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-dim);
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.search-wrap .search-icon svg {
+  width: 15px; height: 15px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.search-wrap .input {
+  padding-left: 36px;
+  font-size: var(--fs-small);
+}
+
+.filter-toolbar .select,
+.filter-toolbar .date-input {
+  font-size: var(--fs-small);
+  padding: 9px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s var(--ease);
+  font-family: var(--font-body);
+  font-weight: 500;
+  width: 100%;
+}
+
+.filter-toolbar .select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%23a8c7ff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.filter-toolbar .select:focus,
+.filter-toolbar .date-input:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.filter-toolbar .date-input {
+  color-scheme: dark;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.date-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-range .date-input { width: 110px; }
+
+.date-range .date-sep {
+  color: var(--text-dim);
+  font-size: var(--fs-micro);
+}
+
+/* ---------- DATA SOURCE STATUS CARDS ---------- */
+.source-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.source-status-card {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.source-status-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.source-status-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--glass-bg-hi);
+  border: 1px solid var(--glass-border);
+}
+
+.source-status-icon svg {
+  width: 18px; height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.source-status-icon.browser { color: var(--accent); }
+.source-status-icon.telegram { color: var(--plat-telegram); }
+
+.source-status-text { min-width: 0; }
+
+.source-status-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-status-detail {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+
+.source-status-right {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.source-status-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 0.3px;
+}
+
+.source-status-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Mini status badge inside source cards */
+.mini-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.3px;
+}
+
+.mini-status.ok {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.12);
+  border: 1px solid rgba(48, 209, 88, 0.3);
+}
+
+.mini-status.info {
+  color: var(--accent);
+  background: rgba(10, 132, 255, 0.12);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+}
+
+.mini-status .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
+}
+
+/* ============================================================
+   INBOX RECORD LIST
+   ============================================================ */
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.record-card {
+  padding: 14px 18px 14px 14px;
+  display: grid;
+  grid-template-columns: 4px 56px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  position: relative;
+  transition: all 0.22s var(--ease);
+  overflow: hidden;
+}
+
+.record-card:hover {
+  background: var(--glass-bg-hi);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset,
+              0 24px 60px -22px rgba(0,0,0,0.7),
+              0 10px 28px -14px rgba(0,0,0,0.5);
+}
+
+/* Source indicator — colored vertical bar */
+.source-indicator {
+  width: 4px;
+  height: 100%;
+  min-height: 56px;
+  border-radius: var(--r-pill);
+  flex-shrink: 0;
+}
+
+.source-indicator.browser {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 8px rgba(10, 132, 255, 0.4);
+}
+
+.source-indicator.telegram {
+  background: linear-gradient(180deg, var(--plat-telegram), #5ec5ff);
+  box-shadow: 0 0 8px rgba(0, 136, 204, 0.4);
+}
+
+/* Thumbnail — gradient based on platform color */
+.record-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, var(--thumb-c1, #ff3b5c) 0%, var(--thumb-c2, #5e5ce6) 100%);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px -4px rgba(0,0,0,0.5),
+              0 1px 0 rgba(255,255,255,0.15) inset;
+}
+
+.record-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at top left, rgba(255,255,255,0.25) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(0,0,0,0.3) 0%, transparent 60%);
+}
+
+.record-thumb-icon {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255,255,255,0.9);
+  z-index: 2;
+}
+
+.record-thumb-icon svg {
+  width: 22px; height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* For Album type, show count badge */
+.record-thumb-count {
+  position: absolute;
+  bottom: 3px; right: 3px;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(255,255,255,0.15);
+  backdrop-filter: blur(6px);
+}
+
+/* Record info */
+.record-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.record-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.record-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.record-author {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-author .author-name { color: var(--text-mute); }
+.record-author .meta-sep { color: var(--text-dim); margin: 0 4px; opacity: 0.6; }
+
+/* Status badge — New with pulse */
+.badge[data-status="new"] {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+  background: rgba(10, 132, 255, 0.1);
+}
+
+.badge[data-status="new"] .pulse-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+.badge[data-status="downloaded"] {
+  color: var(--success);
+  border-color: rgba(48, 209, 88, 0.3);
+  background: rgba(48, 209, 88, 0.1);
+}
+
+.badge[data-status="skipped"] {
+  color: var(--text-dim);
+  border-color: var(--glass-border);
+  background: var(--glass-bg);
+}
+
+/* Type badge variants */
+.badge[data-type="url"]         { color: var(--accent-2); border-color: rgba(94, 92, 230, 0.3); background: rgba(94, 92, 230, 0.08); }
+.badge[data-type="direct"]      { color: var(--info);     border-color: rgba(100, 210, 255, 0.3); background: rgba(100, 210, 255, 0.08); }
+.badge[data-type="file"]        { color: var(--text-mute); border-color: var(--glass-border); }
+.badge[data-type="note"]        { color: var(--warning);  border-color: rgba(255, 214, 10, 0.3); background: rgba(255, 214, 10, 0.08); }
+
+/* Record actions */
+.record-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.record-action-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s var(--ease);
+}
+
+.record-action-btn:hover {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  border-color: var(--glass-border);
+}
+
+.record-action-btn svg {
+  width: 15px; height: 15px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.record-action-btn.danger:hover {
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.3);
+  background: rgba(255, 69, 58, 0.08);
+}
+
+.record-action-btn.primary:hover {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.record-action-btn.success:hover {
+  color: var(--success);
+  border-color: rgba(48, 209, 88, 0.3);
+  background: rgba(48, 209, 88, 0.08);
+}
+
+/* Format select button — wider with label */
+.format-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+  letter-spacing: 0.3px;
+}
+
+.format-btn:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  border-color: var(--glass-border-hi);
+}
+
+.format-btn svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Downloaded state - subtle highlight on the card */
+.record-card[data-state="downloaded"] {
+  background: rgba(48, 209, 88, 0.03);
+}
+
+.record-card[data-state="downloaded"] .record-title {
+  color: var(--text-mute);
+}
+
+.record-card[data-state="skipped"] {
+  opacity: 0.78;
+}
+
+.record-card[data-state="skipped"] .record-title {
+  color: var(--text-mute);
+}
+
+/* ============================================================
+   FORMAT SELECTION DIALOG PREVIEW
+   ============================================================ */
+.format-preview-section {
+  margin-bottom: 24px;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.format-dialog-wrap {
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.format-dialog-hint {
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.format-dialog {
+  width: 100%;
+  max-width: 400px;
+  padding: 20px;
+  background: rgba(20, 20, 30, 0.85);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--glass-border-hi);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  position: relative;
+}
+
+.format-dialog::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255,255,255,0.5) 50%,
+    transparent);
+}
+
+.format-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.format-dialog-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, #ff3b5c 0%, #5e5ce6 100%);
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 10px -3px rgba(0,0,0,0.5);
+}
+
+.format-dialog-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top left, rgba(255,255,255,0.25) 0%, transparent 60%);
+}
+
+.format-dialog-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.format-dialog-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.format-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.format-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--glass-border);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+  position: relative;
+}
+
+.format-option:hover {
+  background: var(--glass-bg);
+  border-color: var(--glass-border-hi);
+}
+
+.format-option.active {
+  background: rgba(10, 132, 255, 0.1);
+  border-color: rgba(10, 132, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.2) inset;
+}
+
+.format-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-dim);
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.18s var(--ease);
+}
+
+.format-option.active .format-radio {
+  border-color: var(--accent);
+}
+
+.format-option.active .format-radio::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.format-option-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.format-option-name {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.format-option-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+
+.format-option-size {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.format-option-recommend {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(48, 209, 88, 0.3);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.format-dialog-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--glass-border);
+}
+
+/* ============================================================
+   STATUS BAR (page-specific overrides)
+   ============================================================ */
+.status-bar .status-item .led-blue { background: var(--plat-telegram); box-shadow: 0 0 6px var(--plat-telegram); }
+
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-home"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-inbox"/></svg></span>
+        <span>Inbox</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-history"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-stats"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-bell"/></svg></span>
+        <span>Notifications</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24"><use href="icons.svg#i-moon"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.24</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <div class="page-header">
+      <div class="flex" style="gap: 14px; align-items: center; flex-wrap: wrap;">
+        <h1 class="page-title">Inbox</h1>
+        <span class="inbox-badge">
+          <span class="num">12 new</span>
+          <span class="sep">·</span>
+          <span>48 total</span>
+        </span>
+        <!-- Source filter pills -->
+        <div class="source-pills">
+          <button class="source-pill active">
+            <span class="pill-dot"></span>
+            All
+          </button>
+          <button class="source-pill" data-src="browser">
+            <span class="pill-dot"></span>
+            Browser
+          </button>
+          <button class="source-pill" data-src="telegram">
+            <span class="pill-dot"></span>
+            Telegram
+          </button>
+        </div>
+      </div>
+
+      <div class="page-actions">
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-retry"/></svg>
+          Refresh
+        </button>
+        <button class="btn btn-primary">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          Download All
+        </button>
+        <button class="btn btn-danger">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          Clear All
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ FILTER TOOLBAR ============ -->
+    <div class="card filter-toolbar">
+      <!-- Search -->
+      <div class="search-wrap">
+        <span class="search-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-search"/></svg>
+        </span>
+        <input type="text" class="input" placeholder="Search title, URL, author...">
+      </div>
+
+      <!-- Type filter -->
+      <select class="select">
+        <option>All Types</option>
+        <option>URL</option>
+        <option>Direct Link</option>
+        <option>Image</option>
+        <option>Video</option>
+        <option>File</option>
+        <option>Note</option>
+        <option>Album</option>
+      </select>
+
+      <!-- Status filter -->
+      <select class="select">
+        <option>All Status</option>
+        <option>New</option>
+        <option>Downloaded</option>
+        <option>Skipped</option>
+      </select>
+
+      <!-- Platform filter -->
+      <select class="select">
+        <option>All Platforms</option>
+        <option>YouTube</option>
+        <option>Instagram</option>
+        <option>X</option>
+        <option>B站</option>
+        <option>抖音</option>
+        <option>快手</option>
+        <option>微博</option>
+        <option>小红书</option>
+        <option>Telegram</option>
+      </select>
+
+      <!-- Date range -->
+      <div class="date-range">
+        <input type="date" class="date-input" value="2026-07-20">
+        <span class="date-sep">—</span>
+        <input type="date" class="date-input" value="2026-07-24">
+      </div>
+
+      <!-- Reset -->
+      <button class="btn btn-icon" title="Reset filters">
+        <svg viewBox="0 0 24 24"><use href="icons.svg#i-clear"/></svg>
+      </button>
+    </div>
+
+    <!-- ============ DATA SOURCE STATUS CARDS ============ -->
+    <div class="source-status-grid">
+      <!-- Browser Extension -->
+      <div class="card source-status-card">
+        <div class="source-status-left">
+          <div class="source-status-icon browser">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+          </div>
+          <div class="source-status-text">
+            <div class="source-status-name">
+              Browser Extension
+              <span class="mini-status ok"><span class="dot"></span>Connected</span>
+            </div>
+            <div class="source-status-detail">POST /capture · Manifest V3</div>
+          </div>
+        </div>
+        <div class="source-status-right">
+          <div class="source-status-meta">127.0.0.1:38900</div>
+          <div class="source-status-time">Last capture 14:32</div>
+        </div>
+      </div>
+
+      <!-- Telegram Bot -->
+      <div class="card source-status-card">
+        <div class="source-status-left">
+          <div class="source-status-icon telegram">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-link"/></svg>
+          </div>
+          <div class="source-status-text">
+            <div class="source-status-name">
+              Telegram Bot
+              <span class="mini-status info"><span class="dot"></span>Polling</span>
+            </div>
+            <div class="source-status-detail">getUpdates · long-poll mode</div>
+          </div>
+        </div>
+        <div class="source-status-right">
+          <div class="source-status-meta">@lumio_capture_bot</div>
+          <div class="source-status-time">Last poll 14:30</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ INBOX RECORD LIST ============ -->
+    <div class="record-list">
+
+      <!-- RECORD 1: Browser · YouTube · URL · New -->
+      <div class="card record-card" data-state="new">
+        <div class="source-indicator browser"></div>
+        <div class="record-thumb" style="--thumb-c1: #ff3b5c; --thumb-c2: #5e5ce6;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="youtube"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</span>
+            <span class="badge" data-type="url"><svg viewBox="0 0 24 24"><use href="icons.svg#i-link"/></svg>URL</span>
+            <span class="badge" data-status="new"><span class="pulse-dot"></span>New</span>
+          </div>
+          <div class="record-title">Rick Astley — Never Gonna Give You Up</div>
+          <div class="record-author">
+            <span class="author-name">@RickAstleyYT</span>
+            <span class="meta-sep">·</span>browser
+            <span class="meta-sep">·</span>14:32
+            <span class="meta-sep">·</span>captured from browser
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="format-btn" title="Select format">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-filter"/></svg>
+            Format
+          </button>
+          <button class="record-action-btn primary" title="Download">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 2: Telegram · Instagram · Image · New -->
+      <div class="card record-card" data-state="new">
+        <div class="source-indicator telegram"></div>
+        <div class="record-thumb" style="--thumb-c1: #e1306c; --thumb-c2: #ff6a00;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="instagram"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-ig"/></svg>Instagram</span>
+            <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+            <span class="badge" data-status="new"><span class="pulse-dot"></span>New</span>
+          </div>
+          <div class="record-title">Summer sunset over Tokyo</div>
+          <div class="record-author">
+            <span class="author-name">@tokyo_views</span>
+            <span class="meta-sep">·</span>telegram
+            <span class="meta-sep">·</span>14:28
+            <span class="meta-sep">·</span>2.1 MB
+            <span class="meta-sep">·</span>via Telegram
+          </div>
+        </div>
+        <div class="record-actions">
+          <!-- Image type skips format select -->
+          <button class="record-action-btn primary" title="Download">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 3: Browser · X · Video · New -->
+      <div class="card record-card" data-state="new">
+        <div class="source-indicator browser"></div>
+        <div class="record-thumb" style="--thumb-c1: #1d9bf0; --thumb-c2: #5e5ce6;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="x"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-x"/></svg>X</span>
+            <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+            <span class="badge" data-status="new"><span class="pulse-dot"></span>New</span>
+          </div>
+          <div class="record-title">Late night design thoughts</div>
+          <div class="record-author">
+            <span class="author-name">@uxgod</span>
+            <span class="meta-sep">·</span>browser
+            <span class="meta-sep">·</span>14:15
+            <span class="meta-sep">·</span>captured from browser
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="format-btn" title="Select format">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-filter"/></svg>
+            Format
+          </button>
+          <button class="record-action-btn primary" title="Download">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 4: Telegram · Album · Mixed · New -->
+      <div class="card record-card" data-state="new">
+        <div class="source-indicator telegram"></div>
+        <div class="record-thumb" style="--thumb-c1: #fb7299; --thumb-c2: #ff2442;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-film"/></svg></div>
+          <div class="record-thumb-count">8</div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="telegram"><svg viewBox="0 0 24 24"><use href="icons.svg#i-link"/></svg>Telegram</span>
+            <span class="badge" data-media="mixed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-film"/></svg>Album</span>
+            <span class="badge" data-status="new"><span class="pulse-dot"></span>New</span>
+          </div>
+          <div class="record-title">上海外滩夜景合集 (8 photos)</div>
+          <div class="record-author">
+            <span class="author-name">@shanghai_photo</span>
+            <span class="meta-sep">·</span>telegram
+            <span class="meta-sep">·</span>14:02
+            <span class="meta-sep">·</span>18.4 MB
+            <span class="meta-sep">·</span>via Telegram
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="format-btn" title="Select format">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-filter"/></svg>
+            Format
+          </button>
+          <button class="record-action-btn primary" title="Download">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 5: Browser · B站 · Video · Downloaded -->
+      <div class="card record-card" data-state="downloaded">
+        <div class="source-indicator browser"></div>
+        <div class="record-thumb" style="--thumb-c1: #fb7299; --thumb-c2: #5e5ce6;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="bilibili"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-bili"/></svg>B站</span>
+            <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+            <span class="badge" data-status="downloaded"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Downloaded</span>
+          </div>
+          <div class="record-title">【4K】赛博朋克城市夜景航拍</div>
+          <div class="record-author">
+            <span class="author-name">@drone_master</span>
+            <span class="meta-sep">·</span>browser
+            <span class="meta-sep">·</span>13:48
+            <span class="meta-sep">·</span>248 MB
+            <span class="meta-sep">·</span>已下载到 Library
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="record-action-btn success" title="Open file">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 6: Browser · 小红书 · Image · Skipped -->
+      <div class="card record-card" data-state="skipped">
+        <div class="source-indicator browser"></div>
+        <div class="record-thumb" style="--thumb-c1: #ff2442; --thumb-c2: #e6162d;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="xhs"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-xhs"/></svg>小红书</span>
+            <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+            <span class="badge" data-status="skipped"><svg viewBox="0 0 24 24"><use href="icons.svg#i-clock"/></svg>Skipped</span>
+          </div>
+          <div class="record-title">10 个桌面工具推荐</div>
+          <div class="record-author">
+            <span class="author-name">@toolbox_lab</span>
+            <span class="meta-sep">·</span>browser
+            <span class="meta-sep">·</span>13:30
+            <span class="meta-sep">·</span>已存在于 Library
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="record-action-btn primary" title="Download anyway">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 7: Telegram · Note · URL · New -->
+      <div class="card record-card" data-state="new">
+        <div class="source-indicator telegram"></div>
+        <div class="record-thumb" style="--thumb-c1: #5e5ce6; --thumb-c2: #0a84ff;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-file"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="telegram"><svg viewBox="0 0 24 24"><use href="icons.svg#i-link"/></svg>Telegram</span>
+            <span class="badge" data-type="note"><svg viewBox="0 0 24 24"><use href="icons.svg#i-file"/></svg>Note</span>
+            <span class="badge" data-status="new"><span class="pulse-dot"></span>New</span>
+          </div>
+          <div class="record-title">设计师的 5 分钟早晨仪式</div>
+          <div class="record-author">
+            <span class="author-name">@morning_design</span>
+            <span class="meta-sep">·</span>telegram
+            <span class="meta-sep">·</span>13:15
+            <span class="meta-sep">·</span>via Telegram
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="format-btn" title="Select format">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-filter"/></svg>
+            Format
+          </button>
+          <button class="record-action-btn primary" title="Download">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- RECORD 8: Browser · 抖音 · Video · Downloaded -->
+      <div class="card record-card" data-state="downloaded">
+        <div class="source-indicator browser"></div>
+        <div class="record-thumb" style="--thumb-c1: #25f4ee; --thumb-c2: #1d9bf0;">
+          <div class="record-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+        </div>
+        <div class="record-info">
+          <div class="record-meta-row">
+            <span class="badge" data-plat="douyin"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-douyin"/></svg>抖音</span>
+            <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+            <span class="badge" data-status="downloaded"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Downloaded</span>
+          </div>
+          <div class="record-title">深夜电台·成长的悄悄话</div>
+          <div class="record-author">
+            <span class="author-name">@night_radio</span>
+            <span class="meta-sep">·</span>browser
+            <span class="meta-sep">·</span>12:42
+            <span class="meta-sep">·</span>6.2 MB
+            <span class="meta-sep">·</span>已下载到 Library
+          </div>
+        </div>
+        <div class="record-actions">
+          <button class="record-action-btn success" title="Open file">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+          </button>
+          <button class="record-action-btn danger" title="Delete">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ FORMAT SELECTION DIALOG PREVIEW ============ -->
+    <div class="format-preview-section">
+      <div class="section-label">Format Selection Preview · 点击记录右侧 Format 按钮时弹出</div>
+      <div class="card format-dialog-wrap">
+        <div class="format-dialog">
+          <!-- Dialog header -->
+          <div class="format-dialog-header">
+            <div class="format-dialog-thumb"></div>
+            <div style="min-width: 0; flex: 1;">
+              <div class="format-dialog-title">Rick Astley — Never Gonna Give You Up</div>
+              <div class="format-dialog-badges">
+                <span class="badge" data-plat="youtube"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</span>
+                <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Format options -->
+          <div class="format-options">
+            <!-- 1080p recommended (active) -->
+            <div class="format-option active">
+              <div class="format-radio"></div>
+              <div class="format-option-info">
+                <div class="format-option-name">
+                  Video · 1080p
+                  <span class="format-option-recommend">Recommended</span>
+                </div>
+                <div class="format-option-meta">MP4 · H.264 · 30fps · stereo</div>
+              </div>
+              <div class="format-option-size">18.2 MB</div>
+            </div>
+
+            <!-- 720p -->
+            <div class="format-option">
+              <div class="format-radio"></div>
+              <div class="format-option-info">
+                <div class="format-option-name">Video · 720p</div>
+                <div class="format-option-meta">MP4 · H.264 · 30fps · stereo</div>
+              </div>
+              <div class="format-option-size">8.4 MB</div>
+            </div>
+
+            <!-- 480p -->
+            <div class="format-option">
+              <div class="format-radio"></div>
+              <div class="format-option-info">
+                <div class="format-option-name">Video · 480p</div>
+                <div class="format-option-meta">MP4 · H.264 · 30fps · stereo</div>
+              </div>
+              <div class="format-option-size">4.2 MB</div>
+            </div>
+
+            <!-- Audio only -->
+            <div class="format-option">
+              <div class="format-radio"></div>
+              <div class="format-option-info">
+                <div class="format-option-name">
+                  Audio · 128kbps
+                </div>
+                <div class="format-option-meta">MP3 · 44.1kHz · stereo</div>
+              </div>
+              <div class="format-option-size">2.1 MB</div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="format-dialog-footer">
+            <button class="btn">Cancel</button>
+            <button class="btn btn-primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+              Download
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item"><span class="led led-green"></span>API Online</span>
+        <span class="status-item"><span class="led led-blue"></span>Telegram Polling</span>
+        <span class="status-item"><span class="led led-green"></span>Browser Linked</span>
+      </div>
+      <div class="status-right">
+        <span>12 new</span>
+        <span>48 total</span>
+        <span>18.6 MB</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   INBOX PAGE — minimal interactions
+   - Source pill switching
+   - Format option selection
+   - Respect prefers-reduced-motion
+   ============================================================ */
+(function() {
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Source pill switching
+  document.querySelectorAll('.source-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.source-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+    });
+  });
+
+  // Format option selection (radio behavior)
+  document.querySelectorAll('.format-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.format-option').forEach(o => o.classList.remove('active'));
+      opt.classList.add('active');
+    });
+  });
+
+  // Record card click feedback (subtle)
+  document.querySelectorAll('.record-card').forEach(card => {
+    card.addEventListener('mousedown', () => {
+      if (prefersReducedMotion) return;
+      card.style.transition = 'transform 0.08s var(--ease)';
+      card.style.transform = 'translateY(0)';
+    });
+    card.addEventListener('mouseup', () => {
+      card.style.transform = '';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.transform = '';
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

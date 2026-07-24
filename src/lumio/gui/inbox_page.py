@@ -77,7 +77,7 @@ class InboxItemWidget(QWidget):
         # 剩余空间才给 title，从根本上避免 wordWrap 的 QLabel 挤压同行按钮
         from PySide6.QtWidgets import QSizePolicy
         self._title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._title.setStyleSheet("font-weight: bold;")
+        self._title.setObjectName("card_title")
         self._title.setToolTip(full_title)
         info.addWidget(self._title)
 
@@ -89,17 +89,17 @@ class InboxItemWidget(QWidget):
         if self.item.captured_at:
             meta_text += f"  ·  {self.item.captured_at:%Y-%m-%d %H:%M}"
         self._meta = QLabel(meta_text)
-        self._meta.setStyleSheet("color: #888; font-size: 12px;")
+        self._meta.setObjectName("card_meta")
         info.addWidget(self._meta)
 
         layout.addLayout(info, 1)
 
-        # Status badge
+        # Status badge — 色值动态（按 status 切换），保留内联 color+border
         self._status_label = QLabel(self._status_text(self.item.status))
         color = _STATUS_COLORS.get(self.item.status, "#888")
         self._status_label.setStyleSheet(
-            f"color: {color}; border: 1px solid {color}; border-radius: 4px; "
-            f"padding: 2px 8px; font-size: 11px;"
+            f"QLabel {{ color: {color}; border: 1px solid {color}; "
+            f"border-radius: 4px; padding: 2px 8px; font-size: 11px; }}"
         )
         self._status_label.setFixedWidth(64)
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -171,8 +171,8 @@ class InboxItemWidget(QWidget):
         self._status_label.setText(self._status_text(status))
         color = _STATUS_COLORS.get(status, "#888")
         self._status_label.setStyleSheet(
-            f"color: {color}; border: 1px solid {color}; border-radius: 4px; "
-            f"padding: 2px 8px; font-size: 11px;"
+            f"QLabel {{ color: {color}; border: 1px solid {color}; "
+            f"border-radius: 4px; padding: 2px 8px; font-size: 11px; }}"
         )
         # 下载完成后禁用下载按钮
         if status in ("downloaded", "queued", "archived"):
@@ -208,16 +208,17 @@ class InboxPage(QWidget):
         # Header row
         header = QHBoxLayout()
         self._title_label = QLabel(t("inbox"))
-        self._title_label.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self._title_label.setObjectName("page_title")
         header.addWidget(self._title_label)
 
         self._badge = QLabel("0")
-        self._badge.setObjectName("stat_value")
-        self._badge.setStyleSheet("font-size: 14px; color: #4A9EFF;")
+        self._badge.setObjectName("history_badge")
+        self._badge.setVisible(False)
         header.addWidget(self._badge)
         header.addStretch()
 
         self._filter = QComboBox()
+        self._filter.setObjectName("history_filter")
         self._filter.addItems([
             t("inbox_status_new"),
             t("inbox_status_queued"),
@@ -225,9 +226,6 @@ class InboxPage(QWidget):
             t("inbox_status_archived"),
             t("inbox_status_failed"),
         ])
-        self._filter.setStyleSheet(
-            "QComboBox { padding: 4px 12px; border: 1px solid #555; border-radius: 6px; min-width: 80px; }"
-        )
         self._filter.currentIndexChanged.connect(self._apply_filter)
         header.addWidget(self._filter)
         root.addLayout(header)
@@ -272,12 +270,16 @@ class InboxPage(QWidget):
         scroll.setWidget(self._list_container)
         root.addWidget(scroll, 1)
 
-        # Empty state
-        self._empty_label = QLabel(t("inbox_empty"))
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color: #888; font-size: 14px; padding: 40px;")
-        self._empty_label.hide()
-        root.addWidget(self._empty_label)
+        # Empty state — 使用 EmptyState 组件替代裸 QLabel
+        from .widgets import EmptyState
+        self._empty_state = EmptyState(
+            icon="i-inbox",
+            title=t("inbox_empty"),
+            hint="",
+        )
+        self._empty_state.setObjectName("inbox_empty_state")
+        self._empty_state.hide()
+        root.addWidget(self._empty_state)
 
     def _connect_signals(self):
         self._inbox.item_added.connect(self._on_item_added)
@@ -304,7 +306,8 @@ class InboxPage(QWidget):
             self._widgets[item.id] = w
 
         self._badge.setText(str(len(items)))
-        self._empty_label.setVisible(len(items) == 0)
+        self._badge.setVisible(len(items) > 0)
+        self._empty_state.setVisible(len(items) == 0)
 
     def _apply_filter(self):
         status_map = {
@@ -341,7 +344,7 @@ class InboxPage(QWidget):
                 w.setParent(None)
                 w.deleteLater()
         self._badge.setText(str(len(self._widgets)))
-        self._empty_label.setVisible(len(self._widgets) == 0)
+        self._empty_state.setVisible(len(self._widgets) == 0)
 
     # ── 任务桥接 ────────────────────────────────────────────────────
 

@@ -151,14 +151,13 @@ class InitPage(QWidget):
 
         # Title
         title = QLabel("Lumio")
-        title.setObjectName("accent")
+        title.setObjectName("init_title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: 700; color: #7c8fff;")
         layout.addWidget(title)
 
         subtitle = QLabel(t("init_title"))
+        subtitle.setObjectName("muted")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #6b7084; font-size: 14px;")
         layout.addWidget(subtitle)
 
         layout.addSpacing(20)
@@ -172,7 +171,7 @@ class InitPage(QWidget):
 
         # Status
         self._status = QLabel(t("init_checking"))
-        self._status.setObjectName("muted")
+        self._status.setObjectName("status_msg")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status)
 
@@ -217,7 +216,7 @@ class InitPage(QWidget):
         self._progress.setMaximum(100)
         self._progress.setValue(100)
         self._status.setText(t("init_all_pass"))
-        self._status.setStyleSheet("color: #10b981; font-size: 14px; font-weight: 600;")
+        self._set_status_state("success")
 
         self._countdown = 10
         self._enter_btn.show()
@@ -238,11 +237,21 @@ class InitPage(QWidget):
     def _update_enter_btn(self):
         self._enter_btn.setText(f"{t('enter_now')} ({self._countdown}s)")
 
+    def _set_status_state(self, state: str) -> None:
+        """动态切换 self._status (QLabel#status_msg) 的 state 属性并刷新样式。
+
+        Args:
+            state: success / warning / error / neutral
+        """
+        self._status.setProperty("state", state)
+        self._status.style().unpolish(self._status)
+        self._status.style().polish(self._status)
+
     def _on_fail(self, results: list):
         self._progress.setMaximum(100)
         self._progress.setValue(0)
         self._status.setText(t("init_some_failed"))
-        self._status.setStyleSheet("color: #f59e0b; font-size: 14px;")
+        self._set_status_state("warning")
 
         # Show checklist dialog
         dlg = QDialog(self)
@@ -252,18 +261,17 @@ class InitPage(QWidget):
         lay.setSpacing(8)
 
         title = QLabel(t("init_checklist_title"))
-        title.setStyleSheet("font-size: 14px; font-weight: 600;")
+        title.setObjectName("section_header")
         lay.addWidget(title)
 
         for name, passed, hint in results:
             icon = "✅" if passed else "❌"
             line = QLabel(f"{icon}  {name}")
-            line.setStyleSheet("font-size: 13px;")
+            line.setObjectName("card_meta")
             lay.addWidget(line)
             if not passed and hint:
                 hint_lbl = QLabel(f"      → {hint}")
                 hint_lbl.setObjectName("muted")
-                hint_lbl.setStyleSheet("font-size: 11px;")
                 hint_lbl.setWordWrap(True)
                 lay.addWidget(hint_lbl)
 

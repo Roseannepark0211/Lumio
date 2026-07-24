@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Notifications</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   NOTIFICATIONS PAGE — specific styles
+   ============================================================ */
+.main { padding: 32px 48px 48px; }
+
+/* ---------- UNREAD BADGE (header) ---------- */
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 132, 255, 0.12);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.unread-badge .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+/* ---------- SEGMENTED CONTROL (category tabs) ---------- */
+.seg-control {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.seg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.22s var(--ease);
+  border: 1px solid transparent;
+  background: transparent;
+  position: relative;
+  white-space: nowrap;
+}
+
+.seg-tab:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.seg-tab.active {
+  color: #fff;
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  border-color: transparent;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset,
+              0 4px 12px -2px rgba(10, 132, 255, 0.45);
+}
+
+.seg-tab .count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.seg-tab.active .count {
+  background: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.95);
+}
+
+/* Category indicator dot (small colored dot next to label) */
+.seg-tab .cat-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.seg-tab[data-cat="dependencies"]  .cat-dot { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.seg-tab[data-cat="environment"]   .cat-dot { background: var(--info);    box-shadow: 0 0 6px var(--info); }
+.seg-tab[data-cat="version"]       .cat-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.seg-tab[data-cat="permanent"]     .cat-dot { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+
+/* ---------- NOTIFICATION LIST ---------- */
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.notif-card {
+  padding: 14px 18px 14px 16px;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 14px;
+  align-items: flex-start;
+  position: relative;
+  transition: all 0.22s var(--ease);
+}
+
+.notif-card:hover {
+  background: var(--glass-bg-hi);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset,
+              0 24px 60px -22px rgba(0,0,0,0.7),
+              0 10px 30px -14px rgba(0,0,0,0.5);
+}
+
+/* Permanent notification — left red indicator + red glow background */
+.notif-card.permanent {
+  background:
+    linear-gradient(90deg, rgba(255, 69, 58, 0.06) 0%, transparent 60%),
+    var(--glass-bg);
+}
+
+.notif-card.permanent::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 14px; bottom: 14px;
+  width: 4px;
+  background: linear-gradient(180deg, var(--danger), rgba(255, 69, 58, 0.5));
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.4);
+}
+
+.notif-card.read {
+  opacity: 0.78;
+}
+
+.notif-card.read .notif-title {
+  color: var(--text-mute);
+}
+
+/* ---------- TYPE ICON (left circle) ---------- */
+.notif-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  margin-top: 2px;
+}
+
+.notif-icon svg {
+  width: 18px; height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notif-card[data-type="dependencies"] .notif-icon {
+  background: rgba(255, 214, 10, 0.15);
+  color: var(--warning);
+  box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.2) inset,
+              0 0 14px -4px rgba(255, 214, 10, 0.4);
+}
+.notif-card[data-type="environment"] .notif-icon {
+  background: rgba(100, 210, 255, 0.15);
+  color: var(--info);
+  box-shadow: 0 0 0 1px rgba(100, 210, 255, 0.2) inset,
+              0 0 14px -4px rgba(100, 210, 255, 0.4);
+}
+.notif-card[data-type="version"] .notif-icon {
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--success);
+  box-shadow: 0 0 0 1px rgba(48, 209, 88, 0.2) inset,
+              0 0 14px -4px rgba(48, 209, 88, 0.4);
+}
+.notif-card[data-type="permanent"] .notif-icon {
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.2) inset,
+              0 0 14px -4px rgba(255, 69, 58, 0.4);
+}
+
+/* ---------- NOTIFICATION BODY ---------- */
+.notif-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.notif-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.notif-type-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+}
+
+.notif-card[data-type="dependencies"] .notif-type-badge {
+  color: var(--warning);
+  background: rgba(255, 214, 10, 0.1);
+  border-color: rgba(255, 214, 10, 0.25);
+}
+.notif-card[data-type="environment"] .notif-type-badge {
+  color: var(--info);
+  background: rgba(100, 210, 255, 0.1);
+  border-color: rgba(100, 210, 255, 0.25);
+}
+.notif-card[data-type="version"] .notif-type-badge {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.1);
+  border-color: rgba(48, 209, 88, 0.25);
+}
+.notif-card[data-type="permanent"] .notif-type-badge {
+  color: var(--danger);
+  background: rgba(255, 69, 58, 0.1);
+  border-color: rgba(255, 69, 58, 0.25);
+}
+
+.notif-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin-left: auto;
+}
+
+.notif-desc {
+  font-size: 13px;
+  color: var(--text-mute);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- ACTION BUTTONS ---------- */
+.notif-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.notif-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  padding: 5px 10px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.notif-action svg {
+  width: 11px; height: 11px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notif-action:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  border-color: var(--glass-border-hi);
+  transform: translateY(-1px);
+}
+
+.notif-action.primary {
+  background: rgba(10, 132, 255, 0.15);
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+.notif-action.primary:hover {
+  background: rgba(10, 132, 255, 0.25);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px -2px rgba(10, 132, 255, 0.5);
+}
+
+.notif-action.danger {
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.25);
+}
+
+.notif-action.danger:hover {
+  background: rgba(255, 69, 58, 0.12);
+  border-color: rgba(255, 69, 58, 0.4);
+}
+
+/* ---------- RIGHT COLUMN (unread + close) ---------- */
+.notif-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.unread-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent),
+              0 0 0 3px rgba(10, 132, 255, 0.15);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+.notif-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+  border: 1px solid transparent;
+}
+
+.notif-close svg {
+  width: 12px; height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notif-close:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg-hi);
+  border-color: var(--glass-border);
+}
+
+/* ---------- PREFERENCES CARD ---------- */
+.prefs-card {
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+
+.prefs-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prefs-title svg {
+  width: 18px; height: 18px;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prefs-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  letter-spacing: 0.2px;
+}
+
+.prefs-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.prefs-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--glass-border);
+}
+
+.prefs-row:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.prefs-row-info {
+  min-width: 0;
+}
+
+.prefs-row-label {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.prefs-row-hint {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* ---------- TOGGLE SWITCH ---------- */
+.toggle {
+  width: 44px;
+  height: 24px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s var(--ease);
+  border: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.toggle.on {
+  background: var(--accent);
+  border-color: transparent;
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.4),
+              0 1px 0 rgba(255,255,255,0.2) inset;
+}
+
+.toggle.on::after {
+  transform: translateX(20px);
+}
+
+/* ---------- STATUS BAR ---------- */
+.status-bar {
+  margin-top: 4px;
+}
+
+.status-bar .led-green {
+  width: 7px; height: 7px;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 700px) {
+  .main { padding: 24px; }
+  .seg-control { flex-wrap: wrap; }
+  .notif-card {
+    grid-template-columns: 36px 1fr;
+    gap: 10px;
+  }
+  .notif-aside {
+    flex-direction: row;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 0;
+    margin-top: 4px;
+  }
+  .notif-time { margin-left: 0; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .page-actions { width: 100%; flex-wrap: wrap; }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .unread-mark, .unread-badge .dot {
+    animation: none;
+  }
+  .notif-card, .notif-action, .toggle::after, .seg-tab {
+    transition: none;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-home"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-inbox"/></svg></span>
+        <span>Inbox</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-history"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-stats"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-bell"/></svg></span>
+        <span>Notifications</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24"><use href="icons.svg#i-moon"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.24</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <div class="page-header">
+      <div class="flex" style="gap: 12px; align-items: baseline;">
+        <h1 class="page-title">Notifications</h1>
+        <span class="unread-badge">
+          <span class="dot"></span>
+          5 unread
+        </span>
+      </div>
+
+      <div class="page-actions">
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+          Mark All Read
+        </button>
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-clear"/></svg>
+          Clear Read
+        </button>
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-retry"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ SEGMENTED CONTROL (category tabs) ============ -->
+    <div class="seg-control" data-seg>
+      <div class="seg-tab active" data-cat="all">
+        <span>All</span>
+        <span class="count">12</span>
+      </div>
+      <div class="seg-tab" data-cat="dependencies">
+        <span class="cat-dot"></span>
+        <span>Dependencies</span>
+        <span class="count">3</span>
+      </div>
+      <div class="seg-tab" data-cat="environment">
+        <span class="cat-dot"></span>
+        <span>Environment</span>
+        <span class="count">4</span>
+      </div>
+      <div class="seg-tab" data-cat="version">
+        <span class="cat-dot"></span>
+        <span>Version Updates</span>
+        <span class="count">2</span>
+      </div>
+      <div class="seg-tab" data-cat="permanent">
+        <span class="cat-dot"></span>
+        <span>Permanent</span>
+        <span class="count">3</span>
+      </div>
+    </div>
+
+    <!-- ============ NOTIFICATION LIST ============ -->
+    <div class="notif-list" data-list>
+
+      <!-- 1. Version Updates · Unread -->
+      <div class="card notif-card" data-type="version" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">New version available</span>
+            <span class="notif-type-badge">Version</span>
+            <span class="notif-time">14:32</span>
+          </div>
+          <div class="notif-desc">Lumio v4.3.0 is available. Current: v4.2.0. New features include improved X-Sou search and Apify proxy fallback.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+              Download
+            </button>
+            <button class="notif-action">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+              View Changelog
+            </button>
+            <button class="notif-action">Later</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Environment · Unread -->
+      <div class="card notif-card" data-type="environment" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-info"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Instagram Cookie expired</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">14:28</span>
+          </div>
+          <div class="notif-desc">Your Instagram cookie has expired. Re-import to continue downloading. Mobile API calls will fail until refreshed.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+              Open Settings
+            </button>
+            <button class="notif-action">Dismiss</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Dependencies · Unread -->
+      <div class="card notif-card" data-type="dependencies" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">FFmpeg not found</span>
+            <span class="notif-type-badge">Dependency</span>
+            <span class="notif-time">14:15</span>
+          </div>
+          <div class="notif-desc">FFmpeg binary is missing. Video merging will fail for YouTube and X downloads. Imageio-ffmpeg bundle may be corrupted.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+              Install
+            </button>
+            <button class="notif-action">Dismiss</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Environment · Unread -->
+      <div class="card notif-card" data-type="environment" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-info"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Telegram Bot not configured</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">13:48</span>
+          </div>
+          <div class="notif-desc">Configure Telegram Bot token to enable mobile capture. Inbox will not receive Telegram messages until configured.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+              Open Settings
+            </button>
+            <button class="notif-action">Dismiss</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Permanent · Unread -->
+      <div class="card notif-card permanent" data-type="permanent" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Instagram API Risk Notice</span>
+            <span class="notif-type-badge">Permanent</span>
+            <span class="notif-time">—</span>
+          </div>
+          <div class="notif-desc">Frequent Instagram API calls may lead to account restrictions. Use browser extension for safer downloads. This notice cannot be dismissed.</div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+        </div>
+      </div>
+
+      <!-- 6. Dependencies · Read -->
+      <div class="card notif-card read" data-type="dependencies">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">yt-dlp updated</span>
+            <span class="notif-type-badge">Dependency</span>
+            <span class="notif-time">12:30</span>
+          </div>
+          <div class="notif-desc">yt-dlp has been updated to version 2024.07.22. YouTube extraction compatibility improved.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. Version Updates · Read -->
+      <div class="card notif-card read" data-type="version">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">X GraphQL query ID updated</span>
+            <span class="notif-type-badge">Version</span>
+            <span class="notif-time">11:15</span>
+          </div>
+          <div class="notif-desc">X GraphQL query ID has been refreshed. Tweet media extraction restored after Twitter API rotation.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. Environment · Read -->
+      <div class="card notif-card read" data-type="environment">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">X (Twitter) Cookie configured</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">10:42</span>
+          </div>
+          <div class="notif-desc">Your X cookie is valid. Auth token + ct0 detected. Image downloads and batch enumeration enabled.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. Dependencies · Read -->
+      <div class="card notif-card read" data-type="dependencies">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Browser extension connected</span>
+            <span class="notif-type-badge">Dependency</span>
+            <span class="notif-time">10:30</span>
+          </div>
+          <div class="notif-desc">Chrome/Edge extension is connected and ready. Capture endpoint responding on 127.0.0.1:38900.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10. Environment · Read -->
+      <div class="card notif-card read" data-type="environment">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Local API server started</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">10:28</span>
+          </div>
+          <div class="notif-desc">Flask API server running on 127.0.0.1:38900. Health check passing. Browser extension capture endpoint active.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 11. Permanent · Read -->
+      <div class="card notif-card permanent read" data-type="permanent">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">YouTube download policy</span>
+            <span class="notif-type-badge">Permanent</span>
+            <span class="notif-time">—</span>
+          </div>
+          <div class="notif-desc">YouTube downloads may be subject to copyright restrictions. Please respect content creators and applicable terms of service.</div>
+        </div>
+        <div class="notif-aside"></div>
+      </div>
+
+      <!-- 12. Permanent · Read -->
+      <div class="card notif-card permanent read" data-type="permanent">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Apify API usage</span>
+            <span class="notif-type-badge">Permanent</span>
+            <span class="notif-time">—</span>
+          </div>
+          <div class="notif-desc">Apify Actor proxy is active for Instagram. Monitor your API usage to avoid quota limits. Free tier includes $5 monthly credit.</div>
+        </div>
+        <div class="notif-aside"></div>
+      </div>
+
+    </div>
+
+    <!-- ============ PREFERENCES CARD ============ -->
+    <div class="card prefs-card">
+      <div class="prefs-title">
+        <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+        Notification Preferences
+      </div>
+      <div class="prefs-subtitle">Configure how Lumio notifies you about important events</div>
+
+      <div class="prefs-list">
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Enable Desktop Notifications</div>
+            <div class="prefs-row-hint">Show system notifications for important events</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Auto-check Updates</div>
+            <div class="prefs-row-hint">Check for new versions on app startup</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Cookie Expiry</div>
+            <div class="prefs-row-hint">Alert when platform cookies expire</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Download Complete</div>
+            <div class="prefs-row-hint">Show notification when downloads finish</div>
+          </div>
+          <div class="toggle" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Download Failed</div>
+            <div class="prefs-row-hint">Show notification when downloads fail</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item">
+          <span class="led led-green"></span>
+          API Online
+        </span>
+        <span class="status-item">5 unread</span>
+        <span class="status-item">7 read</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item mono">~/.lumio/notifications.json</span>
+        <span class="status-item">Last updated 14:32</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ============ ICON SPRITE (preload) ============ -->
+<!-- icons.svg is loaded via <use href="icons.svg#i-xxx" /> references -->
+
+<script>
+/* ============================================================
+   NOTIFICATIONS PAGE — interactions
+   ============================================================ */
+
+// ---------- CATEGORY TAB SWITCHING ----------
+const segTabs = document.querySelectorAll('.seg-tab');
+const notifCards = document.querySelectorAll('.notif-card[data-type]');
+
+segTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    segTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    const cat = tab.dataset.cat;
+    notifCards.forEach(card => {
+      if (cat === 'all') {
+        card.style.display = '';
+      } else {
+        card.style.display = (card.dataset.type === cat) ? '' : 'none';
+      }
+    });
+  });
+});
+
+// ---------- TOGGLE SWITCH ----------
+document.querySelectorAll('[data-toggle]').forEach(toggle => {
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('on');
+  });
+});
+
+// ---------- CLOSE / DISMISS NOTIFICATION ----------
+document.querySelectorAll('.notif-close').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const card = btn.closest('.notif-card');
+    if (!card) return;
+    card.style.transition = 'opacity 0.2s, transform 0.2s, max-height 0.25s, margin 0.25s, padding 0.25s';
+    card.style.opacity = '0';
+    card.style.transform = 'translateX(20px)';
+    card.style.maxHeight = card.offsetHeight + 'px';
+    requestAnimationFrame(() => {
+      card.style.maxHeight = '0';
+      card.style.marginTop = '0';
+      card.style.marginBottom = '0';
+      card.style.paddingTop = '0';
+      card.style.paddingBottom = '0';
+      card.style.overflow = 'hidden';
+    });
+    setTimeout(() => card.remove(), 260);
+  });
+});
+
+// ---------- MARK ALL READ ----------
+const markAllBtn = document.querySelector('.page-actions .btn:nth-child(1)');
+if (markAllBtn) {
+  markAllBtn.addEventListener('click', () => {
+    document.querySelectorAll('.notif-card[data-unread]').forEach(card => {
+      card.removeAttribute('data-unread');
+      card.classList.add('read');
+      const mark = card.querySelector('.unread-mark');
+      if (mark) mark.remove();
+    });
+  });
+}
+
+// ---------- CLEAR READ ----------
+const clearReadBtn = document.querySelector('.page-actions .btn:nth-child(2)');
+if (clearReadBtn) {
+  clearReadBtn.addEventListener('click', () => {
+    document.querySelectorAll('.notif-card.read').forEach(card => {
+      card.style.transition = 'opacity 0.2s, transform 0.2s, max-height 0.25s, margin 0.25s';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(20px)';
+      card.style.maxHeight = card.offsetHeight + 'px';
+      requestAnimationFrame(() => {
+        card.style.maxHeight = '0';
+        card.style.margin = '0';
+        card.style.padding = '0';
+        card.style.overflow = 'hidden';
+      });
+      setTimeout(() => card.remove(), 260);
+    });
+  });
+}
+
+// ---------- REFRESH (visual spin) ----------
+const refreshBtn = document.querySelector('.page-actions .btn:nth-child(3)');
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', () => {
+    const icon = refreshBtn.querySelector('svg');
+    if (!icon) return;
+    icon.style.transition = 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+    icon.style.transform = 'rotate(360deg)';
+    setTimeout(() => {
+      icon.style.transition = 'none';
+      icon.style.transform = 'rotate(0deg)';
+    }, 600);
+  });
+}
+</script>
+
+</body>
+</html>

@@ -371,7 +371,7 @@ class VideoPreviewDialog(QDialog):
         # Video widget (dark background)
         self._video = QVideoWidget()
         self._video.setMinimumHeight(300)
-        self._video.setStyleSheet("background-color: #000;")
+        self._video.setObjectName("video_widget")
         lay.addWidget(self._video, 1)
 
         # Error label (hidden by default)
@@ -436,8 +436,8 @@ class AudioPreviewDialog(QDialog):
         lay.setSpacing(8)
 
         icon = QLabel("♪")
+        icon.setObjectName("audio_icon")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet("font-size: 48px; color: #7c8fff;")
         lay.addWidget(icon)
 
         name = QLabel(Path(file_path).stem)

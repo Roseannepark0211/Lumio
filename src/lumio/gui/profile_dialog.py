@@ -128,9 +128,6 @@ class ProfileDialog(QDialog):
         self._pic_label = QLabel()
         self._pic_label.setFixedSize(64, 64)
         self._pic_label.setObjectName("profile_pic")
-        self._pic_label.setStyleSheet(
-            "background-color: #12141c; border: 2px solid #2a2e3a; border-radius: 32px;"
-        )
         self._pic_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self._pic_label)
 
@@ -294,9 +291,6 @@ class ProfileDialog(QDialog):
                 Qt.TransformationMode.SmoothTransformation,
             )
             self._pic_label.setPixmap(scaled)
-            self._pic_label.setStyleSheet(
-                "border: 2px solid #2a2e3a; border-radius: 32px;"
-            )
 
     @Slot()
     def _on_add_to_queue(self):

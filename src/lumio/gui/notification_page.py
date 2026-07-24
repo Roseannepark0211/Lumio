@@ -61,14 +61,12 @@ class _NotifCard(QWidget):
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
         cat_label = QLabel(_get_category_label(self._notif.category))
-        cat_label.setStyleSheet(
-            "background: #333; color: #aaa; border-radius: 4px; padding: 1px 6px; font-size: 11px;"
-        )
+        cat_label.setObjectName("notif_cat_tag")
         cat_label.setFixedHeight(18)
         title_row.addWidget(cat_label)
 
         title_lbl = QLabel(self._notif.title)
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 13px;")
+        title_lbl.setObjectName("card_title")
         title_lbl.setWordWrap(True)
         title_row.addWidget(title_lbl, 1)
         content.addLayout(title_row)
@@ -76,7 +74,7 @@ class _NotifCard(QWidget):
         # Message
         if self._notif.message:
             msg_lbl = QLabel(self._notif.message)
-            msg_lbl.setStyleSheet("color: #999; font-size: 12px;")
+            msg_lbl.setObjectName("card_meta")
             msg_lbl.setWordWrap(True)
             content.addWidget(msg_lbl)
 
@@ -85,8 +83,9 @@ class _NotifCard(QWidget):
             btn_row = QHBoxLayout()
             btn_row.setSpacing(8)
             action_btn = QPushButton(self._notif.action_text or t("learn_more"))
+            action_btn.setObjectName("secondary")
             action_btn.setFixedHeight(26)
-            action_btn.setStyleSheet("font-size: 12px; padding: 2px 10px;")
+            action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             action_btn.clicked.connect(
                 lambda: self.action_clicked.emit(self._notif.id, self._notif.action))
             btn_row.addWidget(action_btn)
@@ -95,10 +94,11 @@ class _NotifCard(QWidget):
 
         layout.addLayout(content, 1)
 
-        # Unread indicator
+        # Unread indicator — 用 lg_led 复用 QSS 规则
         if not self._notif.read:
-            dot = QLabel("●")
-            dot.setStyleSheet("color: #4A9EFF; font-size: 10px;")
+            dot = QLabel()
+            dot.setObjectName("lg_led")
+            dot.setProperty("led", "blue")
             dot.setFixedWidth(12)
             dot.setAlignment(Qt.AlignmentFlag.AlignTop)
             layout.addWidget(dot)
@@ -106,8 +106,8 @@ class _NotifCard(QWidget):
         # Dismiss (永久通知不显示关闭按钮)
         if self._notif.dismissable:
             close_btn = QPushButton("✕")
+            close_btn.setObjectName("card_close_btn")
             close_btn.setFixedSize(20, 20)
-            close_btn.setStyleSheet("border: none; color: #666; font-size: 14px;")
             close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             close_btn.clicked.connect(lambda: self.dismiss_clicked.emit(self._notif.id))
             layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
@@ -134,11 +134,12 @@ class NotificationPage(QWidget):
         # Header
         header = QHBoxLayout()
         title = QLabel(t("notifications"))
-        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        title.setObjectName("page_title")
         header.addWidget(title)
 
         self._badge = QLabel("0")
-        self._badge.setStyleSheet("font-size: 14px; color: #4A9EFF; font-weight: bold;")
+        self._badge.setObjectName("history_badge")
+        self._badge.setVisible(False)
         header.addWidget(self._badge)
         header.addStretch()
         root.addLayout(header)
@@ -187,12 +188,16 @@ class NotificationPage(QWidget):
         scroll.setWidget(self._list_container)
         root.addWidget(scroll, 1)
 
-        # Empty state
-        self._empty_label = QLabel(t("no_notifications"))
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color: #666; font-size: 14px; padding: 40px;")
-        self._empty_label.hide()
-        root.addWidget(self._empty_label)
+        # Empty state — 使用 EmptyState 组件替代裸 QLabel
+        from .widgets import EmptyState
+        self._empty_state = EmptyState(
+            icon="i-bell",
+            title=t("no_notifications"),
+            hint="",
+        )
+        self._empty_state.setObjectName("notif_empty_state")
+        self._empty_state.hide()
+        root.addWidget(self._empty_state)
 
         self._current_filter = "all"
 
@@ -211,7 +216,7 @@ class NotificationPage(QWidget):
 
         category = self._current_filter if self._current_filter != "all" else None
         items = self._manager.get_all(category=category)
-        self._empty_label.setVisible(len(items) == 0)
+        self._empty_state.setVisible(len(items) == 0)
 
         for notif in items:
             card = _NotifCard(notif, self._list_container)
@@ -220,7 +225,9 @@ class NotificationPage(QWidget):
             self._list_layout.insertWidget(self._list_layout.count() - 1, card)
             self._cards[notif.id] = card
 
-        self._badge.setText(str(self._manager.unread_count()))
+        unread = self._manager.unread_count()
+        self._badge.setText(str(unread))
+        self._badge.setVisible(unread > 0)
 
     def _on_filter(self, category: str):
         self._current_filter = category
@@ -231,6 +238,7 @@ class NotificationPage(QWidget):
     @Slot(int)
     def _on_changed(self, count: int):
         self._badge.setText(str(count))
+        self._badge.setVisible(count > 0)
         self._rebuild_list()
 
     @Slot(str, str)

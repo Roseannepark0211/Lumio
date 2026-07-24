@@ -171,24 +171,20 @@ class _MediaItemCard(QFrame):
 
 # ========== Constants ==========
 
-_PILL_COLORS = {
-    "YouTube": "#FF0000",
-    "Instagram": "#E1306C",
-    "X": "#000000",
-    "TikTok": "#25F4EE",
-    "\u0042\u7ad9": "#00A1D6",
-    "\u5feb\u624b": "#FF5000",
-    "\u6296\u97f3": "#000000",
-}
-
+# 平台 pill 列表：(显示名, 平台 key, SVG 图标名)
+# 平台色全部来自 tokens.PLATFORM_COLORS（单一来源）
+# 根治原项目「YouTube 三套蓝打架」(#FF0000/#3B5BDB/#2563eb) 问题
 PLATFORM_PILLS = [
-    ("YouTube", "\u25b6"),
-    ("Instagram", "\u25c9"),
-    ("X", "\U0001d54f"),
-    ("TikTok", "\u266a"),
-    ("\u0042\u7ad9", "B"),
-    ("\u5feb\u624b", "\u25d6"),
-    ("\u6296\u97f3", "\u266a"),
+    ("YouTube",    "youtube",    "i-plat-yt"),
+    ("Instagram",  "instagram",  "i-plat-ig"),
+    ("X",          "x",          "i-plat-x"),
+    # TikTok 与抖音同公司同色（#25f4ee），共用图标
+    ("TikTok",     "douyin",     "i-plat-douyin"),
+    ("Bilibili",   "bilibili",   "i-plat-bili"),
+    ("快手",        "kuaishou",   "i-plat-kuaishou"),
+    ("抖音",        "douyin",     "i-plat-douyin"),
+    ("微博",        "weibo",      "i-plat-weibo"),
+    ("小红书",      "xiaohongshu", "i-plat-xhs"),
 ]
 
 CAPABILITY_TAGS = ["MP4", "WEBM", "MP3", "4K", "1080P", "\u5b57\u5e55", "\u5c01\u9762"]
@@ -257,15 +253,19 @@ class HomePage(QWidget):
         pills_row = QHBoxLayout()
         pills_row.setSpacing(10)
         pills_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for name, icon in PLATFORM_PILLS:
-            pill = QPushButton(f"  {icon}  {name}")
-            pill.setObjectName("platform_pill")
+        # 平台色单一来源：每个 pill 通过 setObjectName("pill_{platform}")
+        # 触发 styles.py 中自动生成的 QSS 规则，无需 Python 端写颜色
+        from PySide6.QtCore import QSize
+        from .theme import icons as _icons
+        from .theme import tokens as T
+        for name, platform_key, icon_name in PLATFORM_PILLS:
+            pill = QPushButton(f"  {name}")
+            pill.setObjectName(f"pill_{platform_key}")
             pill.setCursor(Qt.CursorShape.PointingHandCursor)
-            color = _PILL_COLORS.get(name, "#666666")
-            pill.setStyleSheet(
-                f"QPushButton {{ border: 2px solid {color}; }} "
-                f"QPushButton:hover {{ border-color: {color}; }}"
-            )
+            # 用平台色 SVG 图标替代 Unicode 字符
+            plat_color = T.platform_color(platform_key)
+            pill.setIcon(_icons.icon(icon_name, size=14, color=plat_color))
+            pill.setIconSize(QSize(14, 14))
             pills_row.addWidget(pill)
         hero_layout.addLayout(pills_row)
         scroll_layout.addWidget(hero)
@@ -557,16 +557,28 @@ class HomePage(QWidget):
         self._search_container.show()
 
     def _update_platform_badge(self, platform_str: str):
-        color_map = {"youtube": "#FF0000", "instagram": "#E1306C", "x": "#000000"}
-        color = color_map.get(platform_str.lower(), "#666666")
-        label_map = {"youtube": "YouTube", "instagram": "Instagram", "x": "X"}
-        label = label_map.get(platform_str.lower(), platform_str)
+        # 平台色单一来源：通过切换 objectName 复用 styles.py 中
+        # QLabel#platform_youtube / platform_x / platform_instagram 等规则
+        # 根治原 _update_platform_badge 硬编码 #FF0000 / #000000 的问题
+        label_map = {
+            "youtube": "YouTube",
+            "instagram": "Instagram",
+            "x": "X",
+            "bilibili": "Bilibili",
+            "douyin": "抖音",
+            "kuaishou": "快手",
+            "weibo": "微博",
+            "xiaohongshu": "小红书",
+            "telegram": "Telegram",
+            "tiktok": "TikTok",
+        }
+        key = platform_str.lower()
+        label = label_map.get(key, platform_str)
         self._platform_badge.setText(f"  {label}  ")
-        self._platform_badge.setStyleSheet(
-            "QLabel {{ background-color: transparent; color: {c}; "
-            "border: 1px solid {c}; border-radius: 12px; "
-            "padding: 2px 8px; font-size: 11px; font-weight: 600; }}".format(c=color)
-        )
+        # 切换 objectName 触发对应平台色 QSS 规则
+        self._platform_badge.setObjectName(f"platform_{key}")
+        self._platform_badge.style().unpolish(self._platform_badge)
+        self._platform_badge.style().polish(self._platform_badge)
 
     # ========== Paste ==========
 
@@ -1407,9 +1419,8 @@ class HomePage(QWidget):
             info_col.setSpacing(2)
             title_lbl = QLabel(item.get("content", "")[:80])
             title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet(
-                "font-size: 12px; color: inherit; background: transparent;"
-            )
+            # 用 objectName 替代内联 setStyleSheet，让 QSS 统一管理
+            title_lbl.setObjectName("search_result_title")
             info_col.addWidget(title_lbl)
 
             meta = QLabel(

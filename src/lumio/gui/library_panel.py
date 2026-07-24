@@ -114,7 +114,6 @@ class LibraryItemWidget(QFrame):
         if item.author:
             author = QLabel(f"@{item.author}")
             author.setObjectName("muted")
-            author.setStyleSheet("font-size: 11px;")
             title_row.addWidget(author)
         info.addLayout(title_row)
 
@@ -128,12 +127,10 @@ class LibraryItemWidget(QFrame):
             time_str = str(item.created_at)[:16]
         time_label = QLabel(time_str)
         time_label.setObjectName("muted")
-        time_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(time_label)
 
         size_label = QLabel(_format_size(item.file_size))
         size_label.setObjectName("muted")
-        size_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(size_label)
         meta_row.addStretch()
         info.addLayout(meta_row)
@@ -197,7 +194,6 @@ class LibraryItemWidget(QFrame):
         if item.file_path:
             path_lbl = QLabel(item.file_path)
             path_lbl.setObjectName("muted")
-            path_lbl.setStyleSheet("font-size: 11px;")
             path_lbl.setWordWrap(True)
             detail_layout.addWidget(path_lbl)
 
