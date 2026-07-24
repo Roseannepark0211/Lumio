@@ -33,6 +33,25 @@ from ..telegram_service import TelegramService
 from .widgets import NoWheelComboBox
 
 
+def _set_label_state(label: QLabel, state: str) -> None:
+    """动态切换 QLabel#status_msg 的 state 属性并刷新样式。
+
+    Args:
+        label: 已 setObjectName("status_msg") 的 QLabel
+        state: success / warning / error / neutral
+    """
+    label.setProperty("state", state)
+    label.style().unpolish(label)
+    label.style().polish(label)
+
+
+def _set_btn_state(btn: QPushButton, state: str) -> None:
+    """动态切换 QPushButton#link_btn 的 state 属性并刷新样式。"""
+    btn.setProperty("state", state)
+    btn.style().unpolish(btn)
+    btn.style().polish(btn)
+
+
 class _CacheCleanWorker(QThread):
     """后台执行缓存清理，避免阻塞 UI。"""
     progress = Signal(str, int, int)  # (dir_name, deleted, total)
@@ -342,11 +361,7 @@ class SettingsPage(QWidget):
             toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
             toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             toggle_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            toggle_btn.setStyleSheet(
-                "QToolButton { border: none; text-align: left; "
-                "font-weight: 600; padding: 6px 2px; }"
-                "QToolButton:hover { color: #5b8cff; }"
-            )
+            toggle_btn.setObjectName("settings_toggle")
             cg.addWidget(toggle_btn)
 
             # ===== 内容容器（包裹模式选择器 + cookie + api 面板） =====
@@ -654,9 +669,10 @@ class SettingsPage(QWidget):
         api_hint.setWordWrap(True)
         tg_inner.addWidget(api_hint)
 
-        # Connection status
+        # Connection status — 动态状态色（success/error/neutral），由 QSS #status_msg[state] 控制
         self._tg_status = QLabel()
-        self._tg_status.setObjectName("muted")
+        self._tg_status.setObjectName("status_msg")
+        _set_label_state(self._tg_status, "neutral")
         tg_inner.addWidget(self._tg_status)
 
         # Pair code area (visible when token valid + not bound)
@@ -669,10 +685,10 @@ class SettingsPage(QWidget):
         pair_row1.setSpacing(8)
         pair_row1.addWidget(QLabel(t("telegram_pair_code") + ":"))
         self._tg_pair_code = QLabel()
-        self._tg_pair_code.setStyleSheet("font-size: 16px; font-weight: bold; color: #4A9EFF;")
+        self._tg_pair_code.setObjectName("tg_pair_code")
         pair_row1.addWidget(self._tg_pair_code)
         self._tg_copy_btn = QPushButton(t("telegram_copy"))
-        self._tg_copy_btn.setStyleSheet("QPushButton { background:none; border:none; color:#4A9EFF; } QPushButton:hover { text-decoration:underline; }")
+        self._tg_copy_btn.setObjectName("link_btn")
         self._tg_copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._tg_copy_btn.clicked.connect(self._on_tg_copy)
         pair_row1.addWidget(self._tg_copy_btn)
@@ -697,7 +713,7 @@ class SettingsPage(QWidget):
         bound_v.setSpacing(8)
 
         self._tg_bound_label = QLabel()
-        self._tg_bound_label.setStyleSheet("font-size: 13px;")
+        self._tg_bound_label.setObjectName("card_meta")
         bound_v.addWidget(self._tg_bound_label)
 
         bound_row = QHBoxLayout()
@@ -741,7 +757,8 @@ class SettingsPage(QWidget):
         ver_row.addWidget(self._update_btn)
 
         self._update_result = QLabel()
-        self._update_result.setObjectName("muted")
+        self._update_result.setObjectName("status_msg")
+        _set_label_state(self._update_result, "neutral")
         ver_row.addWidget(self._update_result)
 
         ver_row.addStretch()
@@ -1058,11 +1075,11 @@ class SettingsPage(QWidget):
             self._update_btn.setEnabled(True)
             if result == "latest":
                 self._update_result.setText(f"✅ {t('update_latest')}")
-                self._update_result.setStyleSheet("color: #4ADE80;")
+                _set_label_state(self._update_result, "success")
             elif result.startswith("new:"):
                 ver = result.split(":", 1)[1]
                 self._update_result.setText(f"🆕 {t('update_found', ver=ver)}")
-                self._update_result.setStyleSheet("color: #FFB84D;")
+                _set_label_state(self._update_result, "warning")
                 # 同时写入通知
                 mgr.add_notification(Notification(
                     category="update", type="update",
@@ -1075,7 +1092,7 @@ class SettingsPage(QWidget):
             else:
                 err = result.split(":", 1)[1] if ":" in result else result
                 self._update_result.setText(f"⚠ {t('update_error', err=err)}")
-                self._update_result.setStyleSheet("color: #888;")
+                _set_label_state(self._update_result, "neutral")
 
         threading.Thread(target=_check, daemon=True).start()
 
@@ -1486,7 +1503,7 @@ class SettingsPage(QWidget):
         self._tg_validate_btn.setEnabled(True)
         if result.get("ok"):
             self._tg_status.setText(f"🟢 @{result.get('username','')} — {t('telegram_connected')}")
-            self._tg_status.setStyleSheet("color: #4ADE80;")
+            _set_label_state(self._tg_status, "success")
             cfg2 = load_config()
             cfg2["telegram_bot_token"] = token
             save_config(cfg2)
@@ -1502,7 +1519,7 @@ class SettingsPage(QWidget):
             elif not proxy and ('connection' in err.lower() or 'timeout' in err.lower() or 'ssl' in err.lower()):
                 err = f"{err}（未配置代理，中国大陆需在 config.json 设置 http_proxy）"
             self._tg_status.setText(f"🔴 {t('telegram_validate_fail')}: {err}")
-            self._tg_status.setStyleSheet("color: #FF6B6B;")
+            _set_label_state(self._tg_status, "error")
 
     def _tg_generate_pair_code(self):
         cfg = load_config()
@@ -1535,23 +1552,23 @@ class SettingsPage(QWidget):
         if code and code != "—":
             QApplication.clipboard().setText(code)
             self._tg_copy_btn.setText("✅ " + t("telegram_copied"))
-            self._tg_copy_btn.setStyleSheet("QPushButton { background: none; border: none; color: #4ADE80; font-size: 13px; }")
+            _set_btn_state(self._tg_copy_btn, "success")
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1500, self._tg_reset_copy_btn)
 
     def _tg_reset_copy_btn(self):
         self._tg_copy_btn.setText(t("telegram_copy"))
-        self._tg_copy_btn.setStyleSheet("QPushButton { background: none; border: none; color: #4A9EFF; font-size: 13px; } QPushButton:hover { text-decoration: underline; }")
+        _set_btn_state(self._tg_copy_btn, "")
 
     def _tg_update_status(self):
         cfg = load_config()
         token = cfg.get("telegram_bot_token", "")
         if not token:
             self._tg_status.setText(t("telegram_no_token"))
-            self._tg_status.setStyleSheet("color: #888;")
+            _set_label_state(self._tg_status, "neutral")
         else:
             self._tg_status.setText(t("telegram_token_saved"))
-            self._tg_status.setStyleSheet("color: #888;")
+            _set_label_state(self._tg_status, "neutral")
 
     def _tg_update_pair_code(self):
         cfg = load_config()
@@ -1572,10 +1589,10 @@ class SettingsPage(QWidget):
         # Status
         if not token:
             self._tg_status.setText(t("telegram_no_token"))
-            self._tg_status.setStyleSheet("color: #888;")
+            _set_label_state(self._tg_status, "neutral")
         else:
             self._tg_status.setText(t("telegram_token_saved"))
-            self._tg_status.setStyleSheet("color: #888;")
+            _set_label_state(self._tg_status, "neutral")
 
         # Pair code: token 有效时始终显示
         if token:

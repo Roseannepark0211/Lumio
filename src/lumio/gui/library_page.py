@@ -214,7 +214,7 @@ class LibraryPage(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._scroll.setObjectName("library_scroll")
         self._scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -228,12 +228,15 @@ class LibraryPage(QWidget):
         self._scroll.setWidget(self._list_widget)
         root.addWidget(self._scroll, 1)
 
-        # Empty state
-        self._empty_label = QLabel(t("library_empty"))
-        self._empty_label.setObjectName("muted")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("padding: 40px; font-size: 14px;")
-        self._list_layout.insertWidget(0, self._empty_label)
+        # Empty state — 使用 EmptyState 组件替代裸 QLabel
+        from .widgets import EmptyState
+        self._empty_state = EmptyState(
+            icon="i-library",
+            title=t("library_empty"),
+            hint="",
+        )
+        self._empty_state.setObjectName("library_empty_state")
+        self._list_layout.insertWidget(0, self._empty_state)
 
         # Load existing items
         for item in self._lm.get_all_items():
@@ -253,7 +256,7 @@ class LibraryPage(QWidget):
 
     def _update_empty(self):
         has_items = len(self._item_widgets) > 0
-        self._empty_label.setVisible(not has_items)
+        self._empty_state.setVisible(not has_items)
         visible_count = sum(1 for w in self._item_widgets.values() if w.isVisible())
         self._badge.setText(str(visible_count))
         self._badge.setVisible(visible_count > 0)

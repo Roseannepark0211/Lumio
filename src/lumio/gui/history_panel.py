@@ -109,7 +109,6 @@ class HistoryRecordWidget(QFrame):
         if rec.author:
             author = QLabel(f"@{rec.author}")
             author.setObjectName("muted")
-            author.setStyleSheet("font-size: 11px;")
             title_row.addWidget(author)
         info.addLayout(title_row)
 
@@ -119,12 +118,10 @@ class HistoryRecordWidget(QFrame):
         time_str = rec.download_time[:16].replace("T", " ") if rec.download_time else ""
         time_label = QLabel(time_str)
         time_label.setObjectName("muted")
-        time_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(time_label)
 
         size_label = QLabel(_format_size(rec.file_size))
         size_label.setObjectName("muted")
-        size_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(size_label)
         meta_row.addStretch()
         info.addLayout(meta_row)
@@ -172,7 +169,6 @@ class HistoryRecordWidget(QFrame):
         if rec.file_path:
             path_lbl = QLabel(rec.file_path)
             path_lbl.setObjectName("muted")
-            path_lbl.setStyleSheet("font-size: 11px;")
             path_lbl.setWordWrap(True)
             detail_layout.addWidget(path_lbl)
 
@@ -243,7 +239,6 @@ class BatchGroupWidget(QFrame):
 
         count_label = QLabel(f"{len(self._records)} {t('batch_items')}")
         count_label.setObjectName("muted")
-        count_label.setStyleSheet("font-size: 11px;")
         title_row.addWidget(count_label)
         info.addLayout(title_row)
 
@@ -253,14 +248,12 @@ class BatchGroupWidget(QFrame):
         total_size = sum(r.file_size for r in self._records)
         size_label = QLabel(_format_size(total_size))
         size_label.setObjectName("muted")
-        size_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(size_label)
 
         latest_time = max((r.download_time for r in self._records if r.download_time), default="")
         time_str = latest_time[:16].replace("T", " ") if latest_time else ""
         time_label = QLabel(time_str)
         time_label.setObjectName("muted")
-        time_label.setStyleSheet("font-size: 11px;")
         meta_row.addWidget(time_label)
         meta_row.addStretch()
         info.addLayout(meta_row)

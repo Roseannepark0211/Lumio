@@ -46,8 +46,8 @@ class DownloadsPage(QWidget):
         header.addWidget(self._badge)
 
         self._batch_label = QLabel("")
-        self._batch_label.setObjectName("muted")
-        self._batch_label.setStyleSheet("font-size: 11px; margin-left: 4px;")
+        # 用 batch_progress objectName 复用 styles.py 中的样式（FS_MICRO + margin-left）
+        self._batch_label.setObjectName("batch_progress")
         self._batch_label.hide()
         header.addWidget(self._batch_label)
 
@@ -73,7 +73,7 @@ class DownloadsPage(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._scroll.setObjectName("downloads_scroll")
         self._scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -87,12 +87,15 @@ class DownloadsPage(QWidget):
         self._scroll.setWidget(self._list_widget)
         root.addWidget(self._scroll, 1)
 
-        # Empty state
-        self._empty_label = QLabel(t("downloads_empty"))
-        self._empty_label.setObjectName("muted")
-        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("padding: 40px; font-size: 14px;")
-        self._list_layout.insertWidget(0, self._empty_label)
+        # Empty state — 使用 EmptyState 组件替代裸 QLabel
+        from .widgets import EmptyState
+        self._empty_state = EmptyState(
+            icon="i-download",
+            title=t("downloads_empty"),
+            hint="",
+        )
+        self._empty_state.setObjectName("downloads_empty")
+        self._list_layout.insertWidget(0, self._empty_state)
 
         self._update_badge()
         self._update_empty()
@@ -108,7 +111,7 @@ class DownloadsPage(QWidget):
 
     def _update_empty(self):
         has_tasks = len(self._task_widgets) > 0
-        self._empty_label.setVisible(not has_tasks)
+        self._empty_state.setVisible(not has_tasks)
 
     def _update_badge(self):
         count = len(self._manager.get_all_tasks())

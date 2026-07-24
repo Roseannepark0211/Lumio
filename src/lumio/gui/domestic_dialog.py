@@ -280,13 +280,13 @@ class DomesticBatchDialog(QDialog):
 
             thumb = QLabel()
             thumb.setFixedSize(80, 50)
-            thumb.setStyleSheet("background-color: #1a1c28; border-radius: 4px;")
+            thumb.setObjectName("search_thumb")
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
             rl.addWidget(thumb)
 
             title_lbl = QLabel(post.get("title", "")[:80])
             title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet("font-size: 12px;")
+            title_lbl.setObjectName("search_result_title")
             rl.addWidget(title_lbl, 1)
 
             self._list_layout.insertWidget(self._list_layout.count() - 1, row)
@@ -314,7 +314,6 @@ class DomesticBatchDialog(QDialog):
         )
         row = self._result_rows[index]
         row["thumb_label"].setPixmap(scaled)
-        row["thumb_label"].setStyleSheet("border-radius: 4px;")
 
     def _update_add_btn(self):
         any_checked = any(r["checkbox"].isChecked() for r in self._result_rows)

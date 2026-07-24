@@ -16,6 +16,13 @@ from ..utils.media_utils import format_size
 
 
 def _stat_card(label: str, value: str, color: str = "#7c8fff") -> QWidget:
+    """创建统计卡片。
+
+    Args:
+        label: 标签文字（如 "总下载数"）
+        value: 显示值（如 "123"）
+        color: 强调色，建议从 tokens 取（如 tokens.STATUS_SUCCESS / tokens.platform_color('youtube')）
+    """
     card = QWidget()
     card.setObjectName("stat_card")
     card.setFixedHeight(100)
@@ -27,7 +34,9 @@ def _stat_card(label: str, value: str, color: str = "#7c8fff") -> QWidget:
 
     val = QLabel(value)
     val.setObjectName("stat_value")
-    val.setStyleSheet(f"color: {color}; font-size: 28px; font-weight: 700;")
+    # 色值来自 tokens（platform_color / STATUS_*），每张卡片不同，只能内联
+    # font-size / font-weight / background 由 QSS 统一控制
+    val.setStyleSheet(f"QLabel#stat_value {{ color: {color}; }}")
     val.setAlignment(Qt.AlignmentFlag.AlignCenter)
     layout.addWidget(val)
 
@@ -73,23 +82,26 @@ class StatsPage(QWidget):
         today_count = sum(1 for r in records if r.download_time.startswith(today))
 
         # Row 1: key metrics (4 cards)
+        # 颜色全部来自 tokens，根治原项目硬编码色值
+        from .theme import tokens as T
         row1 = QHBoxLayout()
         row1.setSpacing(16)
-        self._total_card = _stat_card(t("stats_total"), str(total), "#7c8fff")
-        self._size_card = _stat_card(t("stats_size"), _format_total_size(total_size), "#10b981")
-        self._success_card = _stat_card(t("stats_success_rate"), success_rate, "#f59e0b")
-        self._today_card = _stat_card(t("stats_today"), str(today_count), "#10b981")
+        self._total_card = _stat_card(t("stats_total"), str(total), T.get_tokens("dark")["accent_2"])
+        self._size_card = _stat_card(t("stats_size"), _format_total_size(total_size), T.STATUS_SUCCESS)
+        self._success_card = _stat_card(t("stats_success_rate"), success_rate, T.STATUS_WARNING)
+        self._today_card = _stat_card(t("stats_today"), str(today_count), T.STATUS_SUCCESS)
         for card in (self._total_card, self._size_card, self._success_card, self._today_card):
             row1.addWidget(card)
         root.addLayout(row1)
 
         # Row 2: platform breakdown (4 cards)
+        # 平台色单一来源：tokens.PLATFORM_COLORS（根治 YouTube #2563eb 旧蓝）
         row2 = QHBoxLayout()
         row2.setSpacing(16)
-        self._yt_card = _stat_card("YouTube", str(yt_count), "#2563eb")
-        self._ig_card = _stat_card("Instagram", str(ig_count), "#e1306c")
-        self._x_card = _stat_card("X (Twitter)", str(x_count), "#1d9bf0")
-        self._weibo_card = _stat_card("Weibo", str(weibo_count), "#e6162d")
+        self._yt_card = _stat_card("YouTube", str(yt_count), T.platform_color("youtube"))
+        self._ig_card = _stat_card("Instagram", str(ig_count), T.platform_color("instagram"))
+        self._x_card = _stat_card("X (Twitter)", str(x_count), T.platform_color("x"))
+        self._weibo_card = _stat_card("Weibo", str(weibo_count), T.platform_color("weibo"))
         for card in (self._yt_card, self._ig_card, self._x_card, self._weibo_card):
             row2.addWidget(card)
         row2.addStretch()

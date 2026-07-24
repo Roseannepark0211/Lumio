@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from ..i18n import t
 from ..queue_manager import DownloadManager, QueueTask, TaskStatus
+from .laser_progress import LaserProgress
 
 _ERROR_MESSAGES = {
     "cookie_expired": "error_cookie",
@@ -103,13 +104,21 @@ class QueueTaskWidget(QFrame):
 
         root.addLayout(top)
 
-        # Row 2: progress bar
+        # Row 2: progress bar (Liquid Glass static bar + 激光粒子动态覆盖层)
+        # 双层结构：默认显示 QProgressBar；下载中状态切换为 LaserProgress 激光粒子
         self._progress = QProgressBar()
         self._progress.setTextVisible(True)
         self._progress.setFormat("%p%")
         self._progress.setValue(int(qt.progress))
         self._progress.setFixedHeight(14)
         root.addWidget(self._progress)
+
+        # 激光粒子进度条（下载中状态显示）
+        self._laser = LaserProgress()
+        self._laser.set_value(qt.progress / 100.0)
+        self._laser.setFixedHeight(14)
+        self._laser.hide()
+        root.addWidget(self._laser)
 
         # Row 3: action buttons
         self._btn_row = QHBoxLayout()
@@ -198,6 +207,8 @@ class QueueTaskWidget(QFrame):
 
     def update_progress(self, progress: float, speed: str, filename: str):
         self._progress.setValue(int(progress))
+        # 同步激光粒子进度条
+        self._laser.set_value(progress / 100.0)
         if speed:
             self._speed_label.setText(speed)
 
@@ -208,6 +219,13 @@ class QueueTaskWidget(QFrame):
         self._badge.setObjectName(badge_obj)
         self._badge.style().unpolish(self._badge)
         self._badge.style().polish(self._badge)
+        # 下载中状态切换为激光粒子进度条
+        if status == TaskStatus.DOWNLOADING.value:
+            self._progress.hide()
+            self._laser.show()
+        else:
+            self._progress.show()
+            self._laser.hide()
         self._update_buttons(status)
 
     def update_finished(self, success: bool, error: str, error_category: str = ""):

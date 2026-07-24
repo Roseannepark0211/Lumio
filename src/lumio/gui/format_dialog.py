@@ -52,6 +52,7 @@ class FormatSelectDialog(QDialog):
 
         # Info label
         self._info_label = QLabel(t("loading"))
+        self._info_label.setObjectName("status_msg")
         self._info_label.setWordWrap(True)
         layout.addWidget(self._info_label)
 
@@ -98,7 +99,6 @@ class FormatSelectDialog(QDialog):
     def _on_info(self, info: VideoInfo):
         self._info = info
         self._info_label.setText(f"{info.title}\n{info.author}" if info.author else info.title)
-        self._info_label.setStyleSheet("font-size: 13px;")
 
         # Populate formats
         self._format_combo.clear()
@@ -142,7 +142,9 @@ class FormatSelectDialog(QDialog):
 
     def _on_error(self, err: str):
         self._info_label.setText(f"{t('parse_failed')}: {err}")
-        self._info_label.setStyleSheet("color: #FF6B6B;")
+        self._info_label.setProperty("state", "error")
+        self._info_label.style().unpolish(self._info_label)
+        self._info_label.style().polish(self._info_label)
 
     def _on_accept(self):
         fmt_data = self._format_combo.currentData()

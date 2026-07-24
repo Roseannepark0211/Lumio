@@ -1,0 +1,1775 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   LIBRARY PAGE — specific styles
+   Liquid Glass material · collections sidebar · media grid
+   ============================================================ */
+
+/* Override .main for denser library layout */
+.main {
+  padding: 32px 48px 48px;
+  max-width: 1440px;
+}
+
+/* ---------- PAGE HEADER BADGE ---------- */
+.lib-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: rgba(94, 92, 230, 0.12);
+  border: 1px solid rgba(94, 92, 230, 0.3);
+  color: #a8c7ff;
+  letter-spacing: 0.5px;
+}
+
+.lib-badge .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 6px var(--accent-2);
+}
+
+/* ---------- VIEW TOGGLE SEGMENTED ---------- */
+.view-toggle {
+  display: inline-flex;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+  gap: 2px;
+}
+
+.view-toggle .btn-icon {
+  width: 28px; height: 28px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 7px;
+}
+
+.view-toggle .btn-icon.active {
+  background: var(--glass-bg-hi);
+  border-color: var(--glass-border-hi);
+  color: var(--text-primary);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset;
+}
+
+/* ============================================================
+   LIBRARY LAYOUT — collections sidebar + content
+   ============================================================ */
+.library-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ---------- COLLECTIONS SIDEBAR ---------- */
+.collections-sidebar {
+  padding: 16px 14px;
+  position: sticky;
+  top: 16px;
+}
+
+.collections-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 6px 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.collections-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.collections-add {
+  width: 22px; height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.collections-add:hover {
+  background: var(--glass-bg-hi);
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+.collections-add svg {
+  width: 12px; height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.collection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.collection-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--text-mute);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  transition: all 0.18s var(--ease);
+}
+
+.collection-item:hover {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+}
+
+.collection-item.active {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset;
+}
+
+.collection-item.active::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 14px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+
+.collection-item .col-icon {
+  width: 14px; height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.collection-item.active .col-icon { color: var(--accent); }
+.collection-item[data-fav] .col-icon { color: var(--danger); }
+
+.collection-item .col-icon svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.collection-item[data-fav] .col-icon svg { fill: currentColor; }
+
+.collection-item .col-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collection-item .col-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.collection-item .col-more {
+  width: 18px; height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  color: var(--text-dim);
+  transition: opacity 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.collection-item:hover .col-more { opacity: 1; }
+.collection-item .col-more:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+}
+
+.collection-item .col-more svg {
+  width: 12px; height: 12px;
+  fill: currentColor;
+}
+
+/* Collections footer hint */
+.collections-hint {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed var(--glass-border);
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.collections-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--glass-bg-hi);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+}
+
+/* ============================================================
+   CONTENT AREA
+   ============================================================ */
+.library-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- FILTER TOOLBAR ---------- */
+.filter-toolbar {
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1.5fr 1.1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.filter-field {
+  position: relative;
+  min-width: 0;
+}
+
+.filter-field-label {
+  position: absolute;
+  top: -7px;
+  left: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: linear-gradient(180deg, rgba(20, 20, 31, 0.9), rgba(20, 20, 31, 0.6));
+  padding: 0 5px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Search field */
+.search-field { position: relative; }
+
+.search-field .search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.search-field .search-icon svg {
+  width: 14px; height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.search-field .input {
+  padding-left: 34px;
+  height: 34px;
+  font-size: var(--fs-small);
+}
+
+.search-field .input:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 20px rgba(10, 132, 255, 0.15);
+}
+
+.search-field .input:focus + .search-icon,
+.search-field .input:focus ~ .search-icon {
+  color: var(--accent);
+}
+
+/* Selects in filter */
+.filter-toolbar .select {
+  height: 34px;
+  padding: 0 30px 0 12px;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+.filter-toolbar .select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Date range field */
+.date-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: 0 8px;
+  height: 34px;
+  transition: all 0.2s var(--ease);
+}
+
+.date-range:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.date-range .cal-icon {
+  color: var(--text-dim);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.date-range .cal-icon svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.date-range .date-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 2px;
+  color-scheme: dark;
+}
+
+.date-range .date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.date-range .date-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+.date-range .date-sep {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+/* Reset button */
+.filter-reset {
+  height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 159, 10, 0.08);
+  border: 1px solid rgba(255, 159, 10, 0.25);
+  color: #ffd60a;
+  border-radius: var(--r-md);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.filter-reset:hover {
+  background: rgba(255, 159, 10, 0.15);
+  border-color: rgba(255, 159, 10, 0.4);
+  color: #ffe066;
+}
+
+.filter-reset svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- BATCH TOOLBAR ---------- */
+.batch-toolbar {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(90deg,
+    rgba(10, 132, 255, 0.10) 0%,
+    rgba(94, 92, 230, 0.08) 100%);
+  border: 1px solid rgba(10, 132, 255, 0.28);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset,
+              0 8px 24px -12px rgba(10, 132, 255, 0.3);
+  animation: slideDown 0.3s var(--ease);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.batch-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.batch-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.batch-count .num {
+  font-size: 15px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffffff, #a8c7ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.batch-select-all {
+  font-size: var(--fs-small);
+  color: var(--text-mute);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border);
+  transition: all 0.18s var(--ease);
+}
+
+.batch-select-all:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg-hi);
+  border-color: var(--glass-border-hi);
+}
+
+.batch-select-all svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ============================================================
+   MEDIA GRID
+   ============================================================ */
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* ---------- MEDIA CARD ---------- */
+.media-card {
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.28s var(--ease), box-shadow 0.28s var(--ease);
+  will-change: transform;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset,
+              0 30px 60px -20px rgba(0,0,0,0.7),
+              0 12px 30px -12px rgba(0,0,0,0.5),
+              0 0 0 1px rgba(10, 132, 255, 0.15);
+}
+
+.media-card.selected {
+  box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset,
+              0 20px 50px -20px rgba(0,0,0,0.6),
+              0 8px 24px -12px rgba(0,0,0,0.4),
+              0 0 0 2px var(--accent),
+              0 0 24px rgba(10, 132, 255, 0.25);
+}
+
+/* ---------- THUMBNAIL ---------- */
+.media-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: linear-gradient(135deg,
+    var(--thumb-c1, #ff3b5c) 0%,
+    var(--thumb-c2, #5e5ce6) 100%);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+}
+
+/* Glossy overlay — gives the thumbnail a liquid glass sheen */
+.media-thumb::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 15%, rgba(255,255,255,0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 80% at 85% 90%, rgba(0,0,0,0.35) 0%, transparent 60%),
+    linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.25) 100%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Subtle grain texture for realism */
+.media-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.08;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  mix-blend-mode: overlay;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Center media-type icon (decorative, simulates thumbnail content) */
+.media-thumb-icon {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255,255,255,0.18);
+  z-index: 2;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));
+}
+
+.media-thumb-icon svg {
+  width: 56px; height: 56px;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Hover preview button — center play/eye */
+.media-thumb-preview {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.85);
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0;
+  z-index: 5;
+  transition: all 0.25s var(--ease);
+  box-shadow: 0 8px 24px -4px rgba(0,0,0,0.5),
+              0 1px 0 rgba(255,255,255,0.3) inset;
+}
+
+.media-card:hover .media-thumb-preview {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.media-thumb-preview svg {
+  width: 22px; height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- THUMBNAIL OVERLAYS ---------- */
+.thumb-overlay-top {
+  position: absolute;
+  top: 10px; left: 10px; right: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 4;
+  gap: 8px;
+}
+
+.thumb-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* On-thumbnail badges: solid translucent background for legibility */
+.thumb-badges .badge {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.95);
+  padding: 3px 9px;
+  font-size: 10px;
+  box-shadow: 0 2px 8px -2px rgba(0,0,0,0.4);
+}
+
+.thumb-badges .badge[data-plat] {
+  color: var(--badge-plat-color);
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.thumb-badges .badge[data-plat="youtube"]   { --badge-plat-color: #ff6b85; }
+.thumb-badges .badge[data-plat="instagram"] { --badge-plat-color: #ff6ba1; }
+.thumb-badges .badge[data-plat="x"]         { --badge-plat-color: #5cb8fa; }
+.thumb-badges .badge[data-plat="bilibili"]  { --badge-plat-color: #fc9ab5; }
+.thumb-badges .badge[data-plat="douyin"]    { --badge-plat-color: #5bf5ef; }
+.thumb-badges .badge[data-plat="kuaishou"]  { --badge-plat-color: #ff9148; }
+.thumb-badges .badge[data-plat="weibo"]     { --badge-plat-color: #ff5a6e; }
+.thumb-badges .badge[data-plat="xhs"]       { --badge-plat-color: #ff5a72; }
+
+/* Heart (favorite) button on thumbnail */
+.fav-btn {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px -2px rgba(0,0,0,0.4);
+}
+
+.fav-btn:hover {
+  background: rgba(255, 69, 58, 0.25);
+  border-color: rgba(255, 69, 58, 0.5);
+  color: #ff6b6b;
+  transform: scale(1.1);
+}
+
+.fav-btn svg {
+  width: 14px; height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: fill 0.2s var(--ease);
+}
+
+.fav-btn.faved {
+  background: rgba(255, 69, 58, 0.2);
+  border-color: rgba(255, 69, 58, 0.5);
+  color: #ff453a;
+  box-shadow: 0 2px 12px -2px rgba(255, 69, 58, 0.5),
+              0 0 0 1px rgba(255, 69, 58, 0.2);
+}
+
+.fav-btn.faved svg { fill: currentColor; }
+
+.fav-btn.faved:hover {
+  background: rgba(255, 69, 58, 0.3);
+  color: #ff6b6b;
+}
+
+/* Selection checkbox */
+.card-checkbox {
+  position: absolute;
+  top: 10px; left: 10px;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  z-index: 5;
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.media-card.selected .card-checkbox,
+.library-grid.selectable .card-checkbox {
+  display: flex;
+}
+
+.card-checkbox:hover {
+  border-color: var(--accent);
+  background: rgba(10, 132, 255, 0.3);
+}
+
+.card-checkbox svg {
+  width: 14px; height: 14px;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.media-card.selected .card-checkbox {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.5);
+}
+
+.media-card.selected .card-checkbox svg { opacity: 1; }
+
+/* When selection mode is active, push top overlay right */
+.library-grid.selectable .thumb-overlay-top { left: 40px; }
+
+/* ---------- CARD INFO ---------- */
+.media-info {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.media-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 39px;
+}
+
+.media-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+
+.media-meta .meta-author { color: var(--text-mute); }
+.media-meta .meta-sep {
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+
+/* ---------- CARD ACTIONS (hover footer) ---------- */
+.media-actions {
+  padding: 0 14px;
+  display: flex;
+  gap: 4px;
+  border-top: 1px solid var(--glass-border);
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.25s var(--ease),
+              opacity 0.2s var(--ease),
+              padding 0.25s var(--ease);
+}
+
+.media-card:hover .media-actions {
+  max-height: 50px;
+  opacity: 1;
+  padding: 8px 14px 12px;
+}
+
+.media-action {
+  flex: 1;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  transition: all 0.15s var(--ease);
+}
+
+.media-action:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  border-color: var(--glass-border);
+}
+
+.media-action.primary:hover {
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.media-action.danger:hover {
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.3);
+  background: rgba(255, 69, 58, 0.08);
+}
+
+.media-action svg {
+  width: 13px; height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ============================================================
+   PAGINATION
+   ============================================================ */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 4px;
+}
+
+.pagination-info {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+.pagination-info .num { color: var(--text-mute); }
+
+.page-btn {
+  width: 32px; height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  border-color: var(--glass-border-hi);
+  transform: translateY(-1px);
+}
+
+.page-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.page-btn svg {
+  width: 14px; height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.page-numbers {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.page-number {
+  min-width: 32px; height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  transition: all 0.18s var(--ease);
+}
+
+.page-number:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+}
+
+.page-number.active {
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset,
+              0 4px 12px -2px rgba(10, 132, 255, 0.5);
+}
+
+.page-ellipsis {
+  color: var(--text-dim);
+  padding: 0 4px;
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 1200px) {
+  .library-grid { grid-template-columns: repeat(2, 1fr); }
+  .filter-toolbar {
+    grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  }
+  .filter-toolbar > .filter-field:nth-child(5),
+  .filter-toolbar > .filter-field:nth-child(6) {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 900px) {
+  .library-layout { grid-template-columns: 1fr; }
+  .collections-sidebar {
+    position: static;
+    order: 2;
+  }
+  .library-content { order: 1; }
+  .filter-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .filter-toolbar > .filter-reset { grid-column: span 2; }
+}
+
+@media (max-width: 800px) {
+  .library-grid { grid-template-columns: 1fr; }
+}
+
+/* Stagger card fade-in on load */
+.media-card {
+  animation: cardFadeIn 0.5s var(--ease) backwards;
+}
+
+.media-card:nth-child(1) { animation-delay: 0.04s; }
+.media-card:nth-child(2) { animation-delay: 0.08s; }
+.media-card:nth-child(3) { animation-delay: 0.12s; }
+.media-card:nth-child(4) { animation-delay: 0.16s; }
+.media-card:nth-child(5) { animation-delay: 0.20s; }
+.media-card:nth-child(6) { animation-delay: 0.24s; }
+.media-card:nth-child(7) { animation-delay: 0.28s; }
+.media-card:nth-child(8) { animation-delay: 0.32s; }
+.media-card:nth-child(9) { animation-delay: 0.36s; }
+
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-card { animation: none; }
+  .media-card:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-home"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-inbox"/></svg></span>
+        <span>Inbox</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-history"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-stats"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-bell"/></svg></span>
+        <span>Notifications</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24"><use href="icons.svg#i-moon"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.24</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <div class="page-header">
+      <div class="flex" style="gap: 14px; align-items: baseline;">
+        <h1 class="page-title">Library</h1>
+        <span class="lib-badge">
+          <span class="dot"></span>
+          248 items · 4.2 GB
+        </span>
+      </div>
+
+      <div class="page-actions">
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg>
+          Add to Collection
+        </button>
+        <button class="btn">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+          Batch Favorite
+        </button>
+        <button class="btn btn-danger">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+          Batch Delete
+        </button>
+        <div class="view-toggle">
+          <button class="btn-icon active" title="Grid view">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg>
+          </button>
+          <button class="btn-icon" title="List view">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-sort"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ LIBRARY LAYOUT: collections + content ============ -->
+    <div class="library-layout">
+
+      <!-- ---------- COLLECTIONS SIDEBAR ---------- -->
+      <aside class="collections-sidebar card">
+        <div class="collections-header">
+          <span class="collections-title">Collections</span>
+          <button class="collections-add" title="New collection">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg>
+          </button>
+        </div>
+
+        <div class="collection-list">
+          <div class="collection-item active">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-archive"/></svg></span>
+            <span class="col-name">All Items</span>
+            <span class="col-count">248</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item" data-fav>
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-heart-filled"/></svg></span>
+            <span class="col-name">Favorites</span>
+            <span class="col-count">32</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></span>
+            <span class="col-name">Travel</span>
+            <span class="col-count">18</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></span>
+            <span class="col-name">Design Inspiration</span>
+            <span class="col-count">45</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></span>
+            <span class="col-name">Music Videos</span>
+            <span class="col-count">24</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></span>
+            <span class="col-name">Recipe</span>
+            <span class="col-count">12</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+          <div class="collection-item">
+            <span class="col-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></span>
+            <span class="col-name">Uncategorized</span>
+            <span class="col-count">117</span>
+            <span class="col-more"><svg viewBox="0 0 24 24"><use href="icons.svg#i-more"/></svg></span>
+          </div>
+        </div>
+
+        <div class="collections-hint">
+          Right-click collection to <kbd>rename</kbd> or <kbd>delete</kbd>
+        </div>
+      </aside>
+
+      <!-- ---------- LIBRARY CONTENT ---------- -->
+      <div class="library-content">
+
+        <!-- ===== FILTER TOOLBAR ===== -->
+        <div class="filter-toolbar card">
+
+          <!-- Search -->
+          <div class="filter-field search-field">
+            <input type="text" class="input" placeholder="Search title, author, URL...">
+            <span class="search-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-search"/></svg></span>
+          </div>
+
+          <!-- Platform filter -->
+          <div class="filter-field">
+            <select class="select">
+              <option>All Platforms</option>
+              <option>YouTube</option>
+              <option>Instagram</option>
+              <option>X</option>
+              <option>哔哩哔哩</option>
+              <option>抖音</option>
+              <option>快手</option>
+              <option>微博</option>
+              <option>小红书</option>
+            </select>
+          </div>
+
+          <!-- Media type filter -->
+          <div class="filter-field">
+            <select class="select">
+              <option>All Media</option>
+              <option>Video</option>
+              <option>Audio</option>
+              <option>Image</option>
+              <option>Mixed</option>
+            </select>
+          </div>
+
+          <!-- Favorite filter -->
+          <div class="filter-field">
+            <select class="select">
+              <option>All</option>
+              <option>Favorites Only</option>
+              <option>Not Favorited</option>
+            </select>
+          </div>
+
+          <!-- Date range -->
+          <div class="filter-field">
+            <div class="date-range">
+              <span class="cal-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-calendar"/></svg></span>
+              <input type="date" class="date-input" value="2024-07-01">
+              <span class="date-sep">→</span>
+              <input type="date" class="date-input" value="2024-07-31">
+            </div>
+          </div>
+
+          <!-- Batch filter -->
+          <div class="filter-field">
+            <select class="select">
+              <option>All Batches</option>
+              <option>Batch 2024.07.24</option>
+              <option>Batch 2024.07.20</option>
+              <option>Batch 2024.07.15</option>
+            </select>
+          </div>
+
+          <!-- Reset -->
+          <button class="filter-reset">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-clear"/></svg>
+            Reset
+          </button>
+        </div>
+
+        <!-- ===== BATCH TOOLBAR (visible when items selected) ===== -->
+        <div class="batch-toolbar" id="batchToolbar">
+          <div class="batch-left">
+            <span class="batch-count">
+              <span class="num">3</span> selected
+            </span>
+            <button class="batch-select-all">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-square"/></svg>
+              Select All
+            </button>
+          </div>
+          <div class="batch-actions">
+            <button class="btn">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+              Favorite
+            </button>
+            <button class="btn">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg>
+              Add to Collection
+            </button>
+            <button class="btn btn-danger">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg>
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <!-- ===== MEDIA CARD GRID ===== -->
+        <div class="library-grid selectable" id="mediaGrid">
+
+          <!-- CARD 1: YouTube Video — Rick Astley (favorited) -->
+          <div class="card media-card selected" data-plat="youtube">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #ff3b5c; --thumb-c2: #5e5ce6;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="youtube"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</span>
+                  <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+                </div>
+                <button class="fav-btn faved" title="Unfavorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart-filled"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">Rick Astley — Never Gonna Give You Up</div>
+              <div class="media-meta">
+                <span class="meta-author">@RickAstleyYT</span>
+                <span class="meta-sep">·</span>
+                <span>8.4 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-24</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 2: Instagram Image — Summer sunset -->
+          <div class="card media-card" data-plat="instagram">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #fd1d1d; --thumb-c2: #833ab4;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="instagram"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-ig"/></svg>Instagram</span>
+                  <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">Summer sunset over Tokyo</div>
+              <div class="media-meta">
+                <span class="meta-author">@tokyo_views</span>
+                <span class="meta-sep">·</span>
+                <span>2.1 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-23</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 3: X Video — Late night design thoughts -->
+          <div class="card media-card" data-plat="x">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #1d9bf0; --thumb-c2: #5e5ce6;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="x"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-x"/></svg>X</span>
+                  <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">Late night design thoughts</div>
+              <div class="media-meta">
+                <span class="meta-author">@uxgod</span>
+                <span class="meta-sep">·</span>
+                <span>15.2 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-22</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 4: B站 Video — Cyberpunk city (favorited) -->
+          <div class="card media-card" data-plat="bilibili">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #fb7299; --thumb-c2: #5e5ce6;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-film"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="bilibili"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-bili"/></svg>B站</span>
+                  <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+                </div>
+                <button class="fav-btn faved" title="Unfavorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart-filled"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">【4K】赛博朋克城市夜景航拍</div>
+              <div class="media-meta">
+                <span class="meta-author">@drone_master</span>
+                <span class="meta-sep">·</span>
+                <span>248 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-21</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 5: 小红书 Image — Desktop tools -->
+          <div class="card media-card" data-plat="xhs">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #ff2442; --thumb-c2: #e6162d;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="xhs"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-xhs"/></svg>小红书</span>
+                  <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">10 个桌面工具推荐</div>
+              <div class="media-meta">
+                <span class="meta-author">@toolbox_lab</span>
+                <span class="meta-sep">·</span>
+                <span>5.8 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-20</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 6: 抖音 Video — Morning ritual -->
+          <div class="card media-card" data-plat="douyin">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #25f4ee; --thumb-c2: #1d9bf0;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="douyin"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-douyin"/></svg>抖音</span>
+                  <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">设计师的 5 分钟早晨仪式</div>
+              <div class="media-meta">
+                <span class="meta-author">@morning_design</span>
+                <span class="meta-sep">·</span>
+                <span>12.4 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-19</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 7: 快手 Audio — Night radio (selected) -->
+          <div class="card media-card selected" data-plat="kuaishou">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #ff6a00; --thumb-c2: #ff2442;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-audio"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="kuaishou"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-kuaishou"/></svg>快手</span>
+                  <span class="badge" data-media="audio"><svg viewBox="0 0 24 24"><use href="icons.svg#i-audio"/></svg>Audio</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">深夜电台·成长的悄悄话</div>
+              <div class="media-meta">
+                <span class="meta-author">@night_radio</span>
+                <span class="meta-sep">·</span>
+                <span>6.2 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-18</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 8: 微博 Image — Shanghai night (selected) -->
+          <div class="card media-card selected" data-plat="weibo">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #e6162d; --thumb-c2: #ff6a00;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="weibo"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-weibo"/></svg>微博</span>
+                  <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+                </div>
+                <button class="fav-btn" title="Favorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">上海外滩夜景合集</div>
+              <div class="media-meta">
+                <span class="meta-author">@shanghai_photo</span>
+                <span class="meta-sep">·</span>
+                <span>18.4 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-17</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+          <!-- CARD 9: YouTube Audio — Lo-fi beats (favorited) -->
+          <div class="card media-card" data-plat="youtube">
+            <div class="card-checkbox" title="Select">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+            </div>
+            <div class="media-thumb" style="--thumb-c1: #ff3b5c; --thumb-c2: #fb7299;">
+              <div class="media-thumb-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-audio"/></svg></div>
+              <div class="thumb-overlay-top">
+                <div class="thumb-badges">
+                  <span class="badge" data-plat="youtube"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</span>
+                  <span class="badge" data-media="audio"><svg viewBox="0 0 24 24"><use href="icons.svg#i-audio"/></svg>Audio</span>
+                </div>
+                <button class="fav-btn faved" title="Unfavorite">
+                  <svg viewBox="0 0 24 24"><use href="icons.svg#i-heart-filled"/></svg>
+                </button>
+              </div>
+              <button class="media-thumb-preview" title="Preview">
+                <svg viewBox="0 0 24 24"><use href="icons.svg#i-play"/></svg>
+              </button>
+            </div>
+            <div class="media-info">
+              <div class="media-title">Lo-fi beats for coding</div>
+              <div class="media-meta">
+                <span class="meta-author">@lofi_station</span>
+                <span class="meta-sep">·</span>
+                <span>4.8 MB</span>
+                <span class="meta-sep">·</span>
+                <span>2024-07-16</span>
+              </div>
+            </div>
+            <div class="media-actions">
+              <button class="media-action primary" title="Preview"><svg viewBox="0 0 24 24"><use href="icons.svg#i-eye"/></svg></button>
+              <button class="media-action" title="Open folder"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></button>
+              <button class="media-action" title="Add to collection"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plus"/></svg></button>
+              <button class="media-action danger" title="Delete"><svg viewBox="0 0 24 24"><use href="icons.svg#i-trash"/></svg></button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ===== PAGINATION ===== -->
+        <div class="pagination">
+          <button class="page-btn" disabled title="Previous page">
+            <svg viewBox="0 0 24 24" style="transform: rotate(180deg);"><use href="icons.svg#i-chevron-right"/></svg>
+          </button>
+
+          <div class="page-numbers">
+            <button class="page-number active">1</button>
+            <button class="page-number">2</button>
+            <button class="page-number">3</button>
+            <span class="page-ellipsis">···</span>
+            <button class="page-number">28</button>
+          </div>
+
+          <button class="page-btn" title="Next page">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-chevron-right"/></svg>
+          </button>
+
+          <span class="pagination-info" style="margin-left: 8px;">
+            Showing <span class="num">1-9</span> of <span class="num">248</span>
+          </span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item"><span class="led led-green"></span>API Online</span>
+        <span class="status-item"><span class="led led-blue"></span>Library Synced</span>
+        <span class="status-item"><span class="led led-pink"></span>Cache Ready</span>
+      </div>
+      <div class="status-right">
+        <span>3 selections</span>
+        <span>4.2 GB total</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   MINIMAL INTERACTIONS — heart toggle, card select, collection
+   ============================================================ */
+(function() {
+  // Favorite button toggle
+  document.querySelectorAll('.fav-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      btn.classList.toggle('faved');
+      const useEl = btn.querySelector('use');
+      if (btn.classList.contains('faved')) {
+        useEl.setAttribute('href', 'icons.svg#i-heart-filled');
+      } else {
+        useEl.setAttribute('href', 'icons.svg#i-heart');
+      }
+    });
+  });
+
+  // Card selection toggle (click checkbox)
+  document.querySelectorAll('.card-checkbox').forEach(cb => {
+    cb.addEventListener('click', e => {
+      e.stopPropagation();
+      const card = cb.closest('.media-card');
+      card.classList.toggle('selected');
+      updateBatchToolbar();
+    });
+  });
+
+  // Clicking card body (not buttons) also toggles selection in selectable mode
+  document.querySelectorAll('.media-card').forEach(card => {
+    card.addEventListener('click', e => {
+      // Don't toggle if clicking a button inside
+      if (e.target.closest('button') || e.target.closest('.card-checkbox')) return;
+      card.classList.toggle('selected');
+      updateBatchToolbar();
+    });
+  });
+
+  // Update batch toolbar count
+  function updateBatchToolbar() {
+    const selected = document.querySelectorAll('.media-card.selected').length;
+    const toolbar = document.getElementById('batchToolbar');
+    const countEl = toolbar.querySelector('.batch-count .num');
+    countEl.textContent = selected;
+    const statusSel = document.querySelector('.status-right span:first-child');
+    if (statusSel) statusSel.textContent = selected + ' selection' + (selected === 1 ? '' : 's');
+    if (selected > 0) {
+      toolbar.style.display = 'flex';
+    } else {
+      toolbar.style.display = 'none';
+    }
+  }
+
+  // Collection item active toggle
+  document.querySelectorAll('.collection-item').forEach(item => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('.col-more')) return;
+      document.querySelectorAll('.collection-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+
+  // View toggle (Grid/List)
+  document.querySelectorAll('.view-toggle .btn-icon').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.view-toggle .btn-icon').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // Page number active toggle
+  document.querySelectorAll('.page-number').forEach(pn => {
+    pn.addEventListener('click', () => {
+      document.querySelectorAll('.page-number').forEach(p => p.classList.remove('active'));
+      pn.classList.add('active');
+    });
+  });
+
+  // Initialize batch toolbar state
+  updateBatchToolbar();
+})();
+</script>
+
+</body>
+</html>

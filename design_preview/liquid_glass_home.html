@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Liquid Glass Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   LUMIO // LIQUID GLASS — DESIGN TOKENS
+   ============================================================ */
+:root {
+  /* Base surfaces */
+  --bg-base:        #07070d;
+  --bg-grad-1:      #0a0a1a;
+  --bg-grad-2:      #14141f;
+
+  /* Glass layers — translucency is the material */
+  --glass-bg:       rgba(255, 255, 255, 0.045);
+  --glass-bg-hi:    rgba(255, 255, 255, 0.08);
+  --glass-bg-press: rgba(255, 255, 255, 0.12);
+  --glass-border:   rgba(255, 255, 255, 0.1);
+  --glass-border-hi:rgba(255, 255, 255, 0.2);
+
+  /* Text — iOS-style translucent hierarchy */
+  --text-primary:   rgba(255, 255, 255, 0.96);
+  --text-mute:      rgba(235, 235, 245, 0.6);
+  --text-dim:       rgba(235, 235, 245, 0.35);
+
+  /* Accent — single source of truth */
+  --accent:         #0a84ff;
+  --accent-2:       #5e5ce6;
+  --accent-soft:    rgba(10, 132, 255, 0.25);
+
+  /* Status */
+  --success:        #30d158;
+  --warning:        #ffd60a;
+  --danger:         #ff453a;
+
+  /* Platform colors — unified */
+  --plat-yt:        #ff3b5c;
+  --plat-ig:        #e1306c;
+  --plat-x:         #1d9bf0;
+  --plat-bili:      #fb7299;
+  --plat-douyin:    #25f4ee;
+  --plat-kuaishou:  #ff6a00;
+  --plat-weibo:     #e6162d;
+  --plat-xhs:       #ff2442;
+
+  /* Typography */
+  --font-display:   'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body:      'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:      'JetBrains Mono', ui-monospace, monospace;
+
+  --fs-display:     44px;
+  --fs-h1:          26px;
+  --fs-h2:          19px;
+  --fs-h3:          14px;
+  --fs-body:        14px;
+  --fs-small:       12px;
+  --fs-micro:       11px;
+
+  /* Radius — generous, soft */
+  --r-pill:         999px;
+  --r-xl:           24px;
+  --r-lg:           18px;
+  --r-md:           14px;
+  --r-sm:           10px;
+
+  /* Shadow — soft, long, layered */
+  --shadow-card:    0 1px 0 rgba(255,255,255,0.08) inset,
+                    0 20px 50px -20px rgba(0,0,0,0.6),
+                    0 8px 24px -12px rgba(0,0,0,0.4);
+  --shadow-pop:     0 1px 0 rgba(255,255,255,0.15) inset,
+                    0 30px 80px -20px rgba(0,0,0,0.7),
+                    0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* ============================================================
+   RESET + BASE
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Atmospheric background — soft color orbs, not neon */
+body {
+  background:
+    radial-gradient(ellipse 80% 60% at 15% 0%,   rgba(94, 92, 230, 0.28) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 85% 20%,  rgba(255, 55, 92, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 80% at 80% 100%, rgba(10, 132, 255, 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 30% 90%,  rgba(255, 159, 10, 0.12) 0%, transparent 60%),
+    linear-gradient(180deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Subtle noise — keeps glass from looking plastic */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  mix-blend-mode: overlay;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+.app {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+  position: relative;
+  z-index: 2;
+}
+
+/* ---------- SIDEBAR — frosted rail ---------- */
+.sidebar {
+  background: rgba(10, 10, 20, 0.55);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border-right: 1px solid var(--glass-border);
+  padding: 24px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #ffffff 0%, #a8c7ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 2px;
+}
+
+.brand-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1.5px;
+  margin-bottom: 28px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-mute);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+  position: relative;
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.nav-item.active {
+  color: var(--text-primary);
+  background: var(--glass-bg-hi);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 16px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+}
+
+.nav-icon svg {
+  width: 16px; height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  color: var(--text-mute);
+  padding: 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.theme-toggle:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.version {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 8px;
+  letter-spacing: 0.5px;
+}
+
+/* ============================================================
+   MAIN CONTENT
+   ============================================================ */
+.main {
+  padding: 40px 56px 48px;
+  max-width: 1100px;
+  overflow-y: auto;
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero {
+  text-align: center;
+  padding: 16px 0 36px;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  color: var(--accent);
+  padding: 5px 14px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  border: 1px solid rgba(10, 132, 255, 0.35);
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.hero-tag::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--fs-display);
+  letter-spacing: -1.5px;
+  line-height: 1.05;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 10px;
+}
+
+.hero-subtitle {
+  font-size: var(--fs-h3);
+  color: var(--text-mute);
+  font-weight: 400;
+  margin-bottom: 28px;
+  letter-spacing: 0.2px;
+}
+
+/* ---------- PLATFORM PILLS ---------- */
+.platforms {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.pill:hover {
+  transform: translateY(-2px);
+  background: var(--glass-bg-hi);
+  border-color: var(--pill-color);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px -8px var(--pill-color),
+              0 0 0 1px var(--pill-color) inset;
+}
+
+.pill-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--pill-color);
+  box-shadow: 0 0 6px var(--pill-color);
+}
+
+.pill[data-plat="youtube"]  { --pill-color: var(--plat-yt); }
+.pill[data-plat="instagram"]{ --pill-color: var(--plat-ig); }
+.pill[data-plat="x"]         { --pill-color: var(--plat-x); }
+.pill[data-plat="bilibili"]  { --pill-color: var(--plat-bili); }
+.pill[data-plat="douyin"]    { --pill-color: var(--plat-douyin); }
+.pill[data-plat="kuaishou"]  { --pill-color: var(--plat-kuaishou); }
+.pill[data-plat="weibo"]     { --pill-color: var(--plat-weibo); }
+.pill[data-plat="xhs"]       { --pill-color: var(--plat-xhs); }
+
+/* ============================================================
+   GLASS CARD — base material
+   ============================================================ */
+.card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Top highlight — fake glass refraction */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255,255,255,0.4) 50%,
+    transparent);
+}
+
+/* ============================================================
+   INPUT CARD
+   ============================================================ */
+.input-card { margin-bottom: 20px; }
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.card-label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-mute);
+  letter-spacing: 0.3px;
+}
+
+.card-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.ctrl-btn {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: all 0.18s;
+}
+
+.ctrl-btn:hover {
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  border-color: var(--glass-border);
+}
+
+.ctrl-btn.primary {
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset,
+              0 4px 12px -2px rgba(10, 132, 255, 0.5);
+}
+
+.ctrl-btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset,
+              0 6px 16px -2px rgba(10, 132, 255, 0.6);
+}
+
+.url-input {
+  padding: 18px 22px 8px;
+}
+
+.url-textarea {
+  width: 100%;
+  min-height: 76px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.url-textarea::placeholder {
+  color: var(--text-dim);
+}
+
+.url-textarea:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.input-hint {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 22px 16px;
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+.input-hint .ok { color: var(--success); }
+.input-hint .warn { color: var(--warning); }
+
+.capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 22px 18px;
+}
+
+.cap-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  border-radius: var(--r-pill);
+}
+
+.cap-tag[data-type="audio"]  { color: var(--success); border-color: rgba(48, 209, 88, 0.3); }
+.cap-tag[data-type="video"]  { color: var(--accent); border-color: rgba(10, 132, 255, 0.3); }
+.cap-tag[data-type="quality"]{ color: var(--warning); border-color: rgba(255, 214, 10, 0.3); }
+
+/* ============================================================
+   PREVIEW CARD
+   ============================================================ */
+.preview-card { margin-bottom: 20px; }
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.preview-title {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+.preview-status {
+  margin-left: auto;
+  font-size: var(--fs-micro);
+  color: var(--success);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-status::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.9); }
+}
+
+.preview-body {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 0;
+}
+
+.thumb {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--glass-border);
+  min-height: 180px;
+}
+
+.thumb-frame {
+  width: 100%;
+  max-width: 160px;
+  aspect-ratio: 16/9;
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(135deg, #ff3b5c 0%, #5e5ce6 50%, #0a84ff 100%);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 30px -10px rgba(94, 92, 230, 0.6),
+              0 1px 0 rgba(255,255,255,0.2) inset;
+}
+
+.thumb-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at top left, rgba(255,255,255,0.3) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(0,0,0,0.3) 0%, transparent 60%);
+}
+
+.thumb-play {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.thumb-play::before {
+  content: '';
+  width: 0; height: 0;
+  border-left: 9px solid white;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  margin-left: 3px;
+}
+
+.thumb-duration {
+  position: absolute;
+  bottom: 6px; right: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  z-index: 2;
+}
+
+.preview-info {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.info-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 59, 92, 0.12);
+  border: 1px solid rgba(255, 59, 92, 0.3);
+  color: var(--plat-yt);
+  width: fit-content;
+}
+
+.info-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+  letter-spacing: -0.2px;
+}
+
+.info-meta {
+  display: flex;
+  gap: 18px;
+  font-size: var(--fs-small);
+  color: var(--text-mute);
+}
+
+.info-meta .label { color: var(--text-dim); margin-right: 4px; }
+
+/* ============================================================
+   LASER PARTICLE PROGRESS — signature moment
+   ============================================================ */
+.progress-section {
+  padding: 0 22px 22px;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.progress-label {
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.progress-pct {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #ffffff 0%, #a8c7ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.progress-track {
+  position: relative;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--r-pill);
+  overflow: visible;
+  border: 1px solid var(--glass-border);
+}
+
+/* Track inner glow */
+.progress-track::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.1));
+}
+
+/* Filled portion — gradient sheen */
+.progress-fill {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  width: 68%;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg,
+    var(--accent-2) 0%,
+    var(--accent) 50%,
+    #4cc2ff 100%);
+  box-shadow:
+    0 0 12px rgba(10, 132, 255, 0.6),
+    0 0 24px rgba(94, 92, 230, 0.4),
+    0 1px 0 rgba(255,255,255,0.3) inset;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Laser head — bright leading edge */
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -2px; top: -2px;
+  width: 4px; height: calc(100% + 4px);
+  background: white;
+  border-radius: var(--r-pill);
+  box-shadow:
+    0 0 8px white,
+    0 0 16px var(--accent),
+    0 0 32px var(--accent);
+}
+
+/* Particle canvas overlay */
+.particle-canvas {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 40px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ============================================================
+   FORMAT ROW
+   ============================================================ */
+.format-row {
+  padding: 18px 22px;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr auto;
+  gap: 16px;
+  align-items: end;
+  border-top: 1px solid var(--glass-border);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  padding-left: 4px;
+}
+
+.field-input,
+.field-select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.field-input:focus,
+.field-select:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%23a8c7ff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.download-btn {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  padding: 12px 26px;
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  color: white;
+  border: none;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.3) inset,
+    0 6px 16px -4px rgba(10, 132, 255, 0.5);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.download-btn::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  transition: left 0.6s;
+}
+
+.download-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.3) inset,
+    0 10px 24px -4px rgba(10, 132, 255, 0.65);
+}
+
+.download-btn:hover::before { left: 100%; }
+
+.download-btn:active {
+  transform: translateY(0);
+}
+
+.download-btn svg {
+  width: 16px; height: 16px;
+  stroke: white;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ============================================================
+   STATUS BAR
+   ============================================================ */
+.status-bar {
+  margin-top: 24px;
+  padding: 12px 22px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.led {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+
+.led-green { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.led-blue  { background: var(--accent);  box-shadow: 0 0 6px var(--accent); }
+.led-pink  { background: var(--plat-ig); box-shadow: 0 0 6px var(--plat-ig); }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .main { padding: 24px; }
+  .preview-body { grid-template-columns: 1fr; }
+  .thumb { border-right: none; border-bottom: 1px solid var(--glass-border); }
+  .format-row { grid-template-columns: 1fr; }
+  .hero-title { font-size: 36px; }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg></span>
+        <span>Inbox</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+        <span>Notifications</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.24</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- HERO -->
+    <section class="hero">
+      <span class="hero-tag">Neural Capture Unit</span>
+      <h1 class="hero-title">Drop a link.<br>Let it flow.</h1>
+      <p class="hero-subtitle">Paste any URL — Lumio captures media from 8 platforms, in one fluid motion.</p>
+
+      <div class="platforms">
+        <button class="pill" data-plat="youtube"><span class="pill-dot"></span>YouTube</button>
+        <button class="pill" data-plat="instagram"><span class="pill-dot"></span>Instagram</button>
+        <button class="pill" data-plat="x"><span class="pill-dot"></span>X</button>
+        <button class="pill" data-plat="bilibili"><span class="pill-dot"></span>B站</button>
+        <button class="pill" data-plat="douyin"><span class="pill-dot"></span>抖音</button>
+        <button class="pill" data-plat="kuaishou"><span class="pill-dot"></span>快手</button>
+        <button class="pill" data-plat="weibo"><span class="pill-dot"></span>微博</button>
+        <button class="pill" data-plat="xhs"><span class="pill-dot"></span>小红书</button>
+      </div>
+    </section>
+
+    <!-- INPUT CARD -->
+    <section class="card input-card">
+      <div class="card-header">
+        <span class="card-label">URL Input</span>
+        <div class="card-controls">
+          <button class="ctrl-btn">Clear</button>
+          <button class="ctrl-btn">Paste</button>
+          <button class="ctrl-btn">Search</button>
+          <button class="ctrl-btn primary">Parse</button>
+        </div>
+      </div>
+
+      <div class="url-input">
+        <textarea class="url-textarea" placeholder="https://...">https://www.youtube.com/watch?v=dQw4w9WgXcQ</textarea>
+      </div>
+
+      <div class="input-hint">
+        <span><span class="ok">●</span> Ready · Multi-line supported · Auto-detect</span>
+        <span class="warn">Queue: 3 pending</span>
+      </div>
+
+      <div class="capabilities">
+        <span class="cap-tag" data-type="video">MP4</span>
+        <span class="cap-tag" data-type="video">WEBM</span>
+        <span class="cap-tag" data-type="audio">MP3</span>
+        <span class="cap-tag" data-type="quality">4K</span>
+        <span class="cap-tag" data-type="quality">1080P</span>
+        <span class="cap-tag">Subtitles</span>
+        <span class="cap-tag">Cover</span>
+      </div>
+    </section>
+
+    <!-- PREVIEW CARD -->
+    <section class="card preview-card">
+      <div class="preview-header">
+        <span class="preview-title">Preview</span>
+        <span class="preview-status">Parsed</span>
+      </div>
+
+      <div class="preview-body">
+        <div class="thumb">
+          <div class="thumb-frame">
+            <div class="thumb-play"></div>
+            <span class="thumb-duration">03:33</span>
+          </div>
+        </div>
+
+        <div class="preview-info">
+          <span class="info-platform"><span class="pill-dot" style="--pill-color: var(--plat-yt)"></span>YouTube</span>
+          <h2 class="info-title">Rick Astley — Never Gonna Give You Up (Official Video)</h2>
+          <div class="info-meta">
+            <span><span class="label">Author</span>Rick Astley</span>
+            <span><span class="label">Views</span>1.5B</span>
+            <span><span class="label">Date</span>2009-10-25</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LASER PARTICLE PROGRESS — signature moment -->
+      <div class="progress-section">
+        <div class="progress-meta">
+          <span class="progress-label">Spooling · 12.4 MB / 18.2 MB</span>
+          <span class="progress-pct">68%</span>
+        </div>
+        <div class="progress-track" id="progressTrack">
+          <div class="progress-fill" id="progressFill"></div>
+          <canvas class="particle-canvas" id="particleCanvas"></canvas>
+        </div>
+      </div>
+
+      <!-- FORMAT ROW -->
+      <div class="format-row">
+        <div class="field">
+          <label class="field-label">Filename</label>
+          <input class="field-input" type="text" value="Rick Astley_2009-10-25">
+        </div>
+        <div class="field">
+          <label class="field-label">Quality</label>
+          <select class="field-select">
+            <option>1080p · H.264</option>
+            <option>720p · H.264</option>
+            <option>4K · H.265</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Format</label>
+          <select class="field-select">
+            <option>MP4 · Video+Audio</option>
+            <option>WEBM</option>
+            <option>MP3 · Audio Only</option>
+          </select>
+        </div>
+        <button class="download-btn" id="enqueueBtn">
+          Enqueue
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- STATUS BAR -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item"><span class="led led-green"></span>API Online</span>
+        <span class="status-item"><span class="led led-blue"></span>FFmpeg Ready</span>
+        <span class="status-item"><span class="led led-pink"></span>Extension Linked</span>
+      </div>
+      <div class="status-right">
+        <span>Session 04:32:18</span>
+        <span>128 MB</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   LASER PARTICLE PROGRESS — Canvas, requestAnimationFrame
+   Goal: smooth, lightweight, GPU-friendly
+   ============================================================ */
+(function() {
+  const canvas = document.getElementById('particleCanvas');
+  const ctx = canvas.getContext('2d');
+  const track = document.getElementById('progressTrack');
+  const fill = document.getElementById('progressFill');
+  const pctEl = document.querySelector('.progress-pct');
+
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let particles = [];
+  let progress = 0.68; // 0..1
+  let headX = 0;
+  let trackW = 0;
+  let trackH = 0;
+  let lastTime = performance.now();
+
+  function resize() {
+    const rect = track.getBoundingClientRect();
+    trackW = rect.width;
+    trackH = rect.height;
+    canvas.width = rect.width * dpr;
+    canvas.height = (rect.height + 40) * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = (rect.height + 40) + 'px';
+    ctx.scale(dpr, dpr);
+    ctx.translate(0, 20); // center vertically relative to track
+  }
+
+  function spawnParticle(x, y) {
+    // Limit total particles for perf
+    if (particles.length > 80) return;
+    const angle = (Math.random() - 0.5) * Math.PI * 0.7 + Math.PI; // backward fan
+    const speed = 0.5 + Math.random() * 1.8;
+    particles.push({
+      x: x,
+      y: y + (Math.random() - 0.5) * 4,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed * 0.6,
+      life: 1,
+      decay: 0.012 + Math.random() * 0.018,
+      size: 1 + Math.random() * 2,
+      hue: 200 + Math.random() * 40 // blue-cyan range
+    });
+  }
+
+  function tick(now) {
+    const dt = Math.min((now - lastTime) / 16.67, 3); // delta in frames, capped
+    lastTime = now;
+
+    // Smooth head position toward target progress
+    const targetX = progress * trackW;
+    headX += (targetX - headX) * 0.08 * dt;
+
+    // Spawn particles from laser head
+    if (progress > 0.01 && progress < 0.99) {
+      const spawnCount = Math.random() < 0.7 ? 2 : 1;
+      for (let i = 0; i < spawnCount; i++) {
+        spawnParticle(headX, 0);
+      }
+    }
+
+    // Clear canvas
+    ctx.clearRect(0, -20, canvas.width / dpr, canvas.height / dpr);
+
+    // Update + draw particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 0.02 * dt; // slight gravity
+      p.life -= p.decay * dt;
+
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+        continue;
+      }
+
+      const alpha = p.life * 0.9;
+      const r = p.size * p.life;
+
+      // Outer glow
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4);
+      grad.addColorStop(0, `hsla(${p.hue}, 100%, 70%, ${alpha})`);
+      grad.addColorStop(0.4, `hsla(${p.hue}, 100%, 60%, ${alpha * 0.4})`);
+      grad.addColorStop(1, `hsla(${p.hue}, 100%, 50%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright core
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 90%, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw laser head glow
+    const headGrad = ctx.createRadialGradient(headX, 0, 0, headX, 0, 16);
+    headGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+    headGrad.addColorStop(0.3, 'rgba(120, 180, 255, 0.5)');
+    headGrad.addColorStop(1, 'rgba(10, 132, 255, 0)');
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.arc(headX, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    requestAnimationFrame(tick);
+  }
+
+  // Init
+  function init() {
+    resize();
+    headX = progress * trackW;
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('resize', () => {
+    resize();
+    headX = progress * trackW;
+  });
+
+  // Simulate progress increment for demo
+  setInterval(() => {
+    if (progress >= 0.99) progress = 0.1;
+    else progress = Math.min(0.99, progress + 0.01);
+    fill.style.width = (progress * 100) + '%';
+    if (pctEl) pctEl.textContent = Math.round(progress * 100) + '%';
+  }, 600);
+
+  // Wait for fonts + layout
+  if (document.readyState === 'complete') init();
+  else window.addEventListener('load', init);
+})();
+
+/* ============================================================
+   Enqueue button feedback
+   ============================================================ */
+document.getElementById('enqueueBtn').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const original = btn.innerHTML;
+  btn.innerHTML = 'Queued <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  btn.style.background = 'linear-gradient(180deg, #30d158 0%, #24a847 100%)';
+  btn.style.boxShadow = '0 1px 0 rgba(255,255,255,0.3) inset, 0 6px 16px -4px rgba(48, 209, 88, 0.5)';
+  setTimeout(() => {
+    btn.innerHTML = original;
+    btn.style.background = '';
+    btn.style.boxShadow = '';
+  }, 1600);
+});
+</script>
+
+</body>
+</html>

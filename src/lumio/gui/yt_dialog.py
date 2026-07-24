@@ -110,7 +110,6 @@ class YouTubeDialog(QDialog):
             tab_text = t(key) if key else self._tab
             self._tab_label = QLabel(tab_text)
             self._tab_label.setObjectName("muted")
-            self._tab_label.setStyleSheet("font-size: 11px;")
             root.addWidget(self._tab_label)
 
         # ---- Settings group ----
