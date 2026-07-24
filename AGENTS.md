@@ -31,12 +31,13 @@ src/lumio/
   queue_manager.py   — 下载队列管理（单任务/批量/暂停/重试/恢复/错误分类）
   history_manager.py — 下载历史记录（JSON 持久化，~/.lumio/history.json）
   library_manager.py — 素材库管理（SQLAlchemy/SQLite，~/.lumio/library.db）
-  inbox_manager.py   — 收件箱管理（接收浏览器采集内容，JSON 持久化）
+  inbox_manager.py   — 收件箱管理（SQLAlchemy/SQLite 持久化；接收浏览器扩展 + Telegram Bot 采集内容）
   notification_manager.py — 通知管理（环境检测 + 版本检查 + JSON 持久化）
   api_server.py      — 本地 Flask API（127.0.0.1:38900，/health + /capture）
   telegram_service.py — Telegram Bot 轮询服务，接收用户发送的内容写入 Inbox
   apify_client.py    — Apify Actor 代理，替代直接 IG 移动 API 调用
   thumbnail_engine.py— 缩略图生成（Pillow 图片缩放 + ffmpeg 视频截帧）
+  cache_manager.py   — 缓存管理（inbox_media/thumbs/provider_cache/preview 统一清理 + 定时清理）
   models.py          — SQLAlchemy ORM 模型（LibraryItem/Collection/ItemCollection/InboxItem）
   i18n.py            — 中/英翻译字典
   assets/
@@ -60,7 +61,7 @@ src/lumio/
     profile_dialog.py — Instagram 主页批量下载对话框
     yt_dialog.py     — YouTube 频道/播放列表批量下载对话框
     x_dialog.py      — X (Twitter) 用户时间线批量下载对话框
-    inbox_page.py    — Inbox 收件箱页面（采集内容列表 + 格式选择 + 批量下载）
+    inbox_page.py    — Inbox 收件箱页面（浏览器+Telegram 采集内容列表 + 格式选择 + 批量下载）
     notification_page.py — 通知页面（环境/依赖/版本通知 + 分类筛选 + 永久通知）
     format_dialog.py — 格式选择弹框（URL 提取信息 → 格式下拉 → 选格式下载）
   utils/
@@ -69,10 +70,11 @@ src/lumio/
     database.py      — SQLAlchemy 引擎 + session 工厂
     media_utils.py   — 媒体类型推断 + format_size 工具
     error_types.py   — 下载错误分类（Cookie/网络/限流/内容/解析）
+    cache_manager.py — 缓存管理（统计/手动/定时清理 inbox_media/thumbs/provider_cache/preview）
   providers/
     base.py          — Provider 抽象基类（Platform/BaseProvider/MediaInfo/MediaItem）
-    registry.py      — Provider 注册表（手动注册 + 自动发现）
-    dispatch.py      — Provider 调度桥接（URL → MediaInfo → 下载队列）
+    registry.py      — Provider 注册表（手动注册 + 自动发现；get_provider 优先 match() 再回退 detect_domestic）
+    dispatch.py      — Provider 调度桥接（URL → MediaInfo → VideoInfo，统一所有平台入口）
     detector.py      — 国内平台 URL 识别（正则匹配 + 回退 url_parser）
     url_normalizer.py— URL 规范化（短链展开：t.cn/b23.tv/xhslink.com/xhslink.cn/iesdouyin.com/v.douyin.com）
     cache.py         — URL → MediaInfo 两级缓存（内存 TTL + 文件 JSON 持久化）
@@ -81,6 +83,9 @@ src/lumio/
     kuaishou.py      — 快手 Provider（视频解析）
     weibo.py         — 微博 Provider（图片/视频/livephoto/mix_media_info 多图轮播/转发，sinaimg.cn CDN 需 Cookie + Referer）
     xiaohongshu.py   — 小红书 Provider（图片/视频笔记 + xhslink.com/xhslink.cn 短链 + HTML __INITIAL_STATE__ 抓取）
+    youtube.py       — YouTube Provider（包装 yt-dlp extract_info + FormatOption 构建）
+    instagram.py     — Instagram Provider（cookie 模式调移动 API，取最高画质直链，复现 saveinta.com 服务端机制）
+    x.py             — X (Twitter) Provider（GraphQL API 提取图片/视频，单视频推文附加 yt-dlp formats）
     network/         — 网络层（client/headers/cookie/retry）
     exceptions.py    — Provider 异常类
 tests/
@@ -165,7 +170,8 @@ python -m lumio.main                          # 启动 GUI
 - **YouTube 批量下载**：粘贴频道/播放列表链接，弹出批量对话框；完成后自动跳转 Downloads 页面
 - **X (Twitter) 批量下载**：粘贴 @用户名 或主页链接，弹出批量对话框；仅枚举含媒体（图片+视频）的推文；需 `auth_token` + `ct0` cookies
 - **X 图片下载**：X 单条推文支持图片+视频混合下载；图片请求原图（`?format=jpg&name=orig`）；多图推文逐项下载
-- **X-Sou 搜索**：Home 页面搜索按钮，调 X-Sou API（`/api/search?q=关键词`）；结果列表含缩略图+预览+分页+勾选入队；下载走推文 URL + X GraphQL API（不依赖 X-Sou 直链）；`@username` 自动转 `from:username` 搜索
+- **X-Sou 搜索**：Home 页面搜索按钮，调 X-Sou API（`/api/search?q=关键词`）；结果列表含缩略图+预览+分页+勾选入队；`@username` 自动转 `from:username` 搜索
+- **X-Sou 下载（重设计）**：搜索结果的 `video_url` 已是 Twitter CDN 直链（`video.twimg.com`，永久有效），直接作为 `direct_url` 入队，跳过整个 X GraphQL 流程；下载走通用直链路径，自动用 `requests.Session(trust_env=True)` 尊重系统代理；`task.url` 记录推文 URL 仅用于历史/去重，不参与下载路由
 - **下载历史**：任务完成后自动记录到 ~/.lumio/history.json；支持搜索、平台筛选、打开文件/目录、单条删除、清空全部
 - **Light/Dark 主题**：侧边栏底部切换按钮，主题选择持久化到 config.json；切换时需 unpolish/polish 强制刷新所有子 widget
 - **IG 画质选择**：Instagram 视频按 `video_versions` 中 `width` 降序选最高分辨率，图片同理按 `image_versions2.candidates` 选最大
@@ -190,7 +196,7 @@ python -m lumio.main                          # 启动 GUI
 - **缩略图补生成**：启动时 `backfill_thumbnails()` 自动为缺失缩略图的素材后台生成 + `thumbnail_updated` 信号刷新 UI
 - **Collection sidebar**：显示每个 Collection 的素材数量；右键菜单支持重命名/删除；`collection_changed` 信号驱动统计刷新
 - **content_hash**：入库时自动计算文件内容 hash（图片全 MD5 / 视频音频首 1MB+size）；启动时 `backfill_hashes()` 补算历史记录
-- **Inbox 收件箱**：接收浏览器扩展采集的 URL，等待用户下载；支持格式选择（单个）/ 最高画质（批量）；图片类型跳过格式选择；元数据不足时自动 `extract_info` 补全；默认筛选「新内容」
+- **Inbox 收件箱**：SQLAlchemy/SQLite 持久化（~/.lumio/library.db 的 inbox_items 表）；数据源为浏览器扩展（POST /capture）和 Telegram Bot；支持 URL/直链/图片/视频/文件/笔记/相册等类型；每条记录带 source（browser/telegram）、platform（youtube/instagram/x/bilibili/douyin/kuaishou/weibo/xiaohongshu/telegram）、post_time、duration 元数据；支持格式选择（单个）/ 最高画质（批量）；图片类型跳过格式选择；元数据不足时自动 `extract_info` 补全；默认筛选「新内容」
 - **通知系统**：sidebar 独立页面（🔔），JSON 持久化（~/.lumio/notifications.json）；三类标签（依赖/环境/版本更新）；永久通知（IG 风险提示，不可关闭）；启动时自动检测 Cookie/FFmpeg/插件提示
 - **版本检查**：Settings About 区域「检查更新」按钮，git fetch + 语义版本对比，结果写入通知
 - **系统托盘**：关闭窗口弹出三选（最小化到托盘 / 退出 / 取消）；托盘图标右键菜单（显示窗口 / 退出）；`setQuitOnLastWindowClosed(False)` 保持后台运行
@@ -198,9 +204,13 @@ python -m lumio.main                          # 启动 GUI
 - **浏览器扩展**：Manifest V3，Chrome/Edge 共用；右键菜单发送页面/链接/视频/图片；content.js 提取 YouTube/X 元数据；IG 不常驻注入
 - **IG 安全下载**：右键 IG 页面时一次性注入 `ig_extract.js`，从 DOM 读取 `<video src>` / `og:image` / `og:video`，提取媒体直链；Lumio 用 `_direct_download_with_pause` 直接从 CDN 下载，不调用 IG API
 - **直链下载**：`direct_url` 优先级高于平台路由，`start_download_with_pause` 检测到 `direct_url` 时走通用下载路径，跳过 yt-dlp/instaloader/GraphQL
-- **Telegram Bot 服务**：`telegram_service.py` 轮询 Bot API，接收用户发送的链接/媒体，自动写入 Inbox 收件箱；支持多设备绑定
+- **Telegram Bot 服务**：`telegram_service.py` 轮询 Bot API，接收用户发送的链接/媒体/笔记/相册，自动下载媒体到 `~/.lumio/inbox_media/` 并写入 Inbox 收件箱；支持多设备绑定（配对码机制）；所有 Telegram 媒体项 platform=telegram；媒体组聚合为一个 InboxItem 指向组文件夹；支持本地 Bot API Server（突破 20MB 文件大小限制，Settings 页面「API 地址」配置）
 - **Apify IG 代理**：`apify_client.py` 通过 Apify Actor 代理提取 Instagram 数据，替代直接调用 IG 移动 API，避免账号风控；提供 `extract_post_info`、`fetch_profile_info`、`enumerate_profile_posts` 等接口
 - **国内平台支持**：V4 Provider 架构，统一支持 B站/抖音/快手/微博/小红书；BaseProvider 抽象 + Registry 注册 + Dispatch 调度；短链接自动展开（t.cn/b23.tv/xhslink.com/xhslink.cn/iesdouyin.com/v.douyin.com）；URL → MediaInfo 两级缓存（内存+文件）
+- **V4 统一架构**：所有平台（含 YouTube/Instagram/X）均走 Provider 系统；`downloader.extract_info()` 不再分流平台专属函数，统一调 `resolve_via_providers()`；`get_provider()` 优先遍历已注册 Provider 的 `match()`，再回退到 `detect_domestic()` 识别国内平台
+- **Instagram 解析**：复现 saveinta.com 服务端机制——用户导入 cookie 调 `i.instagram.com/api/v1/media/{id}/info/` 移动 API，直接拿 IG CDN 直链；视频取 `video_versions` 中 width 最大的档位，图片取 `image_versions2.candidates` 中 width 最大的档位；不依赖第三方代理/JWT
+- **YouTube 解析**：YouTubeProvider 包装 yt-dlp `extract_info`，构建 `FormatOption` 列表供 Home 格式选择；下载仍走 `_yt_download_with_pause`（yt-dlp 路径）
+- **X 解析**：XProvider 走 GraphQL API 提取图片原图 + 视频最高 bitrate；单视频推文附加 yt-dlp formats 供格式选择
 - **抖音清晰度**：调 aweme detail API 遍历 `bit_rate[]` 数组提取所有档位；自动获取 ttwid 访客标识，无需用户 cookie；可选启用 a_bogus 签名服务（localhost:9528，方案B Playwright 实现）拿更多 H.265 档位
 - **抖音 gear_name 映射**：从 `gear_name` 提取真实分辨率（如 `normal_1080_0` → 1080p），不用竖屏 `play_addr.height` 长边；`origin/source/4k/uhd/hdr` → 超高清原画档（已知限制：web API 即使签名也拿不到，需 app API + X-Argus）
 - **抖音图文帖**：`douyin.com/note/{id}` 路径与视频共用同一 aweme detail API；解析 `images[]` 字段提取多张图片直链；detector.py 必须同时包含 `note/` 模式否则短链展开后识别失败
@@ -213,6 +223,7 @@ python -m lumio.main                          # 启动 GUI
 - **History/Library 平台筛选扩充**：新增 Bilibili/Douyin/Kuaishou/Xiaohongshu 选项，覆盖所有国内平台
 - **Settings 凭证折叠**：Cookie/API 凭证管理区用 `QToolButton` 折叠头（默认折叠），已配置 cookie 或处于 API 模式则默认展开；避免凭证过多导致布局不美观
 - **Provider 网络层**：`providers/network/` 抽出通用 `client.py`/`headers.py`/`cookie.py`/`retry.py`，供所有国内 Provider 复用
+- **缓存管理**：`utils/cache_manager.py` 统一管理 4 个缓存目录（inbox_media/thumbs/provider_cache/preview）；Settings 页面「缓存管理」分组展示各目录大小+文件数、提供「立即清理」按钮（后台线程执行）、自动清理模式选择（关闭/每次启动/每天/每周）、保留天数与单目录上限配置；启动时根据 `config.cache_management.auto_clean` 后台触发自动清理（不阻塞启动）；清理策略=保留最近 N 天 + 超上限按 mtime 删最旧；安全白名单扩展名（图片/视频/音频/json/tmp）；下载历史/素材库/cookies/config 等用户数据不在清理范围
 
 ## 踩坑记录
 
@@ -253,3 +264,11 @@ python -m lumio.main                          # 启动 GUI
 - 抖音 `aweme detail` API 在某些情况下需要 a_bogus 签名才能拿全档位；签名服务（localhost:9528）不可用时回退到无签名 API（仍可用但档位少）
 - `QMenu.exec()` 在 lambda 上下文中调用 `self.sender()` 会返回 None（因为 menu 是局部变量未被 sender 链追踪）；必须把按钮作为参数传入 lambda，用 `btn.mapToGlobal(pos)` 替代
 - `LibraryPanelCard` 缺少 `setChecked()` 方法会导致「全选」按钮无效；需手动添加 `setChecked(checked)` 转发到内部 `_checkbox`
+- V4 统一架构后 `downloader.extract_info()` 不再调 `_yt_extract_info`/`_ig_extract_info`/`_x_extract_info`，这些旧函数仅供 Apify/批量子调用；测试 mock 时要 patch `Provider.extract_info` 而非旧函数
+- `MediaInfo` 的 `author` 是必填字段（无默认值），错误处理分支返回 MediaInfo 时必须传 `author=""`，否则 `TypeError: missing 1 required positional argument: 'author'`
+- `get_provider()` 优先遍历已注册 Provider 的 `match()` 再回退到 `detect_domestic()`，避免国外平台（YouTube/IG/X）被误判为 UNSUPPORTED
+- Provider 缓存（内存 + 文件）命中时不调用 `provider.extract_info`；测试时必须在 `setup_method` 中调 `provider_cache.clear_cache()` 避免命中上次测试的缓存
+- SaveInsta 方案的核心机制 = Lumio cookie 模式：用户 cookie + 移动 API + CDN 直链；不需要 JWT/代理/cftoken 校验；多清晰度档位来自 `image_versions2.candidates` 全部保留（当前 Lumio 只取最高一档）
+- X-Sou 搜索结果入队必须用 `direct_url=video_url` 而非推文 URL；走推文 URL 会触发 X GraphQL 流程，无 cookie 时全部失败；video.twimg.com 直链永久有效不需要重新解析
+- `_direct_download_with_pause` 必须用 `requests.Session(trust_env=True)` 而非 `requests.get`，否则不会读取系统代理（HTTP_PROXY/HTTPS_PROXY 环境变量 / Windows 注册表），导致 video.twimg.com 在中国大陆必失败
+- X-Sou `video_url` 来自 `video.twimg.com`（Twitter CDN 公开链接），永不过期，不需要 Referer/Cookie 鉴权；在中国大陆被墙需代理，下载时 Session 会自动走系统代理

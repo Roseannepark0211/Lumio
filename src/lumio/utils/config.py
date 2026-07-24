@@ -29,6 +29,13 @@ DEFAULTS = {
     "instagram_mode": "cookie",   # "cookie" | "api"
     "x_mode": "cookie",           # "cookie" | "api"
     "youtube_mode": "cookie",     # "cookie" | "api"
+    # Cache management
+    "cache_management": {
+        "auto_clean": "off",          # "off" | "startup" | "daily" | "weekly"
+        "retain_days": 7,             # 保留最近 N 天
+        "max_size_mb": 500,           # 单目录上限（MB）
+        "last_cleaned": "",           # ISO 时间戳，记录上次清理时间
+    },
 }
 
 _cache: dict | None = None

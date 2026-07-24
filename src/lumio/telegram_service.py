@@ -112,6 +112,14 @@ class TelegramService(QObject):
     def start_polling(self) -> None:
         if self._running:
             return
+        # 修复双线程竞态：如果旧线程还在跑（stop_polling 的 5s join 超时未退出），
+        # 等它真正退出再启新线程，避免两个线程并发处理同一批 updates
+        if self._thread and self._thread.is_alive():
+            logger.info("TG start_polling: 等待旧轮询线程退出...")
+            self._thread.join(timeout=15)
+            if self._thread.is_alive():
+                logger.warning("TG start_polling: 旧线程 15s 未退出，放弃启动新线程避免竞态")
+                return
         cfg = load_config()
         token = cfg.get("telegram_bot_token", "")
         if not token:
@@ -127,9 +135,28 @@ class TelegramService(QObject):
     def stop_polling(self) -> None:
         self._running = False
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5)
+            # join 时间从 5s 提升到 15s，给正在下载的大文件更多时间完成
+            # （_download_tg_file 的 timeout 是 120s，但 _handle_update 内部检查
+            # _running 后会尽快退出，实际等待通常 <10s）
+            self._thread.join(timeout=15)
+            if self._thread.is_alive():
+                logger.warning("TG stop_polling: 轮询线程 15s 后仍在运行（可能在下载大文件）")
         self.sync_stopped.emit()
         logger.info("Telegram 轮询已停止")
+
+    def restart_polling(self) -> None:
+        """重启轮询线程，让新的 config（token/proxy）立即生效。
+
+        用于 Settings 页面修改 token/proxy 后无需重启 Lumio 即可应用。
+        """
+        was_running = self._running
+        if was_running:
+            self.stop_polling()
+        # start_polling 内部会从 config 重新读取 token/offset
+        cfg = load_config()
+        if cfg.get("telegram_bot_token"):
+            self.start_polling()
+            logger.info("Telegram 轮询已重启（应用新配置）")
 
     @property
     def is_running(self) -> bool:
@@ -138,18 +165,25 @@ class TelegramService(QObject):
     # ── 轮询循环 ────────────────────────────────────────────────────
 
     def _poll_loop(self):
-        cfg = load_config()
-        token = cfg.get("telegram_bot_token", "")
-        interval = cfg.get("telegram_poll_interval", 10)
-        proxy = cfg.get("http_proxy", "")
-
+        # NOTE: config（token/proxy/interval）在循环内每次重新读取，
+        # 这样用户在 Settings 页面修改代理/token 后无需重启即可生效。
+        # 历史 bug：_poll_loop 启动时只读一次 config，若用户在轮询启动后
+        # 才配置 http_proxy，轮询线程会一直用空 proxy，导致中国大陆访问
+        # api.telegram.org 全部失败且无日志（offset 卡住不推进）。
         while self._running:
             try:
-                self._poll_once(token, proxy)
+                cfg = load_config()
+                token = cfg.get("telegram_bot_token", "")
+                proxy = cfg.get("http_proxy", "")
+                interval = cfg.get("telegram_poll_interval", 10)
+                if not token:
+                    logger.warning("TG poll: telegram_bot_token 为空，跳过")
+                else:
+                    self._poll_once(token, proxy)
             except Exception as e:
-                logger.debug("TG poll error: %s", e)
+                logger.warning("TG poll error: %s", e)
             # 可中断等待
-            for _ in range(interval * 2):
+            for _ in range(int(interval) * 2):
                 if not self._running:
                     return
                 time.sleep(0.5)
@@ -162,10 +196,24 @@ class TelegramService(QObject):
         }, proxy=proxy)
 
         if not resp.get("ok"):
+            desc = resp.get("description", "unknown")
+            # 区分 transient 错误（网络/代理偶发）和真正的 API 错误（401/409 等）
+            # transient 错误下次轮询会自动恢复，降级为 INFO 避免 WARNING 日志噪音
+            desc_lower = desc.lower()
+            is_transient = any(k in desc_lower for k in
+                               ("connection", "timeout", "reset", "aborted", "ssl", "proxy"))
+            log_fn = logger.info if is_transient else logger.warning
+            log_fn("TG getUpdates failed: %s (offset=%d, proxy=%s)",
+                   desc, self._offset, proxy or "无")
             return
 
         last_ok_offset = self._offset
         for update in resp.get("result", []):
+            # 优雅停止：处理完当前消息后检查 _running，下一条不再处理
+            # 这样关闭开关/退出 Lumio 时，当前正在处理的消息能跑完，但不会继续处理后续消息
+            if not self._running:
+                logger.info("TG poll: _running=False, stop processing remaining updates")
+                break
             update_id = update.get("update_id", 0)
             try:
                 self._handle_update(token, update, proxy)
@@ -301,6 +349,84 @@ class TelegramService(QObject):
             _send_message(token, chat_id,
                 "无法识别该内容类型。\n\n"
                 "请发送链接、文件或文本。", proxy)
+
+        # 处理引用消息（reply_to_message）中的媒体
+        # Telegram 的 quote/reply 机制：被引用消息的完整内容（含媒体）通过
+        # reply_to_message 字段暴露。Bot API 不会自动处理这部分，需要单独提取。
+        # 典型场景：用户回复一条带图片/视频的消息，bot 只处理了回复文本，
+        # 漏掉了被引用消息里的媒体。
+        reply_to = msg.get("reply_to_message")
+        if reply_to:
+            reply_media_types = [k for k in
+                                 ("photo", "video", "video_note", "animation",
+                                  "document", "audio", "voice", "sticker")
+                                 if reply_to.get(k)]
+            if reply_media_types:
+                logger.info("TG reply_to_message has media: msg_id=%d reply_msg_id=%d types=%s",
+                            message_id, reply_to.get("message_id", 0), reply_media_types)
+                self._process_reply_to_message(token, reply_to, user_id, chat_id, proxy, post_time)
+
+    def _process_reply_to_message(self, token: str, reply_msg: dict, user_id: int,
+                                   chat_id: int, proxy: str, post_time: str = "") -> None:
+        """处理被引用消息（reply_to_message）中的媒体。
+
+        Telegram 的 quote/reply 机制：当用户回复或转发带引用的消息时，被引用消息
+        的完整内容（包括媒体）通过 reply_to_message 字段暴露。Bot API 不会自动
+        处理这部分，需要单独提取并保存。
+
+        引用消息的 file_id 在私聊中可直接用 getFile 下载。
+        """
+        reply_msg_id = reply_msg.get("message_id", 0)
+        reply_from_obj = reply_msg.get("from", {})
+        # 跳过 bot 自己发的消息（避免把 bot 的保存确认反馈当引用媒体处理）
+        if reply_from_obj.get("is_bot"):
+            logger.debug("TG reply_to is bot message, skip: reply_msg_id=%d", reply_msg_id)
+            return
+        reply_from = reply_from_obj.get("username", "") or reply_from_obj.get("first_name", "")
+        reply_caption = reply_msg.get("caption", "")
+        # 用独立的 unique_url 避免和主消息冲突（InboxItem.url 是 unique）
+        reply_unique_url = f"telegram://reply/{chat_id}/{reply_msg_id}"
+
+        # 引用消息本身可能是相册的一部分（有 media_group_id）
+        # 这种情况复杂，暂不聚合，按单条处理并记录日志
+        if reply_msg.get("media_group_id"):
+            logger.info("TG reply_to is part of media_group: reply_msg_id=%d group=%s (处理为单条)",
+                        reply_msg_id, reply_msg.get("media_group_id"))
+
+        item_id = None
+        content_type = ""
+
+        if reply_msg.get("photo"):
+            item_id = self._process_photo(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "image"
+        elif reply_msg.get("video"):
+            item_id = self._process_video(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "video"
+        elif reply_msg.get("video_note"):
+            item_id = self._process_video_note(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "video"
+        elif reply_msg.get("animation"):
+            item_id = self._process_animation(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "video"
+        elif reply_msg.get("document"):
+            item_id = self._process_document(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "file"
+        elif reply_msg.get("audio"):
+            item_id = self._process_audio(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "file"
+        elif reply_msg.get("voice"):
+            item_id = self._process_voice(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "file"
+        elif reply_msg.get("sticker"):
+            item_id = self._process_sticker(token, user_id, reply_msg, reply_unique_url, reply_caption, reply_from, proxy, post_time)
+            content_type = "image"
+
+        if item_id:
+            logger.info("TG reply media saved: type=%s id=%s reply_msg_id=%d", content_type, item_id, reply_msg_id)
+            self.item_received.emit(item_id)
+            _send_message(token, chat_id, f"已保存引用消息的{content_type} 📎", proxy)
+        else:
+            logger.warning("TG reply media process failed: reply_msg_id=%d type=%s", reply_msg_id, content_type)
 
     def _handle_command(self, token: str, chat_id: int, user_id: int, username: str, text: str, proxy: str) -> None:
         parts = text.strip().split(maxsplit=1)
@@ -534,6 +660,7 @@ class TelegramService(QObject):
             author=forward_from or first["msg"].get("from", {}).get("username", ""),
             content=caption,
             post_time=post_time,
+            platform="telegram",
         )
         self._update_item_file(item_id, str(group_dir))
 
@@ -583,6 +710,7 @@ class TelegramService(QObject):
             author=forward_from or "",
             content=text,
             post_time=post_time,
+            platform="telegram",
         )
         return item_id
 
@@ -604,6 +732,7 @@ class TelegramService(QObject):
             author=forward_from or msg.get("from", {}).get("username", ""),
             content=content,
             post_time=post_time,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -627,6 +756,7 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=duration if duration else None,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -651,6 +781,7 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=duration if duration else None,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -675,6 +806,7 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=anim.get("duration", 0) or None,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -699,6 +831,7 @@ class TelegramService(QObject):
             author=forward_from or msg.get("from", {}).get("username", ""),
             content=content,
             post_time=post_time,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -722,6 +855,7 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=duration if duration else None,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -747,6 +881,7 @@ class TelegramService(QObject):
             content=content,
             post_time=post_time,
             duration=duration if duration else None,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -770,6 +905,7 @@ class TelegramService(QObject):
             author=forward_from or msg.get("from", {}).get("username", ""),
             content=content,
             post_time=post_time,
+            platform="telegram",
         )
         self._update_item_file(item_id, local_path)
         return item_id
@@ -825,12 +961,29 @@ class TelegramService(QObject):
 def _api_call(token: str, method: str, params: dict = None, proxy: str = "") -> dict:
     url = _build_api_url(token, method)
     proxies = {"https": proxy, "http": proxy} if proxy else None
-    try:
-        resp = requests.get(url, params=params or {}, timeout=30, proxies=proxies)
-        return resp.json()
-    except Exception as e:
-        return {"ok": False, "description": str(e)}
+    # 连接超时 8s + 读取超时 20s（原 30s 太长，验证时用户会以为卡住）
+    # 加一次重试：代理 long polling 偶发 ConnectionResetError(10054) 是正常的，
+    # 重试一次可消除大部分 transient 错误，避免 WARNING 日志噪音。
+    last_err = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, params=params or {}, timeout=(8, 20), proxies=proxies)
+            return resp.json()
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_err = e
+            if attempt == 0:
+                time.sleep(1.0)  # 短暂等待后重试
+                continue
+            # 重试仍失败：降级为 INFO（这是 transient 错误，下次轮询会自动恢复）
+            logger.info("TG %s transient error (retry exhausted): %s", method, e)
+            return {"ok": False, "description": str(e)}
+        except Exception as e:
+            return {"ok": False, "description": str(e)}
+    return {"ok": False, "description": str(last_err) if last_err else "unknown"}
 
 
 def _send_message(token: str, chat_id: int, text: str, proxy: str = "") -> None:
-    _api_call(token, "sendMessage", params={"chat_id": chat_id, "text": text}, proxy=proxy)
+    resp = _api_call(token, "sendMessage", params={"chat_id": chat_id, "text": text}, proxy=proxy)
+    if not resp.get("ok"):
+        logger.warning("TG sendMessage failed: %s (chat_id=%d, proxy=%s)",
+                       resp.get("description", "unknown"), chat_id, proxy or "无")

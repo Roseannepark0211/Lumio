@@ -1,4 +1,4 @@
-﻿"""Lumio V4 Platform Layer.
+"""Lumio V4 Platform Layer.
 
 统一的平台抽象层，用于国内平台支持。
 新平台只需实现 Provider + Parser，复用现有下载/队列/存储流程。
@@ -30,6 +30,9 @@ from .xiaohongshu import XiaohongshuProvider  # noqa: F401
 from .bilibili import BilibiliProvider  # noqa: F401
 from .douyin import DouyinProvider  # noqa: F401
 from .kuaishou import KuaishouProvider  # noqa: F401
+from .youtube import YouTubeProvider  # noqa: F401
+from .instagram import InstagramProvider  # noqa: F401
+from .x import XProvider  # noqa: F401
 from .registry import (
     get_all_platforms,
     get_provider,
@@ -75,6 +78,9 @@ __all__ = [
     "BilibiliProvider",
     "DouyinProvider",
     "KuaishouProvider",
+    "YouTubeProvider",
+    "InstagramProvider",
+    "XProvider",
     "normalize_url",
     "extract_profile_identifier",
     "provider_cache",

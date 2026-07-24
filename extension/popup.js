@@ -40,6 +40,23 @@ btnSend.addEventListener("click", async () => {
     if (resp && !resp.error) data = resp;
   } catch {}
 
+  // IG 详情页：content.js 不注入（防自动化检测），改走 ig_extract.js 一次性提取
+  // 否则 data 会 fallback 到裸 URL，后端无 cookie 调 IG API 必失败
+  if (tab.url && tab.url.includes("instagram.com") &&
+      (tab.url.includes("/p/") || tab.url.includes("/reel/"))) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["ig_extract.js"],
+      });
+      if (results && results[0] && results[0].result) {
+        data = results[0].result;
+      }
+    } catch (e) {
+      console.log("popup IG extract failed:", e);
+    }
+  }
+
   if (!data || !data.url) {
     // fallback: 直接用 tab URL
     data = { url: tab.url, title: tab.title, source: "browser" };

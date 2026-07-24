@@ -102,18 +102,41 @@ class FormatSelectDialog(QDialog):
 
         # Populate formats
         self._format_combo.clear()
-        if info.platform != "youtube":
+        if info.platform == "youtube":
+            # YouTube：用 _build_format_options 构建详细格式列表（含音视频分离流）
+            opts = _build_format_options(info)
+            for opt in opts:
+                self._format_combo.addItem(opt["label"], (opt["id"], opt.get("_type", "")))
+            self._format_combo.setEnabled(True)
+        elif info.formats:
+            # 国内平台多清晰度（抖音/快手等）：info.formats 来自 Provider 的 FormatOption
+            # 先加「全部下载」选项（用于多图/多视频混合内容）
+            all_label = t("download_all").format(
+                video=f" {len(info.items)}" if info.items else "",
+                sep="" if not info.items else "",
+                image="",
+            )
+            self._format_combo.addItem(all_label, ("best", ""))
+            # 再加各清晰度选项
+            seen_labels = set()
+            for fmt in info.formats:
+                fid = fmt.get("format_id", "")
+                label = fmt.get("format_note", "") or fmt.get("height", "") or fid
+                if not fid or fid == "best" or label in seen_labels:
+                    continue
+                seen_labels.add(label)
+                height = fmt.get("height", 0)
+                display = f"{label}" if not height else f"{label} ({height}P)"
+                self._format_combo.addItem(display, (fid, "video"))
+            self._format_combo.setEnabled(True)
+        else:
+            # 无格式选项（如 X 图片/IG 图片/单一直链）：只有「全部下载」
             self._format_combo.addItem(t("download_all").format(
                 video=f" {len(info.items)}" if info.items else "",
                 sep="" if not info.items else "",
                 image="",
             ), ("best", ""))
             self._format_combo.setEnabled(False)
-        else:
-            opts = _build_format_options(info)
-            for opt in opts:
-                self._format_combo.addItem(opt["label"], (opt["id"], opt.get("_type", "")))
-            self._format_combo.setEnabled(True)
 
         self._ok_btn.setEnabled(True)
 

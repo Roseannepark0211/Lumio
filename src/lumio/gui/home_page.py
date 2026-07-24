@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -78,6 +80,54 @@ class _SearchWorker(QThread):
             self.finished.emit(result)
         except Exception as e:
             self.finished.emit(e)
+
+
+class _PreviewCacheWorker(QThread):
+    """下载 X-Sou 视频到本地预览缓存。
+
+    用 requests.Session(trust_env=True) 走系统代理（HTTP_PROXY/HTTPS_PROXY/
+    Windows 注册表），避开 QMediaPlayer 无法使用代理的限制。
+    """
+    progress = Signal(int, int)   # (downloaded_bytes, total_bytes)
+    finished_ok = Signal(str)     # local file path
+    failed = Signal(str)          # error message
+
+    def __init__(self, url: str):
+        super().__init__()
+        self._url = url
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        try:
+            from ..utils.cache_manager import download_to_preview_cache
+            # 命中缓存
+            from ..utils.cache_manager import get_preview_cache_path
+            cached = get_preview_cache_path(self._url)
+            if cached.exists() and cached.stat().st_size > 0:
+                self.finished_ok.emit(str(cached))
+                return
+            # 下载
+            result = download_to_preview_cache(
+                self._url,
+                progress_cb=lambda d, t: self.progress.emit(d, t),
+                cancel_event=self,  # worker 自身有 _cancel 属性
+            )
+            if result is None:
+                if self._cancel:
+                    self.failed.emit("cancelled")
+                else:
+                    self.failed.emit("download failed")
+            else:
+                self.finished_ok.emit(str(result))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+    def is_set(self) -> bool:
+        """cancel_event 协议：cache_manager 调用 is_set() 检查取消。"""
+        return self._cancel
 
 
 class _MediaItemCard(QFrame):
@@ -165,6 +215,8 @@ class HomePage(QWidget):
         self._selected_item_index: int = -1
         self._best_audio_fmt_id: str = ""
         self._quality_url_map: dict[str, str] = {}
+        self._preview_worker: _PreviewCacheWorker | None = None
+        self._preview_dialog: QProgressDialog | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -1436,11 +1488,97 @@ class HomePage(QWidget):
 
 
     def _preview_x_video(self, video_url: str):
+        """X-Sou 视频预览：先查本地缓存，未命中则后台下载到 cache/preview/。
+
+        用 requests.Session(trust_env=True) 走系统代理下载，
+        绕过 QMediaPlayer 无法使用代理的限制。完成后用 VideoPreviewDialog 播放本地文件。
+        """
         if not video_url:
             return
-        # X-Sou 直链 (video.twimg.com) 需要鉴权头，Qt 内置播放器无法发送，
-        # 直接流式播放会触发 TLS 握手失败；改为提示用户走下载队列后本地预览
-        QMessageBox.information(self, t("preview"), t("x_sou_preview_unsupported"))
+
+        # 已有 worker 在跑，忽略重复点击
+        if self._preview_worker and self._preview_worker.isRunning():
+            return
+
+        # 检查缓存命中
+        from ..utils.cache_manager import get_preview_cache_path
+        cached = get_preview_cache_path(video_url)
+        if cached.exists() and cached.stat().st_size > 0:
+            self._open_preview_dialog(str(cached))
+            return
+
+        # 启动后台下载
+        self._preview_worker = _PreviewCacheWorker(video_url)
+        self._preview_worker.progress.connect(self._on_preview_progress)
+        self._preview_worker.finished_ok.connect(self._on_preview_cached)
+        self._preview_worker.failed.connect(self._on_preview_failed)
+
+        # 进度对话框（可取消）
+        self._preview_dialog = QProgressDialog(
+            t("x_sou_preview_caching"), t("cancel"), 0, 100, self
+        )
+        self._preview_dialog.setWindowTitle(t("preview"))
+        self._preview_dialog.setMinimumWidth(360)
+        self._preview_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._preview_dialog.setMinimumDuration(0)
+        self._preview_dialog.setAutoClose(False)
+        self._preview_dialog.setAutoReset(False)
+        self._preview_dialog.setValue(0)
+        self._preview_dialog.canceled.connect(self._on_preview_cancel)
+        self._preview_dialog.show()
+
+        self._preview_worker.start()
+
+    @Slot(int, int)
+    def _on_preview_progress(self, downloaded: int, total: int):
+        if not self._preview_dialog:
+            return
+        if total > 0:
+            pct = int(downloaded * 100 / total)
+            self._preview_dialog.setValue(pct)
+            mb_done = downloaded / 1024 / 1024
+            mb_total = total / 1024 / 1024
+            self._preview_dialog.setLabelText(
+                f"{t('x_sou_preview_caching')}\n{mb_done:.1f} / {mb_total:.1f} MB"
+            )
+        else:
+            # 无 content-length，显示 indeterminate
+            self._preview_dialog.setRange(0, 0)
+            mb_done = downloaded / 1024 / 1024
+            self._preview_dialog.setLabelText(
+                f"{t('x_sou_preview_caching')}\n{mb_done:.1f} MB"
+            )
+
+    @Slot(str)
+    def _on_preview_cached(self, local_path: str):
+        self._close_preview_dialog()
+        self._open_preview_dialog(local_path)
+
+    @Slot(str)
+    def _on_preview_failed(self, err: str):
+        self._close_preview_dialog()
+        if err == "cancelled":
+            QMessageBox.information(self, t("preview"), t("x_sou_preview_cancelled"))
+        else:
+            QMessageBox.warning(
+                self, t("preview"), t("x_sou_preview_failed", err=err)
+            )
+
+    def _on_preview_cancel(self):
+        if self._preview_worker and self._preview_worker.isRunning():
+            self._preview_worker.cancel()
+
+    def _close_preview_dialog(self):
+        if self._preview_dialog:
+            self._preview_dialog.close()
+            self._preview_dialog.deleteLater()
+            self._preview_dialog = None
+
+    def _open_preview_dialog(self, local_path: str):
+        """打开本地视频预览对话框。"""
+        from .preview_dialog import VideoPreviewDialog
+        dlg = VideoPreviewDialog(local_path, parent=self)
+        dlg.exec()
 
     def _clear_results(self):
         while self._results_layout.count() > 1:
@@ -1495,18 +1633,30 @@ class HomePage(QWidget):
             item = r["data"]
             tweet_id = item.get("tweet_id", "")
             author = item.get("screen_name", "")
-            x_url = (
-                f"https://x.com/{author}/status/{tweet_id}"
-                if author and tweet_id else ""
-            )
-            if not x_url:
+            video_url = item.get("video_url", "")
+            video_cover = item.get("video_cover", "")
+            if not video_url:
+                # 没有 video_url 的项（可能是图片推文或下线推文）跳过
                 continue
 
+            # X-Sou 方案（基于逆向分析文档第九节）：
+            # video_url 已是 Twitter CDN 直链（video.twimg.com），
+            # 永不过期，无需 X cookie / GraphQL / x-sou 登录。
+            # 直接用 direct_url 入队，跳过整个 X GraphQL 流程。
+            # task.url 仍记录推文 URL（用于历史记录/去重），
+            # 但下载走 task.direct_url（直链路径）。
+            tweet_url = (
+                f"https://x.com/{author}/status/{tweet_id}"
+                if author and tweet_id else video_url
+            )
+
             task = QueueTask(
-                url=x_url, output_dir=str(self._download_dir),
+                url=tweet_url, output_dir=str(self._download_dir),
                 author=author, platform="x", batch_id=batch_id,
                 title=item.get("content", ""),
                 format_id=None, format_type="",
+                direct_url=video_url,
+                thumbnail_url=video_cover,
             )
             tasks.append(task)
 

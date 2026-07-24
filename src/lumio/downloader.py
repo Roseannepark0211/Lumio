@@ -1042,28 +1042,28 @@ def _x_extract_info(url: str) -> VideoInfo:
 
 # ---- X-Sou Search API ----
 
-from .x_sou_client import x_sou_search, x_sou_download_video
+from .x_sou_client import x_sou_search
 
 # ---- Public API ----
 
 def extract_info(url: str) -> VideoInfo:
+    """V4 统一架构：所有平台都走 Provider 系统。
+
+    优先级：缓存 → 已注册 Provider (YouTube/IG/X/国内) → Apify 兜底（仅 IG）。
+    旧的 _yt_extract_info / _ig_extract_info / _x_extract_info 仍保留供 Apify/批量子调用。
+    """
+    # IG api 模式仍走 Apify（用户主动选择的代理模式）
     parsed = parse_url(url)
-    if parsed.platform == Platform.YOUTUBE:
-        return _yt_extract_info(url)
-    elif parsed.platform == Platform.INSTAGRAM:
-        if get_platform_mode("instagram") == "api":
-            from .apify_client import get_apify_client as _get_apify_client
-            return _get_apify_client().extract_post_info(url)
-        return _ig_extract_info(url)
-    elif parsed.platform == Platform.X:
-        return _x_extract_info(url)
-    else:
-        # Phase 1 Step 2: try domestic platform providers
-        from .providers.dispatch import resolve_via_providers as _resolve
-        result = _resolve(url)
-        if result is not None:
-            return result
-        raise ValueError(f"Unsupported URL: {url}")
+    if parsed.platform == Platform.INSTAGRAM and get_platform_mode("instagram") == "api":
+        from .apify_client import get_apify_client as _get_apify_client
+        return _get_apify_client().extract_post_info(url)
+
+    # V4 统一入口：YouTube/IG/X/国内平台都走 Provider 系统
+    from .providers.dispatch import resolve_via_providers as _resolve
+    result = _resolve(url)
+    if result is not None:
+        return result
+    raise ValueError(f"Unsupported URL: {url}")
 
 
 def _build_format_options(info: VideoInfo) -> list[dict]:
@@ -1711,8 +1711,38 @@ def _direct_download_with_pause(task, pause_event, on_progress):
             _wb_cookies = _get_weibo_cookies()
         except Exception:
             pass
+    # X (Twitter) CDN（video.twimg.com / pbs.twimg.com）在中国大陆被墙，
+    # 需通过系统代理访问；Referer 头提升成功率（部分 CDN 校验）
+    if "twimg.com" in task.direct_url or "x.com" in task.direct_url:
+        headers.setdefault("Referer", "https://x.com/")
+        headers.setdefault("Accept", "*/*")
+    # 国内平台 CDN Referer（浏览器插件发送的直链场景）
+    # 抖音 CDN（aweme.snssdk.com / douyinvod.com / bytecdn / bytedance）
+    if any(d in task.direct_url for d in ("douyinvod", "bytecdn", "bytedance", "aweme.snssdk", "byteimg")):
+        headers.setdefault("Referer", "https://www.douyin.com/")
+        headers.setdefault("Accept", "*/*")
+    # B站 CDN（bilivideo.com / akamaized.net / bdstatic）
+    if any(d in task.direct_url for d in ("bilivideo", "akamaized", "bdstatic", "bilivideo.com")):
+        headers.setdefault("Referer", "https://www.bilibili.com/")
+        headers.setdefault("Accept", "*/*")
+    # 小红书 CDN（xhscdn.com / sns-img-*.xhscdn.com）
+    if "xhscdn" in task.direct_url:
+        headers.setdefault("Referer", "https://www.xiaohongshu.com/")
+        headers.setdefault("Accept", "*/*")
+    # 快手 CDN（kwaicdn.com / yxixy.com）
+    if any(d in task.direct_url for d in ("kwaicdn", "yxixy")):
+        headers.setdefault("Referer", "https://www.kuaishou.com/")
+        headers.setdefault("Accept", "*/*")
 
-    resp = requests.get(task.direct_url, stream=True, timeout=120, headers=headers, cookies=_wb_cookies or None)
+    # 用 Session 而非 requests.get，确保 trust_env=True 尊重系统代理
+    # （HTTP_PROXY/HTTPS_PROXY 环境变量 / Windows 注册表代理设置）
+    # 这对 video.twimg.com 在中国大陆必须的代理访问至关重要
+    session = requests.Session()
+    session.trust_env = True
+    resp = session.get(
+        task.direct_url, stream=True, timeout=120,
+        headers=headers, cookies=_wb_cookies or None,
+    )
     try:
         resp.raise_for_status()
         total_size = int(resp.headers.get("content-length", 0))

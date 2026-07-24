@@ -2,18 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QClipboard
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QButtonGroup,
@@ -29,6 +31,56 @@ from ..i18n import get_lang, set_lang, t
 from ..utils.config import get_download_dir, load_config, save_config
 from ..telegram_service import TelegramService
 from .widgets import NoWheelComboBox
+
+
+class _CacheCleanWorker(QThread):
+    """后台执行缓存清理，避免阻塞 UI。"""
+    progress = Signal(str, int, int)  # (dir_name, deleted, total)
+    finished_ok = Signal(dict)        # results: {dir: {freed, deleted, total, remaining}}
+    failed = Signal(str)              # error message
+
+    def __init__(self, retain_days: int, max_size_mb: int, force: bool = False):
+        super().__init__()
+        self._retain_days = retain_days
+        self._max_size_mb = max_size_mb
+        self._force = force
+
+    def run(self):
+        try:
+            from ..utils.cache_manager import clean_all_caches
+            results = clean_all_caches(
+                retain_days=self._retain_days,
+                max_size_mb=self._max_size_mb,
+                progress_cb=lambda name, deleted, total: self.progress.emit(name, deleted, total),
+                force=self._force,
+            )
+            self.finished_ok.emit(results)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class _TgValidateWorker(QThread):
+    """后台验证 Telegram Bot Token。
+
+    用 QThread + Signal 替代 threading + QTimer.singleShot，
+    确保跨线程 UI 更新在 PySide6 事件循环中正确触发。
+    finished 信号携带 {"ok": bool, "username": str} 或 {"ok": False, "error": str}。
+    """
+    finished = Signal(dict)
+
+    def __init__(self, token: str, proxy: str, api_base: str, parent=None):
+        super().__init__(parent)
+        self._token = token
+        self._proxy = proxy
+        self._api_base = api_base
+
+    def run(self):
+        try:
+            from ..telegram_service import TelegramService
+            result = TelegramService.validate_token(self._token, proxy=self._proxy)
+        except Exception as e:
+            result = {"ok": False, "error": str(e)}
+        self.finished.emit(result)
 
 
 class SettingsPage(QWidget):
@@ -74,6 +126,9 @@ class SettingsPage(QWidget):
 
         # ---- Telegram section ----
         self._build_tg_group(inner)
+
+        # ---- Cache Management section ----
+        self._build_cache_group(inner)
 
         # ---- About section ----
         self._build_about_group(inner)
@@ -695,6 +750,181 @@ class SettingsPage(QWidget):
         inner.addWidget(about_group)
 
 
+    def _build_cache_group(self, inner):
+        """缓存管理分组：统计 + 立即清理 + 自动清理配置。"""
+        from ..utils.cache_manager import get_cache_stats
+
+        cache_group = QGroupBox(t("settings_cache"))
+        cg = QVBoxLayout(cache_group)
+        cg.setSpacing(12)
+
+        cfg = load_config()
+        cm = cfg.get("cache_management", {})
+        if not isinstance(cm, dict):
+            cm = {}
+
+        # === A. 缓存统计 ===
+        self._cache_stats = get_cache_stats()
+        stats_box = QGroupBox(t("cache_total_size"))
+        sb = QFormLayout(stats_box)
+        sb.setSpacing(4)
+
+        total = self._cache_stats.get("_total", {})
+        self._cache_total_lbl = QLabel(
+            f"{total.get('size_mb', 0):.2f} MB  ·  {total.get('file_count', 0)} {t('cache_file_count')}"
+        )
+        self._cache_total_lbl.setObjectName("muted")
+        sb.addRow("", self._cache_total_lbl)
+
+        # 各子目录（仅可清理的缓存）+ 路径显示
+        self._cache_dir_lbls: dict[str, QLabel] = {}
+        self._cache_path_lbls: dict[str, QLabel] = {}
+        from pathlib import Path as _P
+        from ..utils.cache_manager import _CACHE_DIRS as _ALL_CACHE_DIRS
+        for key, label_key in [
+            ("thumbs", "cache_thumbs"),
+            ("provider_cache", "cache_provider_cache"),
+            ("preview", "cache_preview"),
+            ("inbox_media", "cache_inbox_media"),
+        ]:
+            info = self._cache_stats.get(key, {})
+            lbl = QLabel(
+                f"{t(label_key)}: {info.get('size_mb', 0):.2f} MB  ·  {info.get('file_count', 0)} {t('cache_file_count')}"
+            )
+            lbl.setObjectName("muted")
+            lbl.setContentsMargins(16, 0, 0, 0)
+            # inbox_media 智能清理提示
+            if key == "inbox_media":
+                note = QLabel(f"  ({t('cache_inbox_smart_clean')})")
+                note.setObjectName("muted")
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
+                row.addWidget(lbl)
+                row.addWidget(note)
+                row.addStretch()
+                container = QWidget()
+                container.setLayout(row)
+                sb.addRow("", container)
+            else:
+                sb.addRow("", lbl)
+            self._cache_dir_lbls[key] = lbl
+
+            # 路径显示（灰色小字）
+            dir_path = _ALL_CACHE_DIRS.get(key)
+            if dir_path:
+                path_lbl = QLabel(str(dir_path))
+                path_lbl.setObjectName("cache_path")
+                path_lbl.setContentsMargins(32, 0, 0, 4)
+                path_lbl.setWordWrap(False)
+                path_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                self._cache_path_lbls[key] = path_lbl
+                sb.addRow("", path_lbl)
+
+        cg.addWidget(stats_box)
+
+        # 立即清理按钮 + 状态
+        clean_row = QHBoxLayout()
+        clean_row.setSpacing(10)
+        self._cache_clean_btn = QPushButton(t("cache_clean_now"))
+        self._cache_clean_btn.setObjectName("secondary")
+        self._cache_clean_btn.setFixedHeight(30)
+        self._cache_clean_btn.setMinimumWidth(110)
+        self._cache_clean_btn.clicked.connect(self._on_clean_cache_now)
+        clean_row.addWidget(self._cache_clean_btn)
+
+        self._cache_progress = QProgressBar()
+        self._cache_progress.setFixedHeight(20)
+        self._cache_progress.setRange(0, 100)
+        self._cache_progress.hide()
+        clean_row.addWidget(self._cache_progress, 1)
+
+        self._cache_status_lbl = QLabel()
+        self._cache_status_lbl.setObjectName("muted")
+        clean_row.addWidget(self._cache_status_lbl)
+        clean_row.addStretch()
+        cg.addLayout(clean_row)
+
+        # === B. 自动清理配置 ===
+        cg.addSpacing(4)
+        auto_row = QHBoxLayout()
+        auto_row.setSpacing(12)
+        auto_row.addWidget(QLabel(t("cache_auto_clean") + ":"))
+        self._cache_auto_combo = NoWheelComboBox()
+        self._cache_auto_combo.addItem(t("cache_auto_off"), "off")
+        self._cache_auto_combo.addItem(t("cache_auto_startup"), "startup")
+        self._cache_auto_combo.addItem(t("cache_auto_daily"), "daily")
+        self._cache_auto_combo.addItem(t("cache_auto_weekly"), "weekly")
+        cur_mode = cm.get("auto_clean", "off")
+        idx = self._cache_auto_combo.findData(cur_mode)
+        if idx >= 0:
+            self._cache_auto_combo.setCurrentIndex(idx)
+        self._cache_auto_combo.setFixedWidth(160)
+        auto_row.addWidget(self._cache_auto_combo)
+        auto_row.addStretch()
+        cg.addLayout(auto_row)
+
+        # 保留天数 + 上限
+        param_row = QHBoxLayout()
+        param_row.setSpacing(24)
+        param_row.addWidget(QLabel(t("cache_retain_days") + ":"))
+        self._cache_retain_spin = QSpinBox()
+        self._cache_retain_spin.setRange(1, 365)
+        self._cache_retain_spin.setValue(cm.get("retain_days", 7))
+        self._cache_retain_spin.setFixedWidth(80)
+        self._cache_retain_spin.setSuffix(" d")
+        param_row.addWidget(self._cache_retain_spin)
+
+        param_row.addSpacing(12)
+        param_row.addWidget(QLabel(t("cache_max_size") + ":"))
+        self._cache_maxsize_spin = QSpinBox()
+        self._cache_maxsize_spin.setRange(50, 10000)
+        self._cache_maxsize_spin.setValue(cm.get("max_size_mb", 500))
+        self._cache_maxsize_spin.setFixedWidth(100)
+        self._cache_maxsize_spin.setSuffix(" MB")
+        param_row.addWidget(self._cache_maxsize_spin)
+        param_row.addStretch()
+        cg.addLayout(param_row)
+
+        # 上次清理时间
+        last_str = cm.get("last_cleaned", "")
+        if last_str:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(last_str)
+                last_display = dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                last_display = t("cache_never")
+        else:
+            last_display = t("cache_never")
+        self._cache_last_lbl = QLabel(f"{t('cache_last_cleaned')}: {last_display}")
+        self._cache_last_lbl.setObjectName("muted")
+        cg.addWidget(self._cache_last_lbl)
+
+        # 缓存清理 worker
+        self._cache_worker: _CacheCleanWorker | None = None
+
+        # 即时保存：控件变更时立即写入 config，无需点「保存设置」
+        self._cache_auto_combo.currentIndexChanged.connect(self._save_cache_config)
+        self._cache_retain_spin.valueChanged.connect(self._save_cache_config)
+        self._cache_maxsize_spin.valueChanged.connect(self._save_cache_config)
+
+        inner.addWidget(cache_group)
+
+    def _save_cache_config(self):
+        """缓存设置即时保存（不依赖下载设置的「保存设置」按钮）。"""
+        if not hasattr(self, "_cache_auto_combo"):
+            return  # 控件尚未创建
+        cfg = load_config()
+        old_cm = cfg.get("cache_management", {}) or {}
+        cfg["cache_management"] = {
+            "auto_clean": self._cache_auto_combo.currentData() or "off",
+            "retain_days": self._cache_retain_spin.value(),
+            "max_size_mb": self._cache_maxsize_spin.value(),
+            "last_cleaned": old_cm.get("last_cleaned", ""),
+        }
+        save_config(cfg)
+
+
 
     # ---- Cookie status ----
 
@@ -766,6 +996,9 @@ class SettingsPage(QWidget):
         cfg["storage_mode"] = "organized" if self._organized_radio.isChecked() else "simple"
         cfg["file_conflict_policy"] = self._conflict_combo.currentData()
         cfg["auto_download_inbox"] = self._auto_dl_check.isChecked()
+        # 记录 telegram 配置变更，用于判断是否需要重启轮询
+        old_tg_token = cfg.get("telegram_bot_token", "")
+        old_tg_api_base = cfg.get("telegram_api_base", "https://api.telegram.org")
         cfg["telegram_enabled"] = self._tg_enable.isChecked()
         cfg["telegram_bot_token"] = self._tg_token_input.text().strip()
         cfg["telegram_api_base"] = self._tg_api_input.text().strip() or "https://api.telegram.org"
@@ -782,6 +1015,7 @@ class SettingsPage(QWidget):
         new_token = self._ig_cred["token_input"].text().strip() if self._ig_cred["token_input"] else ""
         cfg["apify_token"] = new_token
         cfg["apify_ig_actor"] = self._ig_cred["actor_input"].text().strip()
+        # Cache management 由 _save_cache_config() 即时保存，这里不再重复处理
         save_config(cfg)
         # Reset cached Apify client if token or actor changed
         if old_token != new_token:
@@ -790,8 +1024,26 @@ class SettingsPage(QWidget):
                 reset_apify_client()
             except Exception:
                 pass
+        # Telegram: 若 token/api_base 变更或已启用但未运行，重启轮询让新配置立即生效
+        tg_token_changed = old_tg_token != cfg["telegram_bot_token"]
+        tg_api_changed = old_tg_api_base != cfg["telegram_api_base"]
+        if cfg.get("telegram_enabled") and cfg.get("telegram_bot_token"):
+            if tg_token_changed or tg_api_changed:
+                self._restart_tg_polling()
+            else:
+                # token 没变但可能 proxy 变了（_poll_loop 已支持热加载，这里仅确保运行）
+                self._auto_start_tg_service()
         self._hint_label.setText(t("settings_saved"))
         self.saved.emit()
+
+    def _restart_tg_polling(self):
+        """重启 Telegram 轮询，让新 token/api_base/proxy 立即生效。"""
+        app = QApplication.instance()
+        tg_svc = getattr(app, '_lumio_tg_service', None)
+        if tg_svc:
+            tg_svc.restart_polling()
+        else:
+            self._auto_start_tg_service()
 
     def _on_check_update(self):
         self._update_btn.setEnabled(False)
@@ -847,6 +1099,168 @@ class SettingsPage(QWidget):
         p = str(get_download_dir())
         os.makedirs(p, exist_ok=True)
         os.startfile(p)
+
+    # ---- Cache management handlers ----
+
+    def _on_clean_cache_now(self):
+        """立即清理：弹出确认对话框（按规则清理 / 强制清空 / 取消），然后后台执行。"""
+        if self._cache_worker and self._cache_worker.isRunning():
+            return  # 已在清理中
+        retain = self._cache_retain_spin.value()
+
+        # 自定义确认对话框：三个按钮
+        box = QMessageBox(self)
+        box.setWindowTitle(t("cache_confirm_title"))
+        box.setText(t("cache_confirm_msg", days=retain))
+        box.setIcon(QMessageBox.Icon.Question)
+
+        btn_rule = box.addButton(t("cache_clean_rule"), QMessageBox.ButtonRole.AcceptRole)
+        btn_force = box.addButton(t("cache_clean_force"), QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = box.addButton(t("close"), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_rule)
+
+        choice = box.exec()
+        if box.clickedButton() is btn_cancel:
+            return
+
+        force = (box.clickedButton() is btn_force)
+        # 强制清空需二次确认
+        if force:
+            confirm = QMessageBox.question(
+                self, t("cache_confirm_title"),
+                t("cache_force_confirm"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
+        # 启动 worker
+        self._cache_clean_btn.setEnabled(False)
+        self._cache_clean_btn.setText(t("cache_cleaning"))
+        self._cache_progress.setRange(0, 0)  # indeterminate
+        self._cache_progress.show()
+        self._cache_status_lbl.setText(t("cache_clean_force_status") if force else "")
+
+        self._cache_worker = _CacheCleanWorker(
+            retain_days=retain,
+            max_size_mb=self._cache_maxsize_spin.value(),
+            force=force,
+        )
+        self._cache_worker.progress.connect(self._on_cache_clean_progress)
+        self._cache_worker.finished_ok.connect(self._on_cache_clean_done)
+        self._cache_worker.failed.connect(self._on_cache_clean_failed)
+        # 记录本次模式供完成回调使用
+        self._cache_clean_force = force
+        self._cache_worker.start()
+
+    @Slot(str, int, int)
+    def _on_cache_clean_progress(self, dir_name: str, deleted: int, total: int):
+        """清理进度回调。"""
+        from ..i18n import t as _t
+        label_map = {
+            "thumbs": "cache_thumbs",
+            "provider_cache": "cache_provider_cache",
+            "preview": "cache_preview",
+        }
+        label = _t(label_map.get(dir_name, dir_name))
+        self._cache_status_lbl.setText(f"{label}: {deleted}/{total}")
+
+    @Slot(dict)
+    def _on_cache_clean_done(self, results: dict):
+        """清理完成：显示详细前后对比。"""
+        self._cache_clean_btn.setEnabled(True)
+        self._cache_clean_btn.setText(t("cache_clean_now"))
+        self._cache_progress.hide()
+
+        # 更新 last_cleaned
+        from datetime import datetime
+        cfg = load_config()
+        cm = cfg.get("cache_management", {}) or {}
+        cm["last_cleaned"] = datetime.now().isoformat()
+        cfg["cache_management"] = cm
+        save_config(cfg)
+
+        # 刷新统计
+        self._refresh_cache_stats()
+
+        # 汇总：删除文件数 / 释放空间 / 剩余空间
+        total_deleted = sum(r.get("deleted", 0) for r in results.values())
+        total_freed = sum(r.get("freed", 0) for r in results.values())
+        total_remaining = sum(r.get("remaining", 0) for r in results.values())
+
+        def _fmt_size(b: int) -> str:
+            mb = b / 1024 / 1024
+            if mb >= 1:
+                return f"{mb:.2f} MB"
+            return f"{b / 1024:.1f} KB"
+
+        # 构造详细结果文本
+        from ..i18n import t as _t
+        label_map = {
+            "thumbs": "cache_thumbs",
+            "provider_cache": "cache_provider_cache",
+            "preview": "cache_preview",
+        }
+        lines = [_t("cache_result_header")]
+        for name, r in results.items():
+            label = _t(label_map.get(name, name))
+            lines.append(
+                f"  • {label}: {r.get('deleted', 0)}/{r.get('total', 0)} "
+                f"{_t('cache_file_count')}, {_fmt_size(r.get('freed', 0))}"
+            )
+        lines.append("")
+        lines.append(f"{_t('cache_result_total')}: {total_deleted} {_t('cache_file_count')}, "
+                     f"{_fmt_size(total_freed)}")
+        lines.append(f"{_t('cache_result_remaining')}: {_fmt_size(total_remaining)}")
+        detail = "\n".join(lines)
+
+        # 状态栏简要提示
+        self._cache_status_lbl.setText(
+            _t("cache_cleaned", size=_fmt_size(total_freed)) +
+            f"  ·  {total_deleted} {_t('cache_file_count')}"
+        )
+
+        # 弹出详细结果对话框（让用户看到清理效果）
+        QMessageBox.information(self, t("settings_cache"), detail)
+
+        # 更新上次清理时间显示
+        self._cache_last_lbl.setText(
+            f"{t('cache_last_cleaned')}: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+
+    @Slot(str)
+    def _on_cache_clean_failed(self, err: str):
+        """清理失败。"""
+        self._cache_clean_btn.setEnabled(True)
+        self._cache_clean_btn.setText(t("cache_clean_now"))
+        self._cache_progress.hide()
+        self._cache_status_lbl.setText(f"❌ {t('cache_clean_failed')}: {err}")
+
+    def _refresh_cache_stats(self):
+        """重新获取缓存统计并更新 UI 标签。"""
+        from ..utils.cache_manager import get_cache_stats
+        self._cache_stats = get_cache_stats()
+        total = self._cache_stats.get("_total", {})
+        self._cache_total_lbl.setText(
+            f"{total.get('size_mb', 0):.2f} MB  ·  {total.get('file_count', 0)} {t('cache_file_count')}"
+        )
+        for key, label_key in [
+            ("thumbs", "cache_thumbs"),
+            ("provider_cache", "cache_provider_cache"),
+            ("preview", "cache_preview"),
+        ]:
+            info = self._cache_stats.get(key, {})
+            lbl = self._cache_dir_lbls.get(key)
+            if lbl:
+                lbl.setText(
+                    f"{t(label_key)}: {info.get('size_mb', 0):.2f} MB  ·  {info.get('file_count', 0)} {t('cache_file_count')}"
+                )
+
+    def refresh_cache_ui(self):
+        """供外部调用刷新缓存统计（如切换页面时）。"""
+        if hasattr(self, "_cache_total_lbl"):
+            self._refresh_cache_stats()
 
     @Slot()
     def _on_reset_cookie(self, platform: str = ""):
@@ -1037,31 +1451,58 @@ class SettingsPage(QWidget):
             return
         self._tg_validate_btn.setEnabled(False)
         self._tg_status.setText(t("telegram_validating"))
+        self._tg_validating = True  # 标记验证进行中，防止 _tg_apply_validate_result 重复触发
 
-        import threading
+        # 从 config 读取代理（中国大陆访问 api.telegram.org 必需）
+        cfg = load_config()
+        proxy = cfg.get("http_proxy", "")
+        api_base = cfg.get("telegram_api_base", "https://api.telegram.org").rstrip("/")
+
+        # 用 QThread + Signal 替代 threading + QTimer.singleShot
+        # 这是 PySide6 跨线程 UI 更新的标准做法，避免事件循环阻塞问题
+        self._tg_validate_worker = _TgValidateWorker(token, proxy, api_base, self)
+        self._tg_validate_worker.finished.connect(
+            lambda result: self._tg_apply_validate_result(result, token, proxy)
+        )
+        self._tg_validate_worker.start()
+
+        # Watchdog：15 秒后若线程仍未完成，强制恢复 UI 并提示
         from PySide6.QtCore import QTimer
 
-        def _check():
-            result = TelegramService.validate_token(token)
-            # UI 更新回到主线程
-            def _update_ui():
-                self._tg_validate_btn.setEnabled(True)
-                if result["ok"]:
-                    self._tg_status.setText(f"🟢 @{result['username']} — {t('telegram_connected')}")
-                    self._tg_status.setStyleSheet("color: #4ADE80;")
-                    cfg = load_config()
-                    cfg["telegram_bot_token"] = token
-                    save_config(cfg)
-                    self._tg_generate_pair_code()
-                    self._tg_refresh_state()
-                    # 自动启动轮询
-                    self._auto_start_tg_service()
-                else:
-                    self._tg_status.setText(f"🔴 {t('telegram_validate_fail')}: {result['error']}")
-                    self._tg_status.setStyleSheet("color: #FF6B6B;")
-            QTimer.singleShot(0, _update_ui)
+        def _watchdog():
+            if self._tg_validate_worker.isRunning():
+                err = f"验证超时（15s）。代理: {proxy or '未配置'}，API: {api_base}"
+                self._tg_validate_worker.terminate()
+                self._tg_apply_validate_result({"ok": False, "error": err}, token, proxy)
 
-        threading.Thread(target=_check, daemon=True).start()
+        QTimer.singleShot(15000, _watchdog)
+
+    def _tg_apply_validate_result(self, result: dict, token: str, proxy: str):
+        """应用验证结果到 UI（必须在主线程调用）。"""
+        # 防止重复触发（watchdog + 线程完成可能都调用）
+        if not getattr(self, "_tg_validating", False):
+            return
+        self._tg_validating = False
+        self._tg_validate_btn.setEnabled(True)
+        if result.get("ok"):
+            self._tg_status.setText(f"🟢 @{result.get('username','')} — {t('telegram_connected')}")
+            self._tg_status.setStyleSheet("color: #4ADE80;")
+            cfg2 = load_config()
+            cfg2["telegram_bot_token"] = token
+            save_config(cfg2)
+            self._tg_generate_pair_code()
+            self._tg_refresh_state()
+            # 自动启动轮询
+            self._auto_start_tg_service()
+        else:
+            err = result.get('error', '')
+            # 友好提示：常见错误附加代理状态
+            if proxy and ('proxy' in err.lower() or 'connection' in err.lower() or 'timeout' in err.lower() or 'ssl' in err.lower()):
+                err = f"{err}（代理: {proxy}）"
+            elif not proxy and ('connection' in err.lower() or 'timeout' in err.lower() or 'ssl' in err.lower()):
+                err = f"{err}（未配置代理，中国大陆需在 config.json 设置 http_proxy）"
+            self._tg_status.setText(f"🔴 {t('telegram_validate_fail')}: {err}")
+            self._tg_status.setStyleSheet("color: #FF6B6B;")
 
     def _tg_generate_pair_code(self):
         cfg = load_config()

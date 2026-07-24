@@ -69,9 +69,14 @@ class InboxItemWidget(QWidget):
         info.setSpacing(2)
 
         full_title = self.item.title or self.item.url
-        short_title = full_title[:80] + "..." if len(full_title) > 80 else full_title
+        # title 截断从 80 收紧到 60，与 library/history 卡片对齐，避免文本过长挤压按钮
+        short_title = full_title[:60] + "..." if len(full_title) > 60 else full_title
         self._title = QLabel(short_title)
         self._title.setWordWrap(True)
+        # Ignored 水平 sizePolicy：title 不参与水平宽度请求，按钮先按 sizeHint 分配，
+        # 剩余空间才给 title，从根本上避免 wordWrap 的 QLabel 挤压同行按钮
+        from PySide6.QtWidgets import QSizePolicy
+        self._title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._title.setStyleSheet("font-weight: bold;")
         self._title.setToolTip(full_title)
         info.addWidget(self._title)
@@ -104,23 +109,29 @@ class InboxItemWidget(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(4)
 
+        # 按钮加 setMinimumWidth 防止被 wordWrap 的 title 挤压变形
+        # 中文按钮文本（下载/打开链接/归档/删除）按最长项 72px 保守设置
         self._btn_download = QPushButton(t("inbox_download"))
         self._btn_download.setFixedHeight(28)
+        self._btn_download.setMinimumWidth(64)
         self._btn_download.clicked.connect(lambda: self.action_requested.emit(self.item.id, "download"))
         btn_layout.addWidget(self._btn_download)
 
         self._btn_link = QPushButton(t("inbox_open_link"))
         self._btn_link.setFixedHeight(28)
+        self._btn_link.setMinimumWidth(72)
         self._btn_link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.item.url)))
         btn_layout.addWidget(self._btn_link)
 
         self._btn_archive = QPushButton(t("inbox_archive"))
         self._btn_archive.setFixedHeight(28)
+        self._btn_archive.setMinimumWidth(56)
         self._btn_archive.clicked.connect(lambda: self.action_requested.emit(self.item.id, "archive"))
         btn_layout.addWidget(self._btn_archive)
 
         self._btn_del = QPushButton(t("inbox_delete"))
         self._btn_del.setFixedHeight(28)
+        self._btn_del.setMinimumWidth(56)
         self._btn_del.clicked.connect(lambda: self.action_requested.emit(self.item.id, "delete"))
         btn_layout.addWidget(self._btn_del)
 
@@ -335,44 +346,82 @@ class InboxPage(QWidget):
     # ── 任务桥接 ────────────────────────────────────────────────────
 
     def _start_download_for_item(self, item_id: str):
-        """批量下载：最高画质，不弹格式选择。"""
+        """批量下载：最高画质，不弹格式选择。
+
+        分两条路径：
+        1. 本地文件类型（Telegram 媒体 direct_url 是本地路径）→ add_task + direct_url 直链下载
+        2. 页面 URL 类型（浏览器采集）→ extract_info + add_task_from_info（携带 media_items_json）
+           国内平台（B站/抖音/快手/微博/小红书）必须携带 media_items_json 才能下载
+        """
         item = self._inbox.get_item(item_id)
         if not item:
             return
-        platform = item.platform or "auto"
-        title, author, thumbnail = item.title, item.author, item.thumbnail_url or ""
 
-        if not author or not title:
-            try:
-                from ..downloader import extract_info
-                info = extract_info(item.url)
-                if info:
-                    title = title or info.title
-                    author = author or info.author
-                    thumbnail = thumbnail or info.thumbnail or ""
-                    platform = info.platform or platform
-                    self._update_inbox_info(item_id, info)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).debug("TG extract_info failed: %s", e)
+        # 判断是否为直链类型（本地文件路径 或 HTTP URL）
+        # 浏览器扩展提取的 IG/X CDN 直链是 HTTP URL，Telegram 媒体是本地文件路径
+        direct_url = getattr(item, "direct_url", "") or ""
+        is_direct = False
+        if direct_url:
+            if direct_url.startswith(("http://", "https://")):
+                is_direct = True
+            else:
+                try:
+                    from pathlib import Path
+                    if Path(direct_url).exists():
+                        is_direct = True
+                except Exception:
+                    pass
 
-        custom = title if not author else ""
-        if not custom and not author:
+        # 路径 1：直链 → 直接下载（跳过 Provider 系统解析）
+        if is_direct:
+            custom = item.title if not item.author else ""
+            if not custom and not item.author:
+                custom = "download"
+            qt = QueueTask(
+                url=item.url,
+                title=item.title,
+                author=item.author,
+                platform=item.platform or "auto",
+                output_dir=str(get_download_dir()),
+                thumbnail_url=item.thumbnail_url or "",
+                direct_url=direct_url,
+                custom_name=custom,
+                post_time=getattr(item, "post_time", "") or "",
+            )
+            self._dm.add_task(qt)
+            self._task_to_inbox[qt.task_id] = item_id
+            self._dm.start_task(qt.task_id)
+            self._inbox.mark_status(item_id, "queued")
+            return
+
+        # 路径 2：页面 URL → extract_info + add_task_from_info
+        try:
+            from ..downloader import extract_info
+            info = extract_info(item.url)
+        except Exception as e:
+            self._inbox.mark_status(item_id, "failed", error_message=str(e))
+            self._show_toast(f"{t('parse_failed')}: {e}")
+            return
+
+        if not info:
+            self._inbox.mark_status(item_id, "failed", error_message="解析失败")
+            return
+
+        # 更新 inbox 元数据
+        self._update_inbox_info(item_id, info)
+
+        custom = info.title if not info.author else ""
+        if not custom and not info.author:
             custom = "download"
-        qt = QueueTask(
-            url=item.url,
-            title=title,
-            author=author,
-            platform=platform,
-            output_dir=str(get_download_dir()),
-            thumbnail_url=thumbnail,
-            direct_url=getattr(item, "direct_url", "") or "",
+        task_id = self._dm.add_task_from_info(
+            info=info,
+            format_id="best",
+            format_type="",
             custom_name=custom,
-            post_time=getattr(item, "post_time", "") or "",
+            output_dir=str(get_download_dir()),
         )
-        self._dm.add_task(qt)
-        self._task_to_inbox[qt.task_id] = item_id
-        self._dm.start_task(qt.task_id)
+        self._task_to_inbox[task_id] = item_id
+        self._dm.start_task(task_id)
         self._inbox.mark_status(item_id, "queued")
 
     @Slot(str, bool, str)
@@ -397,13 +446,41 @@ class InboxPage(QWidget):
             self._inbox.delete_item(item_id)
 
     def _show_format_and_download(self, item_id: str):
-        """单个下载：弹出格式选择框，选完再入队。"""
+        """单个下载：弹出格式选择框，选完再入队。
+
+        分两条路径：
+        1. 本地文件类型（Telegram 媒体）→ 直接直链下载，不弹格式选择
+        2. 页面 URL 类型（浏览器采集）→ 弹 FormatSelectDialog（内部 extract_info）→
+           用 add_task_from_info 入队（携带 media_items_json）
+        """
         item = self._inbox.get_item(item_id)
         if not item:
             return
-        # 图片类型直接下载，不弹格式选择
+
+        # 判断是否为直链类型（本地文件路径 或 HTTP URL）
+        # 浏览器扩展提取的 IG/X CDN 直链是 HTTP URL，Telegram 媒体是本地文件路径
+        direct_url = getattr(item, "direct_url", "") or ""
+        is_direct = False
+        if direct_url:
+            if direct_url.startswith(("http://", "https://")):
+                is_direct = True
+            else:
+                try:
+                    from pathlib import Path
+                    if Path(direct_url).exists():
+                        is_direct = True
+                except Exception:
+                    pass
+
+        # 路径 1：直链 → 直接下载，不弹格式选择（跳过 Provider 系统解析）
+        if is_direct:
+            self._start_local_file_download(item_id, direct_url)
+            return
+
+        # 路径 2：页面 URL → 弹格式选择
+        # 图片类型直接下载（无需格式选择），但仍需 extract_info 拿 media_items
         if self._is_image_item(item):
-            self._start_download_with_format(item_id, "best", "")
+            self._start_url_download_best(item_id)
             return
 
         from .format_dialog import FormatSelectDialog
@@ -413,10 +490,80 @@ class InboxPage(QWidget):
             info = dlg.get_info()
             fmt_id = result[0] if result else "best"
             fmt_type = result[1] if result else ""
-            # 用 extract_info 的结果更新 InboxItem
             if info:
                 self._update_inbox_info(item_id, info)
-            self._start_download_with_format(item_id, fmt_id, fmt_type)
+                self._start_url_download_with_format(item_id, info, fmt_id, fmt_type)
+            else:
+                QMessageBox.warning(self, t("error"), t("parse_failed"))
+
+    def _start_local_file_download(self, item_id: str, direct_url: str):
+        """本地文件类型下载（Telegram 媒体）。"""
+        item = self._inbox.get_item(item_id)
+        if not item:
+            return
+        custom = item.title if not item.author else ""
+        if not custom and not item.author:
+            custom = "download"
+        qt = QueueTask(
+            url=item.url,
+            title=item.title,
+            author=item.author,
+            platform=item.platform or "auto",
+            output_dir=str(get_download_dir()),
+            thumbnail_url=item.thumbnail_url or "",
+            direct_url=direct_url,
+            custom_name=custom,
+            post_time=getattr(item, "post_time", "") or "",
+        )
+        self._dm.add_task(qt)
+        self._task_to_inbox[qt.task_id] = item_id
+        self._dm.start_task(qt.task_id)
+        self._inbox.mark_status(item_id, "queued")
+
+    def _start_url_download_best(self, item_id: str):
+        """页面 URL 类型 — 最高画质下载（图片/无需格式选择的场景）。
+
+        内部调用 extract_info 拿到 media_items_json，再用 add_task_from_info 入队。
+        """
+        item = self._inbox.get_item(item_id)
+        if not item:
+            return
+        try:
+            from ..downloader import extract_info
+            info = extract_info(item.url)
+        except Exception as e:
+            self._inbox.mark_status(item_id, "failed", error_message=str(e))
+            QMessageBox.warning(self, t("error"), f"{t('parse_failed')}: {e}")
+            return
+        if not info:
+            self._inbox.mark_status(item_id, "failed", error_message="解析失败")
+            return
+        self._update_inbox_info(item_id, info)
+        self._start_url_download_with_format(item_id, info, "best", "")
+
+    def _start_url_download_with_format(self, item_id: str, info, fmt_id: str, fmt_type: str):
+        """页面 URL 类型 — 用指定格式 + media_items_json 入队下载。
+
+        关键：使用 add_task_from_info 而非 add_task，确保 QueueTask 携带
+        media_items_json，这样国内平台（B站/抖音/快手/微博/小红书）的
+        _items_download_with_pause 才能正确下载。
+        """
+        item = self._inbox.get_item(item_id)
+        if not item:
+            return
+        custom = info.title if not info.author else ""
+        if not custom and not info.author:
+            custom = "download"
+        task_id = self._dm.add_task_from_info(
+            info=info,
+            format_id=fmt_id,
+            format_type=fmt_type,
+            custom_name=custom,
+            output_dir=str(get_download_dir()),
+        )
+        self._task_to_inbox[task_id] = item_id
+        self._dm.start_task(task_id)
+        self._inbox.mark_status(item_id, "queued")
 
     def _is_image_item(self, item) -> bool:
         """判断是否为图片（不需要格式选择）。"""
@@ -433,34 +580,6 @@ class InboxPage(QWidget):
             author=info.author,
             thumbnail_url=info.thumbnail or "",
         )
-
-    def _start_download_with_format(self, item_id: str, fmt_id: str, fmt_type: str):
-        """用指定格式创建下载任务。"""
-        item = self._inbox.get_item(item_id)
-        if not item:
-            return
-        platform = item.platform or "auto"
-        custom = item.title if not item.author else ""
-        if not custom and not item.author:
-            custom = "download"
-        from ..queue_manager import QueueTask
-        qt = QueueTask(
-            url=item.url,
-            title=item.title,
-            author=item.author,
-            platform=platform,
-            output_dir=str(get_download_dir()),
-            thumbnail_url=item.thumbnail_url or "",
-            direct_url=getattr(item, "direct_url", "") or "",
-            custom_name=custom,
-            post_time=getattr(item, "post_time", "") or "",
-            format_id=fmt_id,
-            format_type=fmt_type,
-        )
-        self._dm.add_task(qt)
-        self._task_to_inbox[qt.task_id] = item.id
-        self._dm.start_task(qt.task_id)
-        self._inbox.mark_status(item.id, "queued")
 
     def _download_selected(self):
         to_download = []

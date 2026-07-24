@@ -253,7 +253,11 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _on_inbox_auto_download(self, item_id: str):
-        """自动下载采集内容（auto_download_inbox 开启时）。"""
+        """自动下载采集内容（auto_download_inbox 开启时）。
+
+        优先使用 direct_url（浏览器扩展提取的 CDN 直链 / Telegram 本地文件），
+        没有 direct_url 时走 Provider 系统解析页面 URL。
+        """
         if not self._inbox_manager or not self._inbox_page:
             return
         item = self._inbox_manager.get_item(item_id)
@@ -264,6 +268,21 @@ class MainWindow(QMainWindow):
         custom = item.title if not item.author else ""
         if not custom and not item.author:
             custom = "download"
+
+        # 检查是否有 direct_url（HTTP URL 或本地文件路径）
+        direct_url = getattr(item, "direct_url", "") or ""
+        has_direct = False
+        if direct_url:
+            if direct_url.startswith(("http://", "https://")):
+                has_direct = True
+            else:
+                try:
+                    from pathlib import Path
+                    if Path(direct_url).exists():
+                        has_direct = True
+                except Exception:
+                    pass
+
         qt = QueueTask(
             url=item.url,
             title=item.title,
@@ -272,6 +291,8 @@ class MainWindow(QMainWindow):
             output_dir=str(get_download_dir()),
             thumbnail_url=item.thumbnail_url or "",
             custom_name=custom,
+            # 传 direct_url 让 downloader 走直链下载路径，跳过 Provider 系统
+            direct_url=direct_url if has_direct else "",
         )
         self._manager.add_task(qt)
         # 将 task_id → inbox_id 映射写入 inbox_page，由其 task_finished 统一处理

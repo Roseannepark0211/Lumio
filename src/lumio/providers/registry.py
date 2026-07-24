@@ -1,4 +1,4 @@
-﻿"""Provider registry — 管理和发现所有平台 Provider。
+"""Provider registry — 管理和发现所有平台 Provider。
 
 支持手动注册和自动发现两种方式。
 在 Phase 1 中仅实现手动注册。
@@ -36,11 +36,24 @@ def register(provider_cls: type[BaseProvider]) -> type[BaseProvider]:
 def get_provider(url: str) -> Optional[BaseProvider]:
     """根据 URL 获取匹配的 Provider 实例。
 
-    先通过 detect_domestic() 识别平台，再查注册表。
+    优先匹配国外平台（YouTube/Instagram/X），不匹配再回退到 detect_domestic。
     URL 会先经过规范化处理（短链接解析）。
     """
     # 规范化短链接（t.cn -> weibo.com 等）
     normalized = normalize_url(url)
+
+    # 优先：遍历已注册 Provider，按 match() 判断（覆盖国外平台）
+    # 国外平台（YouTube/Instagram/X）的 match() 直接判断域名，
+    # 必须先于 detect_domestic 处理，避免误判为 UNSUPPORTED。
+    for platform, cls in _registry.items():
+        try:
+            instance = cls()
+            if instance.match(normalized):
+                return instance
+        except Exception:
+            continue
+
+    # 回退：国内平台通过 detect_domestic() 识别
     result = detect_domestic(normalized)
     if result is None:
         return None

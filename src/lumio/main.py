@@ -52,7 +52,25 @@ def _init_app_components(app, cfg):
         app.aboutToQuit.connect(tg_service.stop_polling)
         app._lumio_tg_service = tg_service
 
+    # 缓存自动清理（后台线程，不阻塞启动）
+    _trigger_auto_cache_clean()
+
     return manager, inbox_manager, window
+
+
+def _trigger_auto_cache_clean():
+    """根据 config.cache_management 配置在后台触发一次缓存清理。"""
+    import threading
+
+    def _do():
+        try:
+            from .utils.cache_manager import run_auto_clean_if_needed
+            run_auto_clean_if_needed()
+        except Exception:
+            # 缓存清理失败不应影响应用启动
+            pass
+
+    threading.Thread(target=_do, daemon=True).start()
 
 
 def _show_main(app, cfg):

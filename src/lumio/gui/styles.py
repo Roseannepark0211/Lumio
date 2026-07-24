@@ -32,6 +32,12 @@ QLabel#muted {
     font-size: 12px;
 }
 
+QLabel#cache_path {
+    color: #8a8e9c;
+    font-size: 10px;
+    font-family: Consolas, "Courier New", monospace;
+}
+
 QLabel#section_title {
     color: #a0a8c8;
     font-size: 11px;
@@ -1133,6 +1139,12 @@ QLabel#accent {
 QLabel#muted {
     color: #8e8ea0;
     font-size: 12px;
+}
+
+QLabel#cache_path {
+    color: #6c6c7e;
+    font-size: 10px;
+    font-family: Consolas, "Courier New", monospace;
 }
 
 QLabel#section_title {

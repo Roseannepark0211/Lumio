@@ -283,6 +283,11 @@ class TestStorageModePaths:
 class TestExtractInfoMock:
     """Test extract_info with mocked network calls."""
 
+    def setup_method(self, method):
+        """每个测试前清空 Provider 缓存，避免命中上次测试的缓存。"""
+        from lumio.providers import provider_cache
+        provider_cache.clear_cache()
+
     def _make_video_info(self, platform, author="testuser", title="Test Video"):
         return VideoInfo(
             title=title,
@@ -296,27 +301,45 @@ class TestExtractInfoMock:
             post_time="20260605_120000",
         )
 
-    @patch("lumio.downloader._yt_extract_info")
+    @patch("lumio.providers.youtube.YouTubeProvider.extract_info")
     def test_youtube_extract(self, mock_yt):
-        mock_yt.return_value = self._make_video_info("youtube", author="DeepBlue")
+        from lumio.providers.base import MediaInfo, Platform
+        mock_yt.return_value = MediaInfo(
+            platform=Platform.YOUTUBE,
+            url=TEST_URLS["yt_video_short"],
+            title="Test",
+            author="DeepBlue",
+        )
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["yt_video_short"])
         assert info.platform == "youtube"
         assert info.author == "DeepBlue"
         mock_yt.assert_called_once()
 
-    @patch("lumio.downloader._ig_extract_info")
+    @patch("lumio.providers.instagram.InstagramProvider.extract_info")
     def test_instagram_extract(self, mock_ig):
-        mock_ig.return_value = self._make_video_info("instagram", author="test_user_123")
+        from lumio.providers.base import MediaInfo, Platform
+        mock_ig.return_value = MediaInfo(
+            platform=Platform.INSTAGRAM,
+            url=TEST_URLS["ig_post"],
+            title="Test",
+            author="test_user_123",
+        )
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["ig_post"])
         assert info.platform == "instagram"
         assert info.author == "test_user_123"
         mock_ig.assert_called_once()
 
-    @patch("lumio.downloader._x_extract_info")
+    @patch("lumio.providers.x.XProvider.extract_info")
     def test_x_extract(self, mock_x):
-        mock_x.return_value = self._make_video_info("x", author="test_user")
+        from lumio.providers.base import MediaInfo, Platform
+        mock_x.return_value = MediaInfo(
+            platform=Platform.X,
+            url=TEST_URLS["x_tweet"],
+            title="Test",
+            author="test_user",
+        )
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["x_tweet"])
         assert info.platform == "x"

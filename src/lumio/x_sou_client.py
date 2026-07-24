@@ -1,12 +1,15 @@
 """X-Sou API client for video search.
 
-Provides search and download functions for X-Sou (third-party X/Twitter video search).
+Provides search function for X-Sou (third-party X/Twitter video search).
 Independent module, no dependencies on downloader internals.
+
+下载逻辑由 downloader._direct_download_with_pause 统一处理：
+- X-Sou 搜索结果含 video_url（video.twimg.com 直链）
+- Home 页面入队时把 video_url 作为 direct_url，跳过 X GraphQL 流程
+- 下载阶段走通用直链路径，自动支持系统代理访问被墙的 twimg.com
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import requests
 
@@ -30,28 +33,3 @@ def x_sou_search(query: str, page: int = 1, limit: int = 20) -> dict:
     )
     resp.raise_for_status()
     return resp.json()
-
-
-def x_sou_download_video(video_url: str, dest_path: Path, cancel_event=None) -> bool:
-    """Download a video from X-Sou direct URL. Returns True if successful."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Referer": "https://x.com/",
-    }
-    resp = requests.get(video_url, stream=True, timeout=30, headers=headers)
-    try:
-        if resp.status_code == 403:
-            return False
-        resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(dest_path, "wb") as f:
-            for chunk in resp.iter_content(8192):
-                if cancel_event and cancel_event.is_set():
-                    dest_path.unlink(missing_ok=True)
-                    return False
-                f.write(chunk)
-                downloaded += len(chunk)
-        return True
-    finally:
-        resp.close()
