@@ -17,8 +17,15 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPen
+from PySide6.QtCore import QSize, Qt, Signal, QPointF, QRectF
+from PySide6.QtGui import (
+    QColor,
+    QLinearGradient,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -83,6 +90,29 @@ class GlassCard(QFrame):
         # 半径通过 QSS border-radius 控制，这里只触发刷新
         self.style().unpolish(self)
         self.style().polish(self)
+
+    def paintEvent(self, event: QPaintEvent):
+        """重写 paintEvent 绘制卡片顶部 1px 渐变高光线（替代 CSS .card::before）。"""
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        w = self.width()
+        h = self.height()
+        r = self._radius
+
+        # 顶部 1px 渐变高光线：transparent → rgba(255,255,255,0.4) → transparent
+        grad = QLinearGradient(0, 0, w, 0)
+        grad.setColorAt(0.0, QColor(255, 255, 255, 0))
+        grad.setColorAt(0.5, QColor(255, 255, 255, 102))
+        grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.setPen(QPen(grad, 1))
+        # 从圆角后的直线段开始（留出两端的圆弧部分）
+        p.drawLine(QPointF(r, 0.5), QPointF(w - r, 0.5))
+
+    def set_theme(self, theme: str):
+        """主题切换时刷新（当前顶部高光线颜色固定，预留接口）。"""
+        self.update()
 
 
 # ============================================================

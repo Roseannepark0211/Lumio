@@ -16,6 +16,11 @@ def main():
     logo = _ASSETS / "logo.png"
     if logo.exists():
         app.setWindowIcon(QIcon(str(logo)))
+
+    # 加载 Manrope + JetBrains Mono 字体（文件不存在则静默回退到系统字体）
+    from .gui.theme.fonts import ensure_fonts_available
+    ensure_fonts_available()
+
     cfg = load_config()
 
     if cfg.get("init_completed"):

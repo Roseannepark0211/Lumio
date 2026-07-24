@@ -185,7 +185,7 @@ def _build_qss(t: dict) -> str:
 
 /* ---- Global ---- */
 QMainWindow, QWidget {{
-    background-color: {t['bg_base']};
+    background-color: transparent;
     color: {t['text_primary']};
     font-family: {FONT_BODY};
     font-size: {FS_BODY}px;
@@ -635,7 +635,7 @@ QFrame#sidebar_sep_line {{
 }}
 
 QStackedWidget#content_area {{
-    background-color: {t['bg_base']};
+    background-color: transparent;
 }}
 
 QWidget#home_page, QWidget#downloads_page, QWidget#history_page,
@@ -689,8 +689,6 @@ QPushButton#nav_btn:hover {{
 QPushButton#nav_btn:checked {{
     background-color: {t['glass_bg_hi']};
     color: {t['text_primary']};
-    border-left: 3px solid {t['accent']};
-    padding-left: 11px;
 }}
 
 QPushButton#nav_btn_disabled {{
@@ -710,13 +708,13 @@ QPushButton#nav_btn_disabled {{
 
 /* ---- Glass Card ---- */
 QFrame#glass_card, QFrame#lg_card {{
-    background-color: {t['card_bg']};
+    background-color: {t['glass_bg']};
     border: 1px solid {t['card_border']};
     border-radius: {R_XL}px;
 }}
 
 QFrame#glass_card:hover, QFrame#lg_card:hover {{
-    border-color: {t['card_border_hi']};
+    border-color: {t['glass_border_hi']};
 }}
 
 /* Legacy card aliases (preserved for compatibility) */

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from ..i18n import t
 from ..queue_manager import DownloadManager, TaskStatus
 from .queue_panel import QueueTaskWidget
+from .theme.paint import GradientLabel
 
 
 class DownloadsPage(QWidget):
@@ -34,10 +35,10 @@ class DownloadsPage(QWidget):
 
         # Header bar
         header = QHBoxLayout()
-        header.setContentsMargins(32, 20, 32, 12)
+        header.setContentsMargins(0, 20, 0, 12)
         header.setSpacing(10)
 
-        title = QLabel(t("queue_title"))
+        title = GradientLabel(t("queue_title"), direction="vertical")
         title.setObjectName("page_title")
         header.addWidget(title)
 
@@ -80,7 +81,7 @@ class DownloadsPage(QWidget):
 
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(32, 8, 32, 16)
+        self._list_layout.setContentsMargins(0, 8, 0, 16)
         self._list_layout.setSpacing(4)
         self._list_layout.addStretch()
 

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from ..i18n import get_lang, set_lang, t
 from ..utils.config import get_download_dir, load_config, save_config
 from ..telegram_service import TelegramService
+from .theme.paint import FocusLineEdit, GradientLabel
 from .widgets import NoWheelComboBox
 
 
@@ -125,11 +126,11 @@ class SettingsPage(QWidget):
         content = QWidget()
         content.setObjectName("settings_content")
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(32, 24, 32, 24)
+        inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(20)
 
         # Title
-        title = QLabel(t("settings"))
+        title = GradientLabel(t("settings"), direction="vertical")
         title.setObjectName("page_title")
         inner.addWidget(title)
 
@@ -429,7 +430,7 @@ class SettingsPage(QWidget):
                 # Token input
                 token_row = QHBoxLayout()
                 token_row.addWidget(QLabel(f"{t('apify_token')}:"))
-                token_input = QLineEdit()
+                token_input = FocusLineEdit()
                 token_input.setEchoMode(QLineEdit.EchoMode.Password)
                 token_input.setPlaceholderText("apify_api_...")
                 token_input.setText(cfg_cred.get("apify_token", ""))
@@ -439,7 +440,7 @@ class SettingsPage(QWidget):
                 # Actor ID input
                 actor_row = QHBoxLayout()
                 actor_row.addWidget(QLabel(f"{t('apify_actor_id')}:"))
-                actor_input = QLineEdit()
+                actor_input = FocusLineEdit()
                 actor_input.setPlaceholderText("shu8hvrXbJbY3Eb9W")
                 actor_input.setText(cfg_cred.get("apify_ig_actor", ""))
                 actor_row.addWidget(actor_input, 1)
@@ -643,7 +644,7 @@ class SettingsPage(QWidget):
         token_row = QHBoxLayout()
         token_row.setSpacing(8)
         token_row.addWidget(QLabel(t("telegram_bot_token") + ":"))
-        self._tg_token_input = QLineEdit()
+        self._tg_token_input = FocusLineEdit()
         self._tg_token_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._tg_token_input.setPlaceholderText("123456:ABC-DEF...")
         self._tg_token_input.setText(cfg_tg.get("telegram_bot_token", ""))
@@ -658,7 +659,7 @@ class SettingsPage(QWidget):
         api_row = QHBoxLayout()
         api_row.setSpacing(8)
         api_row.addWidget(QLabel(t("telegram_api_base") + ":"))
-        self._tg_api_input = QLineEdit()
+        self._tg_api_input = FocusLineEdit()
         self._tg_api_input.setPlaceholderText("https://api.telegram.org")
         self._tg_api_input.setText(cfg_tg.get("telegram_api_base", "https://api.telegram.org"))
         api_row.addWidget(self._tg_api_input, 1)

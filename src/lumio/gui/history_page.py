@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from ..history_manager import HistoryManager, HistoryRecord
 from ..i18n import t
 from .history_panel import BatchGroupWidget, HistoryRecordWidget
+from .theme.paint import FocusLineEdit, GradientLabel
 
 
 class HistoryPage(QWidget):
@@ -37,10 +38,10 @@ class HistoryPage(QWidget):
 
         # Header bar
         header = QHBoxLayout()
-        header.setContentsMargins(32, 20, 32, 12)
+        header.setContentsMargins(0, 20, 0, 12)
         header.setSpacing(10)
 
-        title = QLabel(t("history_title"))
+        title = GradientLabel(t("history_title"), direction="vertical")
         title.setObjectName("page_title")
         header.addWidget(title)
 
@@ -68,7 +69,7 @@ class HistoryPage(QWidget):
         header.addWidget(self._filter_combo)
 
         # Search box
-        self._search = QLineEdit()
+        self._search = FocusLineEdit()
         self._search.setObjectName("history_search")
         self._search.setPlaceholderText(t("history_search"))
         self._search.setFixedWidth(200)
@@ -97,7 +98,7 @@ class HistoryPage(QWidget):
 
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(32, 8, 32, 16)
+        self._list_layout.setContentsMargins(0, 8, 0, 16)
         self._list_layout.setSpacing(4)
         self._list_layout.addStretch()
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from ..history_manager import HistoryManager
 from ..i18n import t
 from ..utils.media_utils import format_size
+from .theme.paint import GradientLabel
 
 
 def _stat_card(label: str, value: str, color: str = "#7c8fff") -> QWidget:
@@ -61,11 +62,11 @@ class StatsPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 24, 32, 24)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(24)
 
         # Title
-        title = QLabel(t("stats_title"))
+        title = GradientLabel(t("stats_title"), direction="vertical")
         title.setObjectName("page_title")
         root.addWidget(title)
 

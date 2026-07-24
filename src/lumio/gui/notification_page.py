@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from ..i18n import t
 from ..notification_manager import Notification, NotificationManager
+from .theme.paint import GradientLabel
 
 _TYPE_ICONS = {
     "warning": "⚠️",
@@ -128,12 +129,12 @@ class NotificationPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
         # Header
         header = QHBoxLayout()
-        title = QLabel(t("notifications"))
+        title = GradientLabel(t("notifications"), direction="vertical")
         title.setObjectName("page_title")
         header.addWidget(title)
 

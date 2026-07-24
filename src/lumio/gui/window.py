@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QScrollArea,
     QStackedWidget,
     QSystemTrayIcon,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -34,6 +36,7 @@ from .settings_page import SettingsPage
 from .sidebar import SidebarWidget
 from .stats_page import StatsPage
 from .styles import get_stylesheet
+from .theme.background import AtmosphericBackground
 
 _ASSETS = Path(__file__).parent.parent / "assets"
 
@@ -79,7 +82,12 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         central = QWidget()
+        central.setObjectName("central_widget")
         self.setCentralWidget(central)
+
+        # 大气背景层：绘制 4 层径向光球 + 噪点纹理
+        self._bg = AtmosphericBackground(self._theme, central)
+        self._bg.setGeometry(central.rect())
 
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
@@ -98,6 +106,13 @@ class MainWindow(QMainWindow):
         root.addWidget(sep)
 
         # ---- Content Area ----
+        # 用 ScrollArea 包裹 QStackedWidget，统一 padding 40px 56px + max-width 1200px
+        content_wrap = QWidget()
+        content_wrap.setObjectName("content_wrap")
+        content_layout = QVBoxLayout(content_wrap)
+        content_layout.setContentsMargins(56, 40, 56, 48)
+        content_layout.setSpacing(0)
+
         self._stack = QStackedWidget()
         self._stack.setObjectName("content_area")
 
@@ -122,7 +137,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._notif_page)      # index 5 or 6
         self._stack.addWidget(self._settings_page)   # index 6 or 7
 
-        root.addWidget(self._stack, 1)
+        content_layout.addWidget(self._stack)
+        root.addWidget(content_wrap, 1)
 
     def _connect_signals(self):
         # Sidebar navigation
@@ -303,6 +319,8 @@ class MainWindow(QMainWindow):
     def _on_theme_toggle(self):
         self._theme = "light" if self._theme == "dark" else "dark"
         self.setStyleSheet(get_stylesheet(self._theme))
+        # 更新大气背景
+        self._bg.set_theme(self._theme)
         # Force all child widgets to re-apply the new stylesheet
         self.style().unpolish(self)
         self.style().polish(self)
@@ -319,6 +337,12 @@ class MainWindow(QMainWindow):
         cfg = load_config()
         cfg["theme"] = self._theme
         save_config(cfg)
+
+    def resizeEvent(self, event):
+        """窗口 resize 时同步大气背景层尺寸。"""
+        super().resizeEvent(event)
+        if hasattr(self, '_bg') and self.centralWidget():
+            self._bg.setGeometry(self.centralWidget().rect())
 
     # ---- Cookie status ----
 

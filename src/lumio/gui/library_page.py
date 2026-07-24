@@ -22,6 +22,7 @@ from ..library_manager import LibraryManager
 from ..models import LibraryItem
 from .library_panel import LibraryItemWidget
 from .preview_dialog import AudioPreviewDialog, ImagePreviewDialog, VideoPreviewDialog
+from .theme.paint import FocusLineEdit, GradientLabel
 
 
 class LibraryPage(QWidget):
@@ -43,10 +44,10 @@ class LibraryPage(QWidget):
 
         # --- Row 1: Title + Search + Reset ---
         header = QHBoxLayout()
-        header.setContentsMargins(32, 20, 32, 8)
+        header.setContentsMargins(0, 20, 0, 8)
         header.setSpacing(10)
 
-        title = QLabel(t("library_title"))
+        title = GradientLabel(t("library_title"), direction="vertical")
         title.setObjectName("page_title")
         header.addWidget(title)
 
@@ -58,7 +59,7 @@ class LibraryPage(QWidget):
         header.addStretch()
 
         # Search box (wide, prominent)
-        self._search = QLineEdit()
+        self._search = FocusLineEdit()
         self._search.setObjectName("history_search")
         self._search.setPlaceholderText(t("library_search"))
         self._search.setMinimumWidth(280)
@@ -78,7 +79,7 @@ class LibraryPage(QWidget):
 
         # --- Row 2: Filters + Date range + Select mode ---
         filter_row = QHBoxLayout()
-        filter_row.setContentsMargins(32, 0, 32, 8)
+        filter_row.setContentsMargins(0, 0, 0, 8)
         filter_row.setSpacing(8)
 
         # Favorites filter toggle
@@ -221,7 +222,7 @@ class LibraryPage(QWidget):
 
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(32, 8, 32, 16)
+        self._list_layout.setContentsMargins(0, 8, 0, 16)
         self._list_layout.setSpacing(4)
         self._list_layout.addStretch()
 

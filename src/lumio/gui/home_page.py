@@ -29,6 +29,7 @@ from ..i18n import t
 from ..queue_manager import DownloadManager, QueueTask
 from ..utils.config import get_download_dir
 from ..utils.url_parser import Platform, parse_url
+from .theme.paint import FocusLineEdit, FocusPlainTextEdit, GradientLabel
 from .widgets import NoWheelComboBox
 
 
@@ -236,11 +237,11 @@ class HomePage(QWidget):
         hero = QFrame()
         hero.setObjectName("home_hero")
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(48, 48, 48, 40)
+        hero_layout.setContentsMargins(0, 0, 0, 0)
         hero_layout.setSpacing(12)
         hero_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._hero_title = QLabel("Lumio")
+        self._hero_title = GradientLabel("Lumio", direction="horizontal", color_start="#ffffff", color_end="#a8c7ff")
         self._hero_title.setObjectName("hero_title")
         self._hero_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hero_layout.addWidget(self._hero_title)
@@ -273,7 +274,7 @@ class HomePage(QWidget):
         # ===== Content area (constrained) =====
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(48, 24, 48, 40)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(24)
 
         # ========== Input Card ==========
@@ -283,7 +284,7 @@ class HomePage(QWidget):
         card_layout.setContentsMargins(24, 20, 24, 20)
         card_layout.setSpacing(12)
 
-        self._url_input = QPlainTextEdit()
+        self._url_input = FocusPlainTextEdit()
         self._url_input.setObjectName("home_url_input")
         self._url_input.setPlaceholderText(t("url_placeholder"))
         self._url_input.setMinimumHeight(100)
@@ -488,7 +489,7 @@ class HomePage(QWidget):
         name_lbl = QLabel(t("name_label"))
         name_lbl.setObjectName("preview_info_meta")
         name_col.addWidget(name_lbl)
-        self._name_input = QLineEdit()
+        self._name_input = FocusLineEdit()
         self._name_input.setObjectName("home_name_input")
         self._name_input.setPlaceholderText(t("leave_empty"))
         name_col.addWidget(self._name_input)

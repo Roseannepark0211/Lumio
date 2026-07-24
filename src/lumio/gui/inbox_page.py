@@ -22,6 +22,7 @@ from ..inbox_manager import InboxManager
 from ..models import InboxItem
 from ..queue_manager import DownloadManager, QueueTask
 from ..utils.config import get_download_dir
+from .theme.paint import GradientLabel
 
 
 # ── 单条卡片 ────────────────────────────────────────────────────────
@@ -202,12 +203,12 @@ class InboxPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
         # Header row
         header = QHBoxLayout()
-        self._title_label = QLabel(t("inbox"))
+        self._title_label = GradientLabel(t("inbox"), direction="vertical")
         self._title_label.setObjectName("page_title")
         header.addWidget(self._title_label)
 

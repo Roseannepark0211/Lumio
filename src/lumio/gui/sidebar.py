@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal, QSize, QPointF, QRectF
+from PySide6.QtGui import (
+    QColor, QLinearGradient, QPainter, QPaintEvent, QPen, QBrush,
+    QRadialGradient, QIcon,
+)
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget
 )
@@ -62,6 +65,55 @@ class NavButton(QPushButton):
         """重写以触发图标颜色刷新。"""
         super().setChecked(checked)
         self._refresh_icon()
+
+    def paintEvent(self, event: QPaintEvent):
+        """重写 paintEvent：选中态绘制 3px 渐变竖条 + accent 辉光。"""
+        super().paintEvent(event)
+        if not self.isChecked():
+            return
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+
+        # 指示器参数（与设计稿 .nav-item.active::before 一致）
+        bar_x = 5          # left: 4px (从边缘缩进)
+        bar_w = 3          # width: 3px
+        bar_h = 16         # height: 16px
+        bar_y = (h - bar_h) / 2
+
+        # 绘制辉光（box-shadow: 0 0 8px accent-soft）
+        glow_radius = 8
+        glow_grad = QRadialGradient(
+            QPointF(bar_x + bar_w / 2, bar_y + bar_h / 2),
+            glow_radius,
+        )
+        glow_grad.setColorAt(0.0, QColor(10, 132, 255, 80))
+        glow_grad.setColorAt(1.0, QColor(10, 132, 255, 0))
+        p.setBrush(QBrush(glow_grad))
+        p.setPen(QPen(Qt.PenStyle.NoPen))
+        p.drawEllipse(
+            QRectF(
+                bar_x + bar_w / 2 - glow_radius,
+                bar_y + bar_h / 2 - glow_radius,
+                glow_radius * 2,
+                glow_radius * 2,
+            )
+        )
+
+        # 绘制渐变竖条（linear-gradient(180deg, accent, accent_2)）
+        bar_grad = QLinearGradient(bar_x, bar_y, bar_x, bar_y + bar_h)
+        bar_grad.setColorAt(0.0, QColor(T.DARK["accent"]))
+        bar_grad.setColorAt(1.0, QColor(T.DARK["accent_2"]))
+        p.setBrush(QBrush(bar_grad))
+        p.setPen(QPen(Qt.PenStyle.NoPen))
+        # 圆角矩形（border-radius: 2px）
+        p.drawRoundedRect(
+            QRectF(bar_x, bar_y, bar_w, bar_h),
+            2, 2,
+        )
 
 
 # ============================================================
