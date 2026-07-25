@@ -44,9 +44,10 @@ Rectangle {
         if (media === "image") return Theme.warning
         if (media === "mixed") return Theme.accent2
         if (status === "downloading") return Theme.accent
-        if (status === "paused" || status === "retrying") return Theme.warning
+        if (status === "paused" || status === "retrying" || status === "warning") return Theme.warning
         if (status === "completed") return Theme.success
         if (status === "failed")    return Theme.danger
+        if (status === "default")   return Theme.textMute
         return Theme.textMute
     }
 

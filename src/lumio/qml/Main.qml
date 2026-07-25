@@ -50,6 +50,15 @@ ApplicationWindow {
     // 监听 controller 信号 → 主题/语言切换
     Connections {
         target: typeof controller !== "undefined" ? controller : null
+        // 启动时同步 controller 的 theme 到 QML Theme（修复清单问题 1：首次切换需点两次）
+        // 原因：Theme.qml 第 14 行硬编码 theme="dark"，若 config.json 是 "light"，
+        // 启动后 Theme.theme 仍是 dark，第一次点击 setTheme("light") 时
+        // controller._theme 已是 light（无变化），不触发 themeChanged 信号
+        Component.onCompleted: {
+            if (controller && controller.theme) {
+                Theme.theme = controller.theme
+            }
+        }
         function onThemeChanged(theme) { Theme.theme = theme }
         function onLangChanged(lang) { _reloadCurrentPage() }
         function onToastRequested(message) { _toast.show(message) }

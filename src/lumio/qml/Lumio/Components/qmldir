@@ -9,6 +9,7 @@ Pill 1.0 Pill.qml
 Sidebar 1.0 Sidebar.qml
 LaserProgressBar 1.0 LaserProgressBar.qml
 LumioComboBox 1.0 LumioComboBox.qml
+LumioSpinBox 1.0 LumioSpinBox.qml
 PageHeader 1.0 PageHeader.qml
 SettingsCard 1.0 SettingsCard.qml
 VideoPreviewDialog 1.0 VideoPreviewDialog.qml

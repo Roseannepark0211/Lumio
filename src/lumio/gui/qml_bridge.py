@@ -1348,9 +1348,134 @@ class QmlController(QObject):
 
     @Slot(result=str)
     def getCookieStatus(self) -> str:
-        """返回 cookie 状态：missing / valid。"""
-        from ..utils.config import get_cookie_path
-        return "valid" if get_cookie_path() else "missing"
+        """返回 cookie 总体状态：missing / valid / warning / expired。
+
+        修复清单问题 4：原版本只返回 missing/valid，丢失 expired/warning。
+        现在遍历所有平台，取最严重状态作为总体状态。
+        """
+        try:
+            from .cookie_checker import check_all_cookies
+            statuses = check_all_cookies()
+            # 严重程度排序：expired > warning > valid > missing
+            if "expired" in statuses.values():
+                return "expired"
+            if "warning" in statuses.values():
+                return "warning"
+            if "valid" in statuses.values():
+                return "valid"
+            return "missing"
+        except Exception:
+            from ..utils.config import get_cookie_path
+            return "valid" if get_cookie_path() else "missing"
+
+    @Slot(result=str)
+    def getCookieStatusesJson(self) -> str:
+        """返回所有平台 cookie 状态 JSON。
+
+        格式: {"instagram":"valid","x":"missing","youtube":"missing",...}
+        修复清单问题 4：让用户知道哪个平台已导入、哪个还没导入。
+        """
+        try:
+            from .cookie_checker import check_all_cookies
+            return json.dumps(check_all_cookies(), ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    @Slot(result=bool)
+    def clearCookie(self) -> bool:
+        """清除所有 cookie（清空 cookie 文件内容）。
+
+        修复清单问题 4：原版本只有导入按钮，没有清除按钮。
+        """
+        try:
+            from ..utils.config import get_cookie_path
+            cookie_path = get_cookie_path()
+            if cookie_path and cookie_path.exists():
+                # 清空文件内容（保留文件本身，避免路径失效）
+                cookie_path.write_text("", encoding="utf-8")
+                self.toastRequested.emit(self._tr("cookie_cleared"))
+                return True
+            return False
+        except Exception as e:
+            self.toastRequested.emit(f"Clear failed: {e}")
+            return False
+
+    # ============================================================
+    # Telegram 集成（修复清单问题 3：恢复老版本功能）
+    # ============================================================
+
+    @Slot(str, str, result=str)
+    def validateTelegramToken(self, token: str, proxy: str = "") -> str:
+        """验证 Telegram Bot Token。
+
+        返回 JSON: {"ok": true, "username": "..."} 或 {"ok": false, "error": "..."}
+        """
+        try:
+            from ..telegram_service import TelegramService
+            result = TelegramService.validate_token(token, proxy=proxy)
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+
+    @Slot(result=str)
+    def generateTelegramPairCode(self) -> str:
+        """生成 Telegram 配对码（格式 XXXX-XXXX）。"""
+        try:
+            from ..telegram_service import TelegramService
+            svc = TelegramService(inbox_manager=None)
+            return svc.generate_pair_code()
+        except Exception as e:
+            return f"Error: {e}"
+
+    @Slot(result=str)
+    def getTelegramStateJson(self) -> str:
+        """返回 Telegram 当前状态 JSON。
+
+        包含：pair_code、bound_device（telegram_user_id/username/first_name）。
+        """
+        try:
+            from ..telegram_service import TelegramService
+            svc = TelegramService(inbox_manager=None)
+            device = svc.get_bound_device()
+            bound = None
+            if device:
+                bound = {
+                    "telegram_user_id": device.telegram_user_id,
+                    "username": getattr(device, "username", "") or "",
+                    "first_name": getattr(device, "first_name", "") or "",
+                }
+            return json.dumps({
+                "pair_code": load_config().get("telegram_pair_code", ""),
+                "bound_device": bound,
+                "is_running": svc.is_running,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    @Slot(result=bool)
+    def unlinkTelegramDevice(self) -> bool:
+        """解除 Telegram 设备绑定。"""
+        try:
+            from ..telegram_service import TelegramService
+            svc = TelegramService(inbox_manager=None)
+            device = svc.get_bound_device()
+            if device:
+                svc.unlink_device(device.telegram_user_id)
+                self.toastRequested.emit(self._tr("telegram_unlinked"))
+                return True
+            return False
+        except Exception as e:
+            self.toastRequested.emit(f"Unlink failed: {e}")
+            return False
+
+    @Slot(str)
+    def copyToClipboard(self, text: str) -> None:
+        """复制文本到系统剪贴板。"""
+        try:
+            from PySide6.QtGui import QGuiApplication
+            QGuiApplication.clipboard().setText(text)
+        except Exception as e:
+            self.toastRequested.emit(f"Copy failed: {e}")
 
     # ============================================================
     # 主题 / 语言

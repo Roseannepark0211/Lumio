@@ -21,7 +21,11 @@ Item {
     property var config: ({})
     property var cacheStats: ({})
     property string cookieStatus: "missing"
+    property var cookieStatuses: ({})  // 各平台单独状态（修复清单问题 4）
     property string updateStatus: ""
+    property var tgState: ({})  // Telegram 状态（修复清单问题 3）
+    property string tgValidateStatus: ""  // Telegram 验证结果
+    property bool tgValidating: false
 
     Connections {
         target: typeof controller !== "undefined" ? controller : null
@@ -36,6 +40,18 @@ Item {
             var cfg = JSON.parse(controller.getConfigJson())
             root.config = cfg
             root.cookieStatus = controller.getCookieStatus()
+            // 修复清单问题 4：加载各平台单独的 cookie 状态
+            try {
+                root.cookieStatuses = JSON.parse(controller.getCookieStatusesJson())
+            } catch (e) {
+                root.cookieStatuses = ({})
+            }
+            // 修复清单问题 3：加载 Telegram 状态（pair_code/bound_device）
+            try {
+                root.tgState = JSON.parse(controller.getTelegramStateJson())
+            } catch (e) {
+                root.tgState = ({})
+            }
             try {
                 root.cacheStats = JSON.parse(controller.getCacheStatsJson())
             } catch (e) {
@@ -83,10 +99,92 @@ Item {
             var result = controller.importCookieFile(pathsJson)
             if (result === "ok") {
                 root.cookieStatus = controller.getCookieStatus()
+                try {
+                    root.cookieStatuses = JSON.parse(controller.getCookieStatusesJson())
+                } catch (e) {}
             } else {
                 controller.showToast(result)
             }
         }
+    }
+
+    function _clearCookie() {
+        if (!controller) return
+        _cookieClearDialog.visible = true
+    }
+
+    function _doClearCookie() {
+        if (controller) controller.clearCookie()
+        _cookieClearDialog.visible = false
+        _refreshTimer.start()
+    }
+
+    // 修复清单问题 3：Telegram 验证/配对码/解绑
+    function _validateTelegram() {
+        if (!controller || root.tgValidating) return
+        root.tgValidating = true
+        root.tgValidateStatus = tr("telegram_validating")
+        // 读取当前输入框的 token（如果是 ***configured*** 占位则用已保存的 token）
+        var token = _tgTokenInput.text
+        if (token === "••••••••••••••••") {
+            // 占位符 → 用 config 中已保存的 token
+            token = root.config.telegram_bot_token || ""
+            if (token === "***configured***") token = ""
+        }
+        if (!token) {
+            root.tgValidateStatus = tr("telegram_no_token")
+            root.tgValidating = false
+            return
+        }
+        var proxy = root.config.http_proxy || ""
+        // 后台调用（validate_token 是同步的，会阻塞 — 用 WorkerScript? 暂用直调，验证通常 <3s）
+        var resultJson = controller.validateTelegramToken(token, proxy)
+        try {
+            var r = JSON.parse(resultJson)
+            if (r.ok) {
+                root.tgValidateStatus = tr("telegram_validate_ok").replace("{username}", r.username || "")
+                // 验证成功后保存 token + 自动生成配对码
+                _save("telegram_bot_token", token)
+                _regenPairCode()
+            } else {
+                root.tgValidateStatus = tr("telegram_validate_fail") + ": " + (r.error || "")
+            }
+        } catch (e) {
+            root.tgValidateStatus = tr("telegram_validate_fail") + ": " + String(e)
+        }
+        root.tgValidating = false
+    }
+
+    function _regenPairCode() {
+        if (!controller) return
+        var code = controller.generateTelegramPairCode()
+        if (code && code.indexOf("Error") !== 0) {
+            try {
+                root.tgState = JSON.parse(controller.getTelegramStateJson())
+            } catch (e) {}
+        } else {
+            controller.showToast(code)
+        }
+    }
+
+    function _copyPairCode() {
+        if (!controller) return
+        var code = (root.tgState.pair_code || "")
+        if (code && code.length > 0) {
+            controller.copyToClipboard(code)
+            controller.showToast(tr("telegram_copied"))
+        }
+    }
+
+    function _unlinkTelegram() {
+        if (!controller) return
+        _tgUnlinkDialog.visible = true
+    }
+
+    function _doUnlinkTelegram() {
+        if (controller) controller.unlinkTelegramDevice()
+        _tgUnlinkDialog.visible = false
+        _refreshTimer.start()
     }
 
     function _cleanByRules() {
@@ -193,6 +291,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 12
 
+                    // 总状态 + 操作按钮
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -202,12 +301,22 @@ Item {
                             Layout.preferredWidth: 120
                         }
                         Badge {
-                            text: root.cookieStatus === "valid"
-                                  ? tr("cookie_status_valid")
-                                  : tr("cookie_status_missing")
-                            status: root.cookieStatus === "valid" ? "completed" : "failed"
+                            // 修复清单问题 4：补全 expired/warning 状态显示
+                            text: root.cookieStatus === "valid" ? tr("cookie_status_valid")
+                                : root.cookieStatus === "warning" ? tr("cookie_status_warning")
+                                : root.cookieStatus === "expired" ? tr("cookie_status_expired")
+                                : tr("cookie_status_missing")
+                            status: root.cookieStatus === "valid" ? "completed"
+                                  : (root.cookieStatus === "warning" || root.cookieStatus === "expired")
+                                    ? "warning" : "failed"
                         }
                         Item { Layout.fillWidth: true }
+                        Button {
+                            text: tr("cookie_clear_btn")
+                            variant: "ghost"
+                            iconName: "i-trash"
+                            onClicked: _clearCookie()
+                        }
                         Button {
                             text: tr("cookie_import_btn")
                             variant: "primary"
@@ -216,6 +325,7 @@ Item {
                         }
                     }
 
+                    // Cookie 文件路径
                     Text {
                         Layout.fillWidth: true
                         text: (root.config.cookie_file || "").length > 0
@@ -225,6 +335,89 @@ Item {
                         font.family: Theme.fontMono
                         font.pixelSize: 11
                         elide: Text.ElideMiddle
+                    }
+
+                    // 各平台单独状态（2×4 网格）
+                    Text {
+                        text: tr("cookie_per_platform")
+                        color: Theme.textMute
+                        font.pixelSize: 11
+                        font.letterSpacing: 1.0
+                        Layout.topMargin: 6
+                    }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 4
+                        rowSpacing: 6
+                        columnSpacing: 8
+
+                        Repeater {
+                            // 修复清单问题 4：让用户清楚知道哪个平台已导入、哪个还没导入
+                            model: [
+                                { key: "instagram",  label: tr("cookie_status_ig") },
+                                { key: "x",          label: tr("cookie_status_x") },
+                                { key: "youtube",    label: tr("cookie_status_yt") },
+                                { key: "weibo",      label: tr("cookie_status_wb") },
+                                { key: "douyin",     label: tr("cookie_status_dy") },
+                                { key: "xiaohongshu",label: tr("cookie_status_xhs") },
+                                { key: "bilibili",   label: tr("cookie_status_bili") },
+                                { key: "kuaishou",   label: tr("cookie_status_ks") }
+                            ]
+                            delegate: Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 36
+                                radius: Theme.rXS
+                                color: Qt.rgba(0, 0, 0, 0.15)
+                                border.width: 1
+                                border.color: Theme.glassBorder
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 6
+
+                                    // 状态圆点
+                                    Rectangle {
+                                        Layout.preferredWidth: 8
+                                        Layout.preferredHeight: 8
+                                        radius: 4
+                                        color: {
+                                            var s = (root.cookieStatuses[modelData.key] || "missing")
+                                            if (s === "valid") return Theme.success
+                                            if (s === "warning") return Theme.warning
+                                            if (s === "expired") return Theme.danger
+                                            return Qt.rgba(0.5, 0.5, 0.5, 0.4)  // missing
+                                        }
+                                    }
+
+                                    Text {
+                                        text: modelData.label
+                                        color: Theme.textPrimary
+                                        font.pixelSize: 11
+                                        Layout.fillWidth: true
+                                    }
+
+                                    Text {
+                                        text: {
+                                            var s = (root.cookieStatuses[modelData.key] || "missing")
+                                            if (s === "valid") return "✓"
+                                            if (s === "warning") return "!"
+                                            if (s === "expired") return "✗"
+                                            return "—"
+                                        }
+                                        color: {
+                                            var s = (root.cookieStatuses[modelData.key] || "missing")
+                                            if (s === "valid") return Theme.success
+                                            if (s === "warning") return Theme.warning
+                                            if (s === "expired") return Theme.danger
+                                            return Theme.textDim
+                                        }
+                                        font.pixelSize: 12
+                                        font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -243,6 +436,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 12
 
+                    // 启用开关 + 显性状态提示（修复清单问题 3）
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -255,9 +449,26 @@ Item {
                             checked: root.config.telegram_enabled === true
                             onToggled: _save("telegram_enabled", checked)
                         }
+                        // 显性状态 Badge
+                        Badge {
+                            text: root.config.telegram_enabled === true
+                                  ? tr("telegram_status_on")
+                                  : tr("telegram_status_off")
+                            status: root.config.telegram_enabled === true ? "completed" : "default"
+                        }
                         Item { Layout.fillWidth: true }
                     }
 
+                    Text {
+                        text: tr("telegram_enable_hint")
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 130
+                    }
+
+                    // Bot Token + 验证按钮（修复清单问题 3）
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -267,16 +478,38 @@ Item {
                             Layout.preferredWidth: 120
                         }
                         Input {
+                            id: _tgTokenInput
                             Layout.fillWidth: true
-                            placeholderText: tr("telegram_no_token")
+                            placeholderText: "123456:ABC-DEF..."
                             text: root.config.telegram_bot_token === "***configured***"
                                   ? "••••••••••••••••"
                                   : (root.config.telegram_bot_token || "")
                             echoMode: TextInput.Password
                             onEditingFinished: _save("telegram_bot_token", text)
                         }
+                        Button {
+                            text: root.tgValidating ? tr("telegram_validating")
+                                                  : tr("telegram_validate_btn")
+                            variant: "default"
+                            iconName: "i-check"
+                            enabled: !root.tgValidating
+                            onClicked: _validateTelegram()
+                        }
                     }
 
+                    // 验证状态显示
+                    Text {
+                        text: root.tgValidateStatus
+                        color: root.tgValidateStatus.indexOf("🟢") === 0 ? Theme.success
+                              : (root.tgValidateStatus.length > 0 ? Theme.danger : Theme.textDim)
+                        font.pixelSize: 12
+                        visible: root.tgValidateStatus.length > 0
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 130
+                        wrapMode: Text.Wrap
+                    }
+
+                    // API 地址
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
@@ -290,6 +523,89 @@ Item {
                             placeholderText: "https://api.telegram.org"
                             text: root.config.telegram_api_base || ""
                             onEditingFinished: _save("telegram_api_base", text)
+                        }
+                    }
+
+                    Text {
+                        text: tr("telegram_api_base_hint")
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 130
+                    }
+
+                    // 配对码区域（修复清单问题 3：原版本完全缺失）
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        visible: !root.tgState.bound_device
+
+                        Text {
+                            text: tr("telegram_pair_code_label")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Text {
+                            text: root.tgState.pair_code || "—"
+                            color: Theme.accent
+                            font.family: Theme.fontMono
+                            font.pixelSize: 18
+                            font.weight: Font.Bold
+                            Layout.fillWidth: true
+                        }
+                        Button {
+                            text: tr("telegram_copy_btn")
+                            variant: "ghost"
+                            iconName: "i-copy"
+                            visible: (root.tgState.pair_code || "").length > 0
+                            onClicked: _copyPairCode()
+                        }
+                        Button {
+                            text: tr("telegram_regen_btn")
+                            variant: "ghost"
+                            iconName: "i-refresh"
+                            onClicked: _regenPairCode()
+                        }
+                    }
+
+                    Text {
+                        text: tr("telegram_pair_hint")
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 130
+                        visible: !root.tgState.bound_device && (root.tgState.pair_code || "").length > 0
+                    }
+
+                    // 已绑定设备区域
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        visible: root.tgState.bound_device !== null && root.tgState.bound_device !== undefined
+
+                        Text {
+                            text: tr("telegram_bound_label")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Text {
+                            text: root.tgState.bound_device
+                                  ? ("@" + (root.tgState.bound_device.username
+                                            || root.tgState.bound_device.first_name
+                                            || root.tgState.bound_device.telegram_user_id))
+                                  : "—"
+                            color: Theme.success
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            Layout.fillWidth: true
+                        }
+                        Button {
+                            text: tr("telegram_unlink_btn")
+                            variant: "danger"
+                            iconName: "i-trash"
+                            onClicked: _unlinkTelegram()
                         }
                     }
                 }
@@ -411,7 +727,7 @@ Item {
                             color: Theme.textMute
                             Layout.preferredWidth: 120
                         }
-                        SpinBox {
+                        LumioSpinBox {
                             Layout.preferredWidth: 140
                             from: 1; to: 10
                             value: root.config.max_concurrent || 3
@@ -428,7 +744,7 @@ Item {
                             color: Theme.textMute
                             Layout.preferredWidth: 120
                         }
-                        SpinBox {
+                        LumioSpinBox {
                             Layout.preferredWidth: 140
                             from: 0; to: 10
                             value: root.config.max_retries || 3
@@ -561,7 +877,7 @@ Item {
                             color: Theme.textMute
                             Layout.preferredWidth: 120
                         }
-                        SpinBox {
+                        LumioSpinBox {
                             Layout.preferredWidth: 140
                             from: 1; to: 365
                             value: (root.config.cache_management || {}).retain_days || 7
@@ -578,7 +894,7 @@ Item {
                             color: Theme.textMute
                             Layout.preferredWidth: 120
                         }
-                        SpinBox {
+                        LumioSpinBox {
                             Layout.preferredWidth: 160
                             from: 50; to: 10000; stepSize: 50
                             value: (root.config.cache_management || {}).max_size_mb || 500
@@ -830,6 +1146,106 @@ Item {
                 Button {
                     text: tr("force_clear_all"); variant: "danger"
                     onClicked: _doForceClear()
+                }
+            }
+        }
+    }
+
+    // Cookie 清除确认（修复清单问题 4）
+    Dialog {
+        id: _cookieClearDialog
+        visible: false
+        modal: true
+        anchors.centerIn: parent
+        title: tr("cookie_clear_btn")
+        width: 380
+
+        background: Rectangle {
+            radius: Theme.rLG
+            color: Theme.theme === "dark" ? Qt.rgba(20/255, 22/255, 38/255, 0.98)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.98)
+            border.width: 1
+            border.color: Theme.glassBorderHi
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.4)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 8
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 14
+            Text {
+                text: tr("cookie_clear_confirm")
+                color: Theme.textPrimary
+                font.family: Theme.fontBody
+                font.pixelSize: 14
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: tr("cancel"); variant: "ghost"
+                    onClicked: _cookieClearDialog.visible = false
+                }
+                Button {
+                    text: tr("cookie_clear_btn"); variant: "danger"
+                    onClicked: _doClearCookie()
+                }
+            }
+        }
+    }
+
+    // Telegram 解绑确认（修复清单问题 3）
+    Dialog {
+        id: _tgUnlinkDialog
+        visible: false
+        modal: true
+        anchors.centerIn: parent
+        title: tr("telegram_unlink_btn")
+        width: 380
+
+        background: Rectangle {
+            radius: Theme.rLG
+            color: Theme.theme === "dark" ? Qt.rgba(20/255, 22/255, 38/255, 0.98)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.98)
+            border.width: 1
+            border.color: Theme.glassBorderHi
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.4)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 8
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 14
+            Text {
+                text: qsTr("确定解除 Telegram 设备绑定？解除后需重新生成配对码并重新绑定。")
+                color: Theme.textPrimary
+                font.family: Theme.fontBody
+                font.pixelSize: 14
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: tr("cancel"); variant: "ghost"
+                    onClicked: _tgUnlinkDialog.visible = false
+                }
+                Button {
+                    text: tr("telegram_unlink_btn"); variant: "danger"
+                    onClicked: _doUnlinkTelegram()
                 }
             }
         }
