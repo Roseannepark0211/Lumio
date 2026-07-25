@@ -28,7 +28,6 @@ SpinBox {
 
     font.family: Theme.fontBody
     font.pixelSize: Theme.fsBody
-    color: _textColor
 
     // ===== 输入框背景 =====
     background: Rectangle {
