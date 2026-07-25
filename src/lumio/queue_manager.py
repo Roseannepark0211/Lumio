@@ -496,7 +496,7 @@ class DownloadManager(QObject):
 
             if file_valid:
                 qt.status = TaskStatus.COMPLETED.value
-                qt.progress = 100
+                qt.progress = 1.0  # 统一 0..1 范围（与下载中一致）
                 self._record_history(qt)
                 self.task_finished.emit(qt.task_id, True, "")
             else:

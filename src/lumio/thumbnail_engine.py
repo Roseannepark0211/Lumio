@@ -16,14 +16,35 @@ def generate_thumbnail(
     """Generate a local thumbnail. Returns the path or None on failure."""
     out_dir = get_thumbs_dir()
     out_path = out_dir / f"{record_id}.jpg"
+    # 已存在缓存：若源文件比 thumbnail 新（说明重新下载过），则重新生成；
+    # 否则直接复用缓存（性能优化）
     if out_path.exists():
-        return str(out_path)
+        try:
+            src_p = Path(file_path) if file_path else None
+            if src_p and src_p.exists():
+                src_mtime = src_p.stat().st_mtime
+                # 目录：取目录内最新文件的 mtime
+                if src_p.is_dir():
+                    for f in src_p.iterdir():
+                        if f.is_file():
+                            src_mtime = max(src_mtime, f.stat().st_mtime)
+                if src_mtime <= out_path.stat().st_mtime:
+                    return str(out_path)
+        except OSError:
+            return str(out_path)
 
     p = Path(file_path) if file_path else None
 
     try:
-        if media_type == "image" and p and p.is_file():
-            return _resize_image(p, out_path)
+        if media_type == "image" and p:
+            # 单项下载：p 是文件 → 直接缩放
+            # 多图帖全部下载：p 是目录 → 取第一张图作为封面
+            if p.is_file():
+                return _resize_image(p, out_path)
+            if p.is_dir():
+                first = _first_media_file(p)
+                if first and first.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}:
+                    return _resize_image(first, out_path)
         if media_type in ("video", "mixed") and p:
             if p.is_file():
                 return _extract_video_frame(p, out_path)

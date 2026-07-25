@@ -496,6 +496,66 @@ def run_auto_clean_if_needed() -> bool:
         return False
 
 
+def clean_cache_by_rules(progress_cb: Callable[[str, int, int], None] | None = None) -> dict:
+    """按配置规则清理所有缓存目录（供 QML bridge 调用）。
+
+    读取 config.cache_management 中的 retain_days 和 max_size_mb，
+    执行 clean_all_caches，并更新 last_cleaned 时间戳。
+
+    Returns:
+        各目录清理结果 {dir_name: {freed, deleted, total, remaining}}
+    """
+    cfg = load_config()
+    cm = cfg.get("cache_management", {})
+    retain_days = cm.get("retain_days", DEFAULT_RETAIN_DAYS)
+    max_size_mb = cm.get("max_size_mb", DEFAULT_MAX_SIZE_MB)
+
+    logger.info("按规则清理缓存 (retain_days=%d, max_size_mb=%d)",
+                retain_days, max_size_mb)
+
+    results = clean_all_caches(
+        retain_days=retain_days,
+        max_size_mb=max_size_mb,
+        progress_cb=progress_cb,
+        force=False,
+    )
+
+    # 更新 last_cleaned
+    cm["last_cleaned"] = datetime.now().isoformat()
+    cfg["cache_management"] = cm
+    save_config(cfg)
+
+    return results
+
+
+def force_clear_cache(progress_cb: Callable[[str, int, int], None] | None = None) -> dict:
+    """强制清空所有缓存目录（供 QML bridge 调用）。
+
+    忽略保留期和上限，清空所有白名单文件。
+    inbox_media 也强制清空（含未下载的文件）。
+
+    Returns:
+        各目录清理结果 {dir_name: {freed, deleted, total, remaining}}
+    """
+    logger.info("强制清空所有缓存目录")
+
+    results = clean_all_caches(
+        retain_days=DEFAULT_RETAIN_DAYS,
+        max_size_mb=DEFAULT_MAX_SIZE_MB,
+        progress_cb=progress_cb,
+        force=True,
+    )
+
+    # 更新 last_cleaned
+    cfg = load_config()
+    cm = cfg.get("cache_management", {})
+    cm["last_cleaned"] = datetime.now().isoformat()
+    cfg["cache_management"] = cm
+    save_config(cfg)
+
+    return results
+
+
 def get_preview_cache_path(url: str, ext: str = ".mp4") -> Path:
     """获取预览缓存文件路径（按 URL 的 MD5 命名）。
 

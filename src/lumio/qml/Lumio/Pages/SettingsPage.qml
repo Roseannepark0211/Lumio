@@ -1,0 +1,837 @@
+// ============================================================
+// LUMIO // SettingsPage — 设置页（竖向单列）
+// ------------------------------------------------------------
+// 设计规范参考：Lumio V4.2 设置页 UI 重构修复方案.md
+//   - 竖向单列布局：所有卡片纵向排列，占满宽度
+//   - 分组：账号 / 下载 / 系统
+//   - 视觉中心：PageHeader（大标题 30 + 副标题）
+//   - 卡片统一规范：SettingsCard（图标+标题+描述+内容槽）
+//   - 控件统一对齐：Label 宽度 120 + 控件 fillWidth
+// ============================================================
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQuick.Effects
+import Lumio
+import Lumio.Components
+
+Item {
+    id: root
+
+    property var config: ({})
+    property var cacheStats: ({})
+    property string cookieStatus: "missing"
+    property string updateStatus: ""
+
+    Connections {
+        target: typeof controller !== "undefined" ? controller : null
+        function onConfigChanged() { _reload() }
+    }
+
+    Component.onCompleted: _reload()
+
+    function _reload() {
+        if (typeof controller === "undefined" || !controller) return
+        try {
+            var cfg = JSON.parse(controller.getConfigJson())
+            root.config = cfg
+            root.cookieStatus = controller.getCookieStatus()
+            try {
+                root.cacheStats = JSON.parse(controller.getCacheStatsJson())
+            } catch (e) {
+                root.cacheStats = {}
+            }
+        } catch (e) {
+            console.log("[SettingsPage] reload failed:", e)
+        }
+    }
+
+    function _save(key, value) {
+        if (!controller) return
+        controller.setConfig(key, JSON.stringify(value))
+    }
+
+    function _saveNested(parent_key, key, value) {
+        if (!controller) return
+        var obj = {}
+        obj[key] = value
+        controller.setNestedConfig(parent_key, JSON.stringify(obj))
+    }
+
+    function _formatSize(bytes) {
+        if (!bytes || bytes <= 0) return "0 B"
+        if (bytes < 1024) return bytes + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
+    }
+
+    function _browseDownloadDir() {
+        if (!controller) return
+        var f = controller.browseFolder()
+        if (f && f.length > 0) _save("download_dir", f)
+    }
+
+    function _importCookie() {
+        if (!controller) return
+        // browseCookieFile 现在返回 JSON 路径数组字符串
+        var pathsJson = controller.browseCookieFile()
+        var paths = []
+        try { paths = JSON.parse(pathsJson) } catch (e) { paths = [] }
+        if (paths.length > 0) {
+            // importCookieFile 接收 JSON 路径数组字符串，支持批量导入
+            var result = controller.importCookieFile(pathsJson)
+            if (result === "ok") {
+                root.cookieStatus = controller.getCookieStatus()
+            } else {
+                controller.showToast(result)
+            }
+        }
+    }
+
+    function _cleanByRules() {
+        if (controller) controller.cleanCacheByRules()
+        _refreshTimer.start()
+    }
+
+    function _forceClear() { _forceDialog.visible = true }
+
+    function _doForceClear() {
+        if (controller) controller.forceClearCache()
+        _forceDialog.visible = false
+        _refreshTimer.start()
+    }
+
+    function _checkUpdate() {
+        if (!controller) return
+        root.updateStatus = tr("settings_update_checking")
+        try {
+            var json = controller.checkUpdate()
+            var r = JSON.parse(json)
+            if (r.error) {
+                root.updateStatus = tr("settings_update_error").replace("{err}", r.error)
+            } else if (r.has_update) {
+                root.updateStatus = tr("settings_update_found").replace("{ver}", r.latest)
+            } else {
+                root.updateStatus = tr("settings_update_latest")
+            }
+        } catch (e) {
+            root.updateStatus = tr("settings_update_error").replace("{err}", String(e))
+        }
+    }
+
+    function _totalCacheSize() {
+        var total = 0
+        var stats = root.cacheStats || {}
+        for (var k in stats) {
+            if (k === "_total" || k === "error") continue
+            var s = stats[k] || {}
+            if (s.size_bytes) total += s.size_bytes
+        }
+        return total
+    }
+
+    Timer {
+        id: _refreshTimer
+        interval: 1500
+        repeat: false
+        onTriggered: _reload()
+    }
+
+    // ============================================================
+    // 滚动容器
+    // ============================================================
+    ScrollView {
+        anchors.fill: parent
+        clip: true
+        contentWidth: availableWidth
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 20
+
+            // ============================================================
+            // 视觉中心：PageHeader
+            // ============================================================
+            PageHeader {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                Layout.topMargin: 24
+                title: tr("settings_page")
+                subtitle: tr("settings_subtitle")
+                icon: "i-settings"
+            }
+
+            // ============================================================
+            // 分组：账号
+            // ============================================================
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                Layout.topMargin: 8
+                text: tr("settings_group_account")
+                color: Theme.textMute
+                font.family: Theme.fontDisplay
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.5
+            }
+
+            // ---------- Cookie 管理 ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_cookie_section")
+                desc: qsTr("IG/X/微博等平台访问凭证")
+                icon: "i-cookie"
+                iconColor: Theme.warning
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("cookie_status")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Badge {
+                            text: root.cookieStatus === "valid"
+                                  ? tr("cookie_status_valid")
+                                  : tr("cookie_status_missing")
+                            status: root.cookieStatus === "valid" ? "completed" : "failed"
+                        }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            text: tr("cookie_import_btn")
+                            variant: "primary"
+                            iconName: "i-download"
+                            onClicked: _importCookie()
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: (root.config.cookie_file || "").length > 0
+                              ? (root.config.cookie_file || "")
+                              : "—"
+                        color: Theme.textDim
+                        font.family: Theme.fontMono
+                        font.pixelSize: 11
+                        elide: Text.ElideMiddle
+                    }
+                }
+            }
+
+            // ---------- Telegram ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_telegram_section")
+                desc: qsTr("Bot Token + 本地 API Server")
+                icon: "i-telegram"
+                iconColor: Theme.platTelegram
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("telegram_enable")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Switch {
+                            checked: root.config.telegram_enabled === true
+                            onToggled: _save("telegram_enabled", checked)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("bot_token")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Input {
+                            Layout.fillWidth: true
+                            placeholderText: tr("telegram_no_token")
+                            text: root.config.telegram_bot_token === "***configured***"
+                                  ? "••••••••••••••••"
+                                  : (root.config.telegram_bot_token || "")
+                            echoMode: TextInput.Password
+                            onEditingFinished: _save("telegram_bot_token", text)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("api_address")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Input {
+                            Layout.fillWidth: true
+                            placeholderText: "https://api.telegram.org"
+                            text: root.config.telegram_api_base || ""
+                            onEditingFinished: _save("telegram_api_base", text)
+                        }
+                    }
+                }
+            }
+
+            // ============================================================
+            // 分组：下载
+            // ============================================================
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                Layout.topMargin: 8
+                text: tr("settings_group_download")
+                color: Theme.textMute
+                font.family: Theme.fontDisplay
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.5
+            }
+
+            // ---------- 下载设置 ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_download_section")
+                desc: qsTr("下载目录、存储模式、并发与冲突策略")
+                icon: "i-download"
+                iconColor: Theme.accent
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("download_dir")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Text {
+                            text: root.config.download_dir || "—"
+                            color: Theme.textDim
+                            font.family: Theme.fontMono
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                        Button {
+                            text: tr("browse")
+                            variant: "ghost"
+                            iconName: "i-folder"
+                            onClicked: _browseDownloadDir()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("storage_mode")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        LumioComboBox {
+                            Layout.fillWidth: true
+                            model: [
+                                { value: "simple",     label: tr("storage_simple") },
+                                { value: "organized",  label: tr("storage_organized") }
+                            ]
+                            textRole: "label"; valueRole: "value"
+                            currentIndex: {
+                                var v = root.config.storage_mode || "simple"
+                                for (var i = 0; i < model.length; i++) {
+                                    if (model[i].value === v) return i
+                                }
+                                return 0
+                            }
+                            onActivated: _save("storage_mode", currentValue)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("file_conflict")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        LumioComboBox {
+                            Layout.fillWidth: true
+                            model: [
+                                { value: "rename",    label: tr("conflict_rename") },
+                                { value: "skip",      label: tr("conflict_skip") },
+                                { value: "overwrite", label: tr("conflict_overwrite") },
+                                { value: "ask",       label: tr("conflict_ask") }
+                            ]
+                            textRole: "label"; valueRole: "value"
+                            currentIndex: {
+                                var v = root.config.file_conflict_policy || "rename"
+                                for (var i = 0; i < model.length; i++) {
+                                    if (model[i].value === v) return i
+                                }
+                                return 0
+                            }
+                            onActivated: _save("file_conflict_policy", currentValue)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("max_concurrent")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        SpinBox {
+                            Layout.preferredWidth: 140
+                            from: 1; to: 10
+                            value: root.config.max_concurrent || 3
+                            onValueModified: _save("max_concurrent", value)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("max_retries")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        SpinBox {
+                            Layout.preferredWidth: 140
+                            from: 0; to: 10
+                            value: root.config.max_retries || 3
+                            onValueModified: _save("max_retries", value)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                }
+            }
+
+            // ---------- 缓存管理 ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_cache_section")
+                desc: tr("cache_total_size") + ": " + _formatSize(_totalCacheSize())
+                icon: "i-database"
+                iconColor: Theme.success
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            text: tr("clean_now")
+                            variant: "default"
+                            iconName: "i-refresh"
+                            onClicked: _cleanByRules()
+                        }
+                        Button {
+                            text: tr("force_clear_all")
+                            variant: "danger"
+                            iconName: "i-trash"
+                            onClicked: _forceClear()
+                        }
+                    }
+
+                    // 4 个缓存目录统计（2×2 网格）
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        rowSpacing: 8
+                        columnSpacing: 8
+
+                        Repeater {
+                            model: [
+                                { label: tr("cache_inbox"),    key: "inbox_media" },
+                                { label: tr("cache_thumbs"),   key: "thumbs" },
+                                { label: tr("cache_provider"), key: "provider_cache" },
+                                { label: tr("cache_preview"),  key: "preview" }
+                            ]
+                            delegate: Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 56
+                                radius: Theme.rSM
+                                color: Qt.rgba(0, 0, 0, 0.18)
+                                border.width: 1
+                                border.color: Theme.glassBorder
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 10
+
+                                    ColumnLayout {
+                                        spacing: 1
+                                        Text {
+                                            text: modelData.label
+                                            color: Theme.textMute
+                                            font.pixelSize: 11
+                                        }
+                                        Text {
+                                            text: ((root.cacheStats[modelData.key] || {}).file_count || 0)
+                                                  + " " + tr("cache_files")
+                                            color: Theme.textDim
+                                            font.pixelSize: 10
+                                        }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: _formatSize(
+                                            (root.cacheStats[modelData.key] || {}).size_bytes || 0)
+                                        color: Theme.textPrimary
+                                        font.family: Theme.fontMono
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("auto_clean")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        LumioComboBox {
+                            Layout.fillWidth: true
+                            model: [
+                                { value: "off",     label: tr("auto_clean_off") },
+                                { value: "startup", label: tr("auto_clean_startup") },
+                                { value: "daily",   label: tr("auto_clean_daily") },
+                                { value: "weekly",  label: tr("auto_clean_weekly") }
+                            ]
+                            textRole: "label"; valueRole: "value"
+                            currentIndex: {
+                                var v = (root.config.cache_management || {}).auto_clean || "off"
+                                for (var i = 0; i < model.length; i++) {
+                                    if (model[i].value === v) return i
+                                }
+                                return 0
+                            }
+                            onActivated: _saveNested("cache_management", "auto_clean", currentValue)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("retain_days")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        SpinBox {
+                            Layout.preferredWidth: 140
+                            from: 1; to: 365
+                            value: (root.config.cache_management || {}).retain_days || 7
+                            onValueModified: _saveNested("cache_management", "retain_days", value)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("max_size_mb")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        SpinBox {
+                            Layout.preferredWidth: 160
+                            from: 50; to: 10000; stepSize: 50
+                            value: (root.config.cache_management || {}).max_size_mb || 500
+                            onValueModified: _saveNested("cache_management", "max_size_mb", value)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("last_cleaned")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Text {
+                            text: {
+                                var t = (root.config.cache_management || {}).last_cleaned || ""
+                                if (!t || t.length === 0) return tr("never")
+                                return t.replace("T", " ").substring(0, 19)
+                            }
+                            color: Theme.textDim
+                            font.family: Theme.fontMono
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+            }
+
+            // ============================================================
+            // 分组：系统
+            // ============================================================
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                Layout.topMargin: 8
+                text: tr("settings_group_system")
+                color: Theme.textMute
+                font.family: Theme.fontDisplay
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.5
+            }
+
+            // ---------- 通用 ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_general_section")
+                desc: qsTr("语言、主题、自动下载")
+                icon: "i-settings"
+                iconColor: Theme.accent2
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("language")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        LumioComboBox {
+                            Layout.preferredWidth: 200
+                            model: [
+                                { value: "zh", label: tr("language_zh") },
+                                { value: "en", label: tr("language_en") }
+                            ]
+                            textRole: "label"; valueRole: "value"
+                            currentIndex: {
+                                var v = root.config.lang || "zh"
+                                for (var i = 0; i < model.length; i++) {
+                                    if (model[i].value === v) return i
+                                }
+                                return 0
+                            }
+                            onActivated: {
+                                if (controller) controller.setLang(currentValue)
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("theme_dark")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        LumioComboBox {
+                            Layout.preferredWidth: 200
+                            model: [
+                                { value: "dark",  label: tr("theme_dark") },
+                                { value: "light", label: tr("theme_light") }
+                            ]
+                            textRole: "label"; valueRole: "value"
+                            currentIndex: {
+                                var v = root.config.theme || "dark"
+                                for (var i = 0; i < model.length; i++) {
+                                    if (model[i].value === v) return i
+                                }
+                                return 0
+                            }
+                            onActivated: {
+                                if (controller) controller.setTheme(currentValue)
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: tr("auto_download_inbox")
+                                color: Theme.textMute
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                text: tr("auto_download_inbox_desc")
+                                color: Theme.textDim
+                                font.pixelSize: 11
+                            }
+                        }
+                        Switch {
+                            checked: root.config.auto_download_inbox === true
+                            onToggled: _save("auto_download_inbox", checked)
+                        }
+                    }
+                }
+            }
+
+            // ---------- 关于 ----------
+            SettingsCard {
+                Layout.fillWidth: true
+                Layout.leftMargin: 32
+                Layout.rightMargin: 32
+                title: tr("settings_about_section")
+                desc: "Lumio © 2026"
+                icon: "i-info"
+                iconColor: Theme.info
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: tr("version")
+                            color: Theme.textMute
+                            Layout.preferredWidth: 120
+                        }
+                        Text {
+                            text: root.config.version || "v4.2"
+                            color: Theme.textPrimary
+                            font.family: Theme.fontMono
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            text: tr("settings_check_update")
+                            variant: "primary"
+                            iconName: "i-refresh"
+                            onClicked: _checkUpdate()
+                        }
+                    }
+
+                    Text {
+                        text: root.updateStatus
+                        color: Theme.accent
+                        font.pixelSize: 12
+                        visible: root.updateStatus.length > 0
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                    }
+
+                    Text {
+                        text: "Lumio © 2026 · Build " + (root.config.build_date || "2026.07.25")
+                        color: Theme.textDim
+                        font.family: Theme.fontMono
+                        font.pixelSize: 10
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: 32 }
+        }
+    }
+
+    // 强制清空确认
+    Dialog {
+        id: _forceDialog
+        visible: false
+        modal: true
+        anchors.centerIn: parent
+        title: tr("force_clear_all")
+        width: 380
+
+        // 自定义深色背景，匹配整体 UI 风格（避免原生白底）
+        background: Rectangle {
+            radius: Theme.rLG
+            color: Theme.theme === "dark" ? Qt.rgba(20/255, 22/255, 38/255, 0.98)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.98)
+            border.width: 1
+            border.color: Theme.glassBorderHi
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.4)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 8
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 14
+            Text {
+                text: tr("cache_force_confirm")
+                color: Theme.textPrimary
+                font.family: Theme.fontBody
+                font.pixelSize: 14
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: tr("cancel"); variant: "ghost"
+                    onClicked: _forceDialog.visible = false
+                }
+                Button {
+                    text: tr("force_clear_all"); variant: "danger"
+                    onClicked: _doForceClear()
+                }
+            }
+        }
+    }
+}

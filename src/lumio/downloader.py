@@ -1637,6 +1637,23 @@ def _direct_download_with_pause(task, pause_event, on_progress):
     out_dir.mkdir(parents=True, exist_ok=True)
     policy = get_file_conflict_policy()
     out_name = _effective_name(task)
+    # 兜底：当 task 既无 custom_name 也无 author 时，_effective_name 会返回
+    # "%(title)s" 字面值（yt-dlp 模板语法）。直链下载不经过 yt-dlp outtmpl
+    # 处理，必须在这里替换为实际 title，否则文件名会变成 "%(title)s.mp4"
+    if out_name == "%(title)s":
+        out_name = _safe_filename(task.title or "download")
+
+    # 从 media_items_json 读取 is_video（单项下载入队时写入）
+    # 用于 URL 无扩展名时推断默认扩展名（图片 .jpg / 视频 .mp4）
+    is_video_from_items = False
+    if task.media_items_json:
+        try:
+            import json as _json
+            items_data = _json.loads(task.media_items_json)
+            if items_data:
+                is_video_from_items = bool(items_data[0].get("is_video", False))
+        except (ValueError, IndexError, KeyError):
+            pass
 
     # 本地文件路径（Telegram 媒体已下载到本地）
     src = Path(task.direct_url)
@@ -1678,9 +1695,14 @@ def _direct_download_with_pause(task, pause_event, on_progress):
 
     # 从 URL 推断扩展名
     url_path = urllib.parse.urlparse(task.direct_url).path
-    ext = Path(url_path).suffix or ".mp4"
+    ext = Path(url_path).suffix or ""
     if ext == ".jpeg":
         ext = ".jpg"
+    # URL 无扩展名时，按 media_items_json 的 is_video 推断（修复清单问题 1）：
+    #   小红书 CDN URL 通常无扩展名，原默认 .mp4 导致单项图片被命名为 .mp4
+    #   → infer_media_type 返回 "video" → 双击用 PotPlayer 打开
+    if not ext:
+        ext = ".mp4" if is_video_from_items else ".jpg"
 
     resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
     if resolved_stem is None:
@@ -1967,7 +1989,11 @@ def _items_download_with_pause(
 
     task.status = "done"
     task.progress = 100
-    task.filename = str(post_out_dir)
+    # 单文件下载：保持循环内已设置的实际文件路径，避免 infer_media_type 扫描目录
+    # 误判（如小红书单项图片在 simple 模式下被 output_dir 中其他视频文件污染）
+    # 多文件下载：用目录路径表示合集
+    if total > 1:
+        task.filename = str(post_out_dir)
     if failed_count:
         logger.info('Downloaded %d/%d items for %s (%d failed)', downloaded_any, total, task.url, failed_count)
 

@@ -77,10 +77,14 @@ def media_info_to_video_info(media: MediaInfo, url: str) -> object:
     items = [_to_downloader_item(it) for it in media.media_items]
 
     # Build format dicts for compatibility with format selection UI
+    # 注意：必须包含 label 和 type 字段，QML 端 ComboBox 用 textRole:"label"
+    # 和 valueRole:"format_id" 渲染，info.formats[i].type 用于下载路由
     formats = []
     for fmt in media.formats:
         formats.append({
             "format_id": fmt.format_id,
+            "label": fmt.label,
+            "type": fmt.type,
             "ext": fmt.ext,
             "height": fmt.height,
             "width": fmt.width,

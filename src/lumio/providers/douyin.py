@@ -490,26 +490,33 @@ class DouyinProvider(BaseProvider):
         sorted_labels = sorted(formats_by_label.keys(), key=_res_sort_key, reverse=True)
 
         # === 构建 MediaItem + FormatOption ===
+        # 单视频只保留一个 MediaItem（最高画质），多清晰度通过 formats 列表选择
+        # 避免预览横向列表出现多个单项（修复清单问题 8）
         media_items: list[MediaItem] = []
         formats: list[FormatOption] = []
 
-        for idx, label in enumerate(sorted_labels):
-            f = formats_by_label[label]
-            res_num = f["res_num"]
+        if sorted_labels:
+            best_label = sorted_labels[0]
+            best = formats_by_label[best_label]
             media_items.append(MediaItem(
-                url=f["url"],
+                url=best["url"],
                 is_video=True,
-                index=idx,
-                width=f["width"],
+                index=0,
+                width=best["width"],
                 # 用真实分辨率数字（如1080），不用竖屏长边（如1920）
                 # 避免UI显示成 1920P
-                height=res_num,
-                size=f["size"],
-                quality=label,
+                height=best["res_num"],
+                size=best["size"],
+                quality=best_label,
                 mime="video/mp4",
                 extension="mp4",
                 media_type=MediaType.VIDEO,
             ))
+
+        # 所有清晰度档位写入 formats 供下载时选择
+        for idx, label in enumerate(sorted_labels):
+            f = formats_by_label[label]
+            res_num = f["res_num"]
             size_str = f"{f['size'] / 1024 / 1024:.1f}MB" if f["size"] else ""
             formats.append(FormatOption(
                 format_id=label,
@@ -520,15 +527,8 @@ class DouyinProvider(BaseProvider):
                 height=res_num,
             ))
 
-        # 封面图（作为可下载图片项，对齐 B站模式；同时写入 thumbnail 供预览）
-        if cover_url:
-            media_items.append(MediaItem(
-                url=cover_url,
-                is_video=False,
-                index=len(media_items),
-                extension="jpg",
-                media_type=MediaType.IMAGE,
-            ))
+        # 注意：封面图不作为 MediaItem，仅通过 thumbnail 字段供预览使用
+        # 避免预览横向列表出现多个单项（修复清单问题 8）
 
         if not media_items:
             return MediaInfo(
@@ -653,11 +653,8 @@ class DouyinProvider(BaseProvider):
                 type="video", ext="mp4",
             ))
 
-        if cover_url:
-            media_items.append(MediaItem(
-                url=cover_url, is_video=False, index=len(media_items),
-                media_type=MediaType.IMAGE, extension="jpg",
-            ))
+        # 注意：封面图不作为 MediaItem，仅通过 thumbnail 字段供预览使用
+        # 避免预览横向列表出现多个单项（修复清单问题 8）
 
         if not media_items:
             return MediaInfo(
