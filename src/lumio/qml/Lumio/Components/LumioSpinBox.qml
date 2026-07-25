@@ -14,9 +14,16 @@ SpinBox {
 
     // 主题色绑定（避免硬编码）
     readonly property color _textColor: Theme.textPrimary
-    readonly property color _bgColor: Theme.glassBgHi
-    readonly property color _bgPressColor: Theme.glassBgPress
-    readonly property color _borderColor: Theme.glassBorder
+    // 浅色模式用纯白底（用户反馈半透明白会透出灰底）
+    readonly property color _bgColor: Theme.theme === "light"
+                                      ? "#ffffff"
+                                      : Theme.glassBgHi
+    readonly property color _bgPressColor: Theme.theme === "light"
+                                           ? "#ffffff"
+                                           : Theme.glassBgPress
+    readonly property color _borderColor: Theme.theme === "light"
+                                          ? Qt.rgba(0, 0, 0, 0.12)
+                                          : Theme.glassBorder
     readonly property color _borderFocusColor: Theme.accent
 
     font.family: Theme.fontBody
