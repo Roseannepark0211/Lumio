@@ -881,7 +881,6 @@ class QmlController(QObject):
         try:
             import os
             import subprocess
-            import urllib.parse
             target = path
             # 如果是目录，找第一张图片/视频文件作为打开目标
             if os.path.isdir(path):
@@ -894,15 +893,15 @@ class QmlController(QObject):
             if sys.platform == "win32":
                 ext = os.path.splitext(target)[1].lower()
                 if ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}:
-                    # Microsoft 照片通过 ms-photos:viewer?fileName=<URL-encoded-path> 协议启动
-                    # 注意：路径需用正斜杠并 URL 编码，否则协议解析失败
-                    path_norm = target.replace("\\", "/")
-                    encoded = urllib.parse.quote(path_norm)
-                    # start "" 是 cmd 语法：第一个空引号是窗口标题，必须保留
-                    # shell=False 必须用列表形式传参，cmd /c "start" "" "ms-photos:..."
+                    # Microsoft 照片通过 ms-photos:viewer?fileName=<path> 协议启动
+                    # 官方文档要求传 fully-qualified path（原始 Windows 反斜杠路径），
+                    # 不要 URL 编码、不要转成正斜杠、不要加 file:// 前缀
+                    # 否则 Photos 启动但解析路径失败 → 黑屏
+                    # ref: https://github.com/MicrosoftDocs/windows-dev-docs/issues/4881
+                    photos_uri = f"ms-photos:viewer?fileName={target}"
                     try:
                         subprocess.Popen(
-                            ["cmd", "/c", "start", "", f"ms-photos:viewer?fileName={encoded}"],
+                            ["cmd", "/c", "start", "", photos_uri],
                             shell=False,
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
