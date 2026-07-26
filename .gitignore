@@ -33,9 +33,9 @@ cookies.txt
 config.json
 *.db
 *.log
-www.instagram.com_cookies.txt
-x.com_cookies.txt
-weibo.com_cookies.txt
+# 所有平台 cookie 文件（Netscape 格式导出，含登录凭证）
+*_cookies.txt
+*cookies.txt
 
 # Media temp files
 *.mhtml

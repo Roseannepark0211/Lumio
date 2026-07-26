@@ -94,6 +94,14 @@ Item {
         return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
     }
 
+    // 数量千分位分隔（如 1234 → "1,234"），避免大数据量时数字过长导致 badge 溢出
+    function _formatCount(n) {
+        if (n === undefined || n === null) return "0"
+        var s = String(n)
+        // 从右往左每 3 位加逗号
+        return s.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+    }
+
     // 同步更新 root.items 缓存中指定 item 的 is_favorite 字段。
     // toggleFavorite 不发 libraryChanged 信号（避免全量 reload 闪烁），
     // 但 root.items 是 _applyFilter 的数据源，如果不手动同步，
@@ -311,8 +319,14 @@ Item {
                 icon: "i-library"
 
                 // 右侧操作区
+                // 注意：在 RowLayout（PageHeader._actionsSlot）中，子项按 implicitWidth
+                // 和 Layout.* 属性分配宽度，Rectangle 默认 implicitWidth=0 会被挤压，
+                // 导致 badge 背景不随文本增长，文字溢出。
+                // 必须用 Layout.preferredWidth + Layout.minimumWidth 显式声明宽度。
                 Rectangle {
-                    width: _libBadge.implicitWidth + 20
+                    Layout.preferredWidth: _libBadge.implicitWidth + 20
+                    Layout.minimumWidth: _libBadge.implicitWidth + 20
+                    Layout.maximumWidth: 360
                     height: 22
                     radius: Theme.rPill
                     color: Qt.rgba(94/255, 92/255, 230/255, 0.12)
@@ -327,11 +341,15 @@ Item {
                         Rectangle { width: 5; height: 5; radius: 2.5; color: Theme.accent2; anchors.verticalCenter: parent.verticalCenter }
 
                         Text {
-                            text: root.items.length + " " + tr("items") + " · " + _formatSize(_totalSize())
+                            // 大数据量时数字较长（如 1234 items · 12.34 GB），
+                            // 用千分位分隔提升可读性并限制最大宽度防止溢出页面
+                            text: _formatCount(root.items.length) + " " + tr("items")
+                                  + " · " + _formatSize(_totalSize())
                             color: "#a8c7ff"
                             font.family: Theme.fontMono
                             font.pixelSize: Theme.fsMicro
                             font.letterSpacing: 0.5
+                            elide: Text.ElideRight
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
