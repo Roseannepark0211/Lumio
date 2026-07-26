@@ -30,8 +30,8 @@ export interface PageSwitches {
 
 /** 默认开关值 — 仅在迁移完成且验证通过后才改为 true */
 export const DEFAULTS: PageSwitches = {
-  USE_REACT_HOME: false,        // Home 页面正在迁移中，默认 false
-  USE_REACT_DOWNLOADS: false,   // Downloads 页面正在迁移中，默认 false
+  USE_REACT_HOME: true,         // Home 页面迁移完成，已验证
+  USE_REACT_DOWNLOADS: true,    // Downloads 页面迁移完成，已验证
 };
 
 const STORAGE_KEY = "lumio_page_switches";
