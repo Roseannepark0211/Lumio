@@ -341,6 +341,14 @@ def _history_to_dict(r) -> dict:
 
 
 def _library_item_to_dict(it, lib_mgr) -> dict:
+    # 收集该素材已加入的 Collection id 列表（供前端按分类筛选）
+    # 与 qml_bridge.py 保持一致（参考 AGENTS.md "Collection sidebar" 行为）
+    collection_ids: list[int] = []
+    if lib_mgr is not None:
+        try:
+            collection_ids = [c.id for c in lib_mgr.get_item_collections(it.id)]
+        except Exception:
+            pass
     return {
         "id": it.id,
         "title": it.title or "",
@@ -359,6 +367,7 @@ def _library_item_to_dict(it, lib_mgr) -> dict:
         "batch_id": it.batch_id or "",
         "content_hash": it.content_hash or "",
         "duration": it.duration or 0,
+        "collection_ids": collection_ids,
     }
 
 
@@ -1429,7 +1438,17 @@ def create_app() -> FastAPI:
             session.trust_env = True  # 读取系统代理（HTTP_PROXY/HTTPS_PROXY/Windows 注册表）
             r = session.get(url, headers=headers, timeout=15, stream=False)
             r.raise_for_status()
-            return Response(content=r.content, media_type=r.headers.get("Content-Type", "image/jpeg"))
+            # 设置长缓存（7 天）：缩略图 URL 通常带版本 hash，URL 不变则内容不变
+            # 浏览器缓存命中后不再请求后端，切换页面/滚动都不会重新加载
+            headers_out = {
+                "Cache-Control": "public, max-age=604800, immutable",
+                "Content-Type": r.headers.get("Content-Type", "image/jpeg"),
+            }
+            return Response(content=r.content, headers=headers_out)
+        except requests.HTTPError as e:
+            # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
+            status = e.response.status_code if e.response is not None else 0
+            raise HTTPException(502, f"thumb fetch failed (upstream {status}): {e}")
         except Exception as e:
             raise HTTPException(502, f"thumb fetch failed: {e}")
 

@@ -325,8 +325,11 @@ class TestExtractInfoMock:
             title="Test",
             author="test_user_123",
         )
-        from lumio.downloader import extract_info
-        info = extract_info(TEST_URLS["ig_post"])
+        # 强制 cookie 模式，避免本地 config 配了 instagram_mode="api"
+        # 走 Apify 路径绕过 mock（参考 downloader.extract_info 的分支）
+        with patch("lumio.downloader.get_platform_mode", return_value="cookie"):
+            from lumio.downloader import extract_info
+            info = extract_info(TEST_URLS["ig_post"])
         assert info.platform == "instagram"
         assert info.author == "test_user_123"
         mock_ig.assert_called_once()
