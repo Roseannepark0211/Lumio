@@ -55,3 +55,13 @@ CLAUDE.md
 
 # Claude
 .claude/
+
+# Frontend (Electron + React)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.local
+frontend/.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
