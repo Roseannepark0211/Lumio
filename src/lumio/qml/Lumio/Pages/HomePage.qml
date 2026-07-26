@@ -612,11 +612,23 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
-                        // 居中容器：保持 16:9 比例的最大可用区域
+                        // 居中容器：比例自适应内容
+                        // 横屏内容（B站 16:9）→ 16:9 容器
+                        // 正方形内容（抖音封面 1:1）→ 1:1 容器
+                        // 竖屏内容（抖音视频 9:16）→ 9:16 容器
+                        // 避免非 16:9 内容在 16:9 容器中留大片黑边/变小
                         Item {
                             anchors.centerIn: parent
-                            width: Math.min(parent.width - 48, 480)
-                            height: Math.min(parent.height - 32, width * 9 / 16)
+                            // 根据选中项比例计算容器尺寸
+                            property real _aspectRatio: _previewAspectRatio()
+                            // 正方形/竖屏内容缩窄宽度，避免左右大片空白
+                            // _aspectRatio = width / height（横屏>1，正方形=1，竖屏<1）
+                            width: _aspectRatio >= 1.0
+                                   ? Math.min(parent.width - 48, 480)
+                                   : Math.min(parent.width - 48, (parent.height - 32) * _aspectRatio)
+                            height: _aspectRatio >= 1.0
+                                    ? Math.min(parent.height - 32, width / _aspectRatio)
+                                    : Math.min(parent.height - 32, width / _aspectRatio)
 
                             Rectangle {
                                 anchors.fill: parent
@@ -1245,6 +1257,41 @@ Item {
             return root.previewInfo.items[0].is_video
         }
         return false
+    }
+
+    // 顶部预览内容宽高比（width / height）
+    // 用于容器比例自适应：横屏>1，正方形=1，竖屏<1
+    // 抖音封面通常是正方形（1:1）或竖屏（9:16），B站封面是横屏（16:9）
+    // 避免非 16:9 内容在 16:9 容器中留大片黑边/变小
+    function _previewAspectRatio() {
+        if (!root.previewInfo) return 16.0 / 9.0  // 默认 16:9
+        // 检查选中项的 width/height
+        if (root.selectedItemIndex >= 0
+                && root.previewInfo.items
+                && root.selectedItemIndex < root.previewInfo.items.length) {
+            var it = root.previewInfo.items[root.selectedItemIndex]
+            if (it.width && it.height && it.width > 0 && it.height > 0) {
+                return it.width / it.height
+            }
+            // 视频项无明确尺寸时，按平台推断：抖音/快手默认竖屏
+            if (it.is_video && root.previewInfo.platform) {
+                var p = root.previewInfo.platform
+                if (p === "douyin" || p === "DOUYIN"
+                        || p === "kuaishou" || p === "KUAISHOU") {
+                    return 9.0 / 16.0  // 竖屏 9:16
+                }
+            }
+            // 图片项（如抖音封面）无明确尺寸时，默认正方形 1:1
+            if (!it.is_video) {
+                // 抖音/快手封面通常是正方形
+                var p2 = root.previewInfo.platform
+                if (p2 === "douyin" || p2 === "DOUYIN"
+                        || p2 === "kuaishou" || p2 === "KUAISHOU") {
+                    return 1.0  // 正方形 1:1
+                }
+            }
+        }
+        return 16.0 / 9.0  // 默认 16:9
     }
 
     // ============================================================

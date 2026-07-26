@@ -498,14 +498,17 @@ class DouyinProvider(BaseProvider):
         if sorted_labels:
             best_label = sorted_labels[0]
             best = formats_by_label[best_label]
+            # width/height 用 API 真实像素尺寸（竖屏视频 height 是长边如 1920），
+            # 供 QML _previewAspectRatio() 计算正确宽高比（9:16），
+            # 避免在 1:1 方形容器中显示导致左右大片黑边。
+            # 清晰度标签走 quality 字段（如 "1080p"），FormatOption.height 用 res_num
+            # 供格式下拉显示 "1080P"，两条路径互不干扰。
             media_items.append(MediaItem(
                 url=best["url"],
                 is_video=True,
                 index=0,
                 width=best["width"],
-                # 用真实分辨率数字（如1080），不用竖屏长边（如1920）
-                # 避免UI显示成 1920P
-                height=best["res_num"],
+                height=best["height"],
                 size=best["size"],
                 quality=best_label,
                 mime="video/mp4",
@@ -527,8 +530,17 @@ class DouyinProvider(BaseProvider):
                 height=res_num,
             ))
 
-        # 注意：封面图不作为 MediaItem，仅通过 thumbnail 字段供预览使用
-        # 避免预览横向列表出现多个单项（修复清单问题 8）
+        # 封面图作为单独 MediaItem（与 B站一致：横向列表显示封面+视频两个卡片）
+        # 顺序：视频项在前，封面图项在后
+        if cover_url and media_items:
+            media_items.append(MediaItem(
+                url=cover_url,
+                is_video=False,
+                index=len(media_items),
+                extension="jpg",
+                media_type=MediaType.IMAGE,
+                quality="封面",
+            ))
 
         if not media_items:
             return MediaInfo(
@@ -653,8 +665,16 @@ class DouyinProvider(BaseProvider):
                 type="video", ext="mp4",
             ))
 
-        # 注意：封面图不作为 MediaItem，仅通过 thumbnail 字段供预览使用
-        # 避免预览横向列表出现多个单项（修复清单问题 8）
+        # 封面图作为单独 MediaItem（与 B站一致：横向列表显示封面+视频两个卡片）
+        if cover_url and media_items:
+            media_items.append(MediaItem(
+                url=cover_url,
+                is_video=False,
+                index=len(media_items),
+                extension="jpg",
+                media_type=MediaType.IMAGE,
+                quality="封面",
+            ))
 
         if not media_items:
             return MediaInfo(

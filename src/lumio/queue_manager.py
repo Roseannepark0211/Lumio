@@ -548,6 +548,11 @@ class DownloadManager(QObject):
                 qt.status = TaskStatus.COMPLETED.value
                 qt.progress = 1.0  # 统一 0..1 范围（与下载中一致）
                 self._record_history(qt)
+                # 关键：必须 emit task_status_changed！
+                # qml_bridge 未连接 task_finished 信号，UI 只监听 task_status_changed
+                # 旧实现只 emit task_finished → UI 永远不知道任务完成 → 卡在"下载中"
+                # （适用于所有平台：视频/图片/音频，yt-dlp/直链/媒体项下载）
+                self.task_status_changed.emit(qt.task_id, qt.status)
                 self.task_finished.emit(qt.task_id, True, "")
             else:
                 qt.retry_count += 1
@@ -568,6 +573,8 @@ class DownloadManager(QObject):
                     qt.status = TaskStatus.FAILED.value
                     qt.error = t.error
                     qt.error_category = classify_error(t.error).value
+                    # 同上：必须 emit task_status_changed 让 UI 知道任务失败
+                    self.task_status_changed.emit(qt.task_id, qt.status)
                     self.task_finished.emit(qt.task_id, False, t.error)
             self._emit_batch_progress()
 

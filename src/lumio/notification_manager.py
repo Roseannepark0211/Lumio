@@ -233,6 +233,7 @@ class NotificationManager(QObject):
             self._check_cookies()
             self._check_extension_tip()
             self._check_ig_risk()
+            self._check_software_recommendations()  # 新增：配套软件建议永久通知
             self._check_version_periodic()
             self._check_cache_status()    # 新增：系统分类始终有缓存概览通知
             self._cleanup_expired()
@@ -400,6 +401,80 @@ class NotificationManager(QObject):
             title=t("notif_ig_risk_title"),
             message=t("notif_ig_risk_msg"),
             source_key="ig_risk_warning",
+            dismissable=False,
+        ))
+
+    def _check_software_recommendations(self) -> None:
+        """永久通知：配套软件建议。
+
+        帮助新用户了解：
+        - 国外平台必需 VPN/代理
+        - 推荐浏览器扩展、媒体播放器
+        - 可选高级功能：Telegram Bot、Apify Token
+
+        所有通知 dismissable=False（永久保留），按 priority 排序：
+        - VPN（high）> 扩展/播放器（normal）> Telegram/Apify（low）
+        """
+        # 1. VPN/代理（必需，high priority）
+        self.add_notification(Notification(
+            category="system",
+            type="warning",
+            priority="high",
+            title=t("recommend_vpn_title"),
+            message=t("recommend_vpn_msg"),
+            action="open_page:settings",
+            action_text=t("notif_action_configure"),
+            source_key="recommend_vpn",
+            dismissable=False,
+        ))
+
+        # 2. 浏览器扩展（强烈推荐，normal priority）
+        self.add_notification(Notification(
+            category="system",
+            type="tip",
+            priority="normal",
+            title=t("recommend_extension_title"),
+            message=t("recommend_extension_msg"),
+            action="open_url:https://github.com/Roseannepark0211/Lumio",
+            action_text=t("notif_action_download"),
+            source_key="recommend_extension",
+            dismissable=False,
+        ))
+
+        # 3. 媒体播放器（推荐，normal priority）
+        self.add_notification(Notification(
+            category="system",
+            type="tip",
+            priority="normal",
+            title=t("recommend_player_title"),
+            message=t("recommend_player_msg"),
+            source_key="recommend_player",
+            dismissable=False,
+        ))
+
+        # 4. Telegram Bot（可选，low priority）
+        self.add_notification(Notification(
+            category="system",
+            type="tip",
+            priority="low",
+            title=t("recommend_telegram_title"),
+            message=t("recommend_telegram_msg"),
+            action="open_page:settings",
+            action_text=t("notif_action_configure"),
+            source_key="recommend_telegram",
+            dismissable=False,
+        ))
+
+        # 5. Apify Token（可选，low priority）
+        self.add_notification(Notification(
+            category="system",
+            type="tip",
+            priority="low",
+            title=t("recommend_apify_title"),
+            message=t("recommend_apify_msg"),
+            action="open_page:settings",
+            action_text=t("notif_action_configure"),
+            source_key="recommend_apify",
             dismissable=False,
         ))
 

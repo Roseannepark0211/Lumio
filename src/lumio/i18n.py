@@ -439,6 +439,18 @@ _TRANSLATIONS = {
         "notif_ig_risk_title": "Instagram 下载风险提示",
         "notif_ig_risk_msg": "Instagram 对自动化行为检测严格，频繁下载可能导致账号受限或封禁。\n\n建议：\n· 不要频繁批量抓取主页帖子\n· 单个帖子不要连续重复下载\n· 建议使用小号 Cookie，不要用主号\n· 插件发送 IG 链接时走浏览器直链，不调用 IG API，风险较低",
 
+        # 配套软件建议（永久通知）
+        "recommend_vpn_title": "国外平台需配置 VPN/代理",
+        "recommend_vpn_msg": "YouTube / Instagram / X 在中国大陆无法直接访问，解析和下载必须配置 VPN 或系统代理。\n\n国内平台（B站/抖音/快手/微博/小红书）无需代理。\n\n配置方式：在系统设置或环境变量（HTTP_PROXY/HTTPS_PROXY）中配置代理，Lumio 会自动读取。",
+        "recommend_extension_title": "推荐安装浏览器扩展",
+        "recommend_extension_msg": "从浏览器一键发送链接到 Lumio，支持 YouTube、X、Instagram 等平台。右键菜单发送页面/链接/视频/图片，无需复制粘贴。\n\n插件支持 Chrome/Edge，可在 GitHub 仓库下载。",
+        "recommend_player_title": "推荐安装媒体播放器",
+        "recommend_player_msg": "Lumio 内置预览支持图片/视频/音频，但建议安装专用播放器获得最佳体验：\n\n· PotPlayer（推荐，Windows）\n· VLC（跨平台）\n· mpv（极客向）\n\nLibrary 中双击素材可用系统默认播放器打开。",
+        "recommend_telegram_title": "Telegram Bot（可选高级功能）",
+        "recommend_telegram_msg": "配置 Telegram Bot 后，可在 Telegram 中发送链接/媒体/笔记/相册到 Lumio Inbox 收件箱，跨设备采集。\n\n· 在设置中填入 Bot Token 即可启用\n· 部署本地 Bot API Server（--local）可突破 20MB 下载限制和 2GB 上传限制\n· 支持多设备绑定（配对码机制）",
+        "recommend_apify_title": "Apify Token（可选，IG 替代方案）",
+        "recommend_apify_msg": "Apify Actor 代理可替代直接 Instagram API 调用，避免账号风控。\n\n· Free plan 每月 $5 额度（约 500 次 IG 解析）\n· 在设置中填入 Token 即可启用\n· 配额耗尽自动回退到 Cookie 模式\n· 适合需要批量下载 IG 的用户",
+
         # 版本检查
         "notif_version_new_title": "发现新版本",
         "notif_version_new_msg": "当前版本 v{0}，最新版本 v{1}。建议更新以获取新功能和修复。",
@@ -1143,6 +1155,18 @@ _TRANSLATIONS = {
         # IG risk notice (permanent)
         "notif_ig_risk_title": "Instagram API Risk Notice",
         "notif_ig_risk_msg": "Instagram has strict automation detection. Frequent downloads may lead to account restrictions or bans.\n\nRecommendations:\n· Avoid frequent batch scraping of profile posts\n· Do not repeatedly download the same post\n· Use a secondary account's cookie, not your primary\n· Browser extension sends IG links via direct browser extraction, not IG API, which is lower risk",
+
+        # Software recommendations (permanent)
+        "recommend_vpn_title": "VPN/Proxy Required for Foreign Platforms",
+        "recommend_vpn_msg": "YouTube / Instagram / X are inaccessible in mainland China. VPN or system proxy is required for parsing and downloading.\n\nDomestic platforms (Bilibili/Douyin/Kuaishou/Weibo/Xiaohongshu) do not require proxy.\n\nConfigure via system settings or environment variables (HTTP_PROXY/HTTPS_PROXY). Lumio reads them automatically.",
+        "recommend_extension_title": "Install Browser Extension",
+        "recommend_extension_msg": "Send links to Lumio directly from your browser with one click. Supports YouTube, X, Instagram, and more. Right-click to send page/link/video/image — no copy-paste needed.\n\nSupports Chrome/Edge. Download from GitHub repository.",
+        "recommend_player_title": "Install a Media Player",
+        "recommend_player_msg": "Lumio has built-in preview for images/video/audio, but a dedicated player is recommended for the best experience:\n\n· PotPlayer (recommended, Windows)\n· VLC (cross-platform)\n· mpv (for power users)\n\nDouble-click any item in Library to open with system default player.",
+        "recommend_telegram_title": "Telegram Bot (Optional Advanced)",
+        "recommend_telegram_msg": "Configure a Telegram Bot to send links/media/notes/albums to Lumio Inbox from Telegram — cross-device collection.\n\n· Enter Bot Token in Settings to enable\n· Deploy local Bot API Server (--local) to bypass 20MB download and 2GB upload limits\n· Supports multi-device binding (pairing code)",
+        "recommend_apify_title": "Apify Token (Optional, IG Alternative)",
+        "recommend_apify_msg": "Apify Actor proxy replaces direct Instagram API calls to avoid account risk.\n\n· Free plan: $5 monthly quota (~500 IG parses)\n· Enter Token in Settings to enable\n· Auto-fallback to Cookie mode when quota exhausted\n· Suitable for users who need batch IG downloads",
 
         # Version check
         "notif_version_new_title": "New Version Available",

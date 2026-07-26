@@ -32,7 +32,28 @@ _PROFILE_ID_RE = re.compile(r"bilibili\.com/space/(\d+)")
 _BV_TO_AID_API = "https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
 _AID_API = "https://api.bilibili.com/x/web-interface/view?aid={aid}"
 _VIDEO_INFO_API = "https://api.bilibili.com/x/web-interface/view?aid={aid}"
-_PLAYER_INFO_API = "https://api.bilibili.com/x/player/playurl?avid={aid}&cid={cid}&qn=80&type=&otype=json"
+# DASH 接口：fnval=16 启用 DASH（音视频分离），fourk=1 解锁 4K，qn=127 请求最高档
+# 注意：fnval=404 会被 B站 web API 拒绝（code=-400），只能用 16 或 80
+# 服务端按账号权限降级：未登录→720P，登录→1080P，大会员→1080P+/4K/HDR/8K
+_PLAYER_INFO_API = (
+    "https://api.bilibili.com/x/player/playurl"
+    "?avid={aid}&cid={cid}&qn=127&type=&otype=json&fnval=16&fourk=1"
+)
+
+# B站清晰度 qn → (label, height) 映射
+_QN_MAP = {
+    16:  ("360P", 360),
+    32:  ("480P", 480),
+    64:  ("720P", 720),
+    74:  ("720P60", 720),
+    80:  ("1080P", 1080),
+    112: ("1080P+", 1080),
+    116: ("1080P60", 1080),
+    120: ("4K", 2160),
+    125: ("HDR", 2160),
+    126: ("杜比视界", 2160),
+    127: ("8K", 4320),
+}
 
 
 def _extract_bv(url: str) -> Optional[str]:
@@ -138,17 +159,52 @@ class BilibiliProvider(BaseProvider):
             pf_url = _PLAYER_INFO_API.format(aid=aid, cid=cid)
             pf_data = client.get_json(pf_url)
 
-        # 视频格式
+        # 视频格式 + 流 URL
         formats: list[FormatOption] = []
+        video_stream_url = ""  # DASH 视频流 URL（仅供预览展示，下载走 yt-dlp）
+        best_height = 0
+        best_qn = 0
         if pf_data and pf_data.get("code") == 0:
             pf_info = pf_data.get("data", {})
-            accept_formats = pf_info.get("accept_description", [])
-            accept_quality = pf_info.get("accept_quality", [])
+            accept_quality = pf_info.get("accept_quality", []) or []
+            accept_description = pf_info.get("accept_description", []) or []
+
+            # 1. 构建 FormatOption 列表（必须填 height，否则 downloader._build_format_options 跳过）
             for i, q in enumerate(accept_quality):
-                desc = accept_formats[i] if i < len(accept_formats) else f"品质{q}"
+                label = accept_description[i] if i < len(accept_description) else f"品质{q}"
+                _, height = _QN_MAP.get(q, (label, 0))
                 formats.append(FormatOption(
-                    format_id=str(q), label=desc, type="video", ext="mp4",
+                    format_id=str(q), label=label, type="video", ext="mp4",
+                    width=0, height=height,
                 ))
+
+            # 2. DASH 模式：从 dash.video[] 选最高画质视频流
+            #    （仅用于预览展示，实际下载走 yt-dlp 路径，自动处理 DASH + ffmpeg 合并音视频）
+            dash = pf_info.get("dash", {})
+            if dash:
+                videos = dash.get("video", []) or []
+                if videos:
+                    # 按 id（qn）降序，同 qn 选 codecid=7（H.264）兼容性好
+                    sorted_v = sorted(
+                        videos,
+                        key=lambda v: (-int(v.get("id", 0)), int(v.get("codecid", 99))),
+                    )
+                    best = sorted_v[0]
+                    video_stream_url = best.get("baseUrl", "") or best.get("base_url", "") or ""
+                    if not video_stream_url:
+                        backup = best.get("backupUrl") or best.get("backup_url") or []
+                        if backup:
+                            video_stream_url = backup[0]
+                    best_qn = int(best.get("id", 0))
+                    best_height = _QN_MAP.get(best_qn, ("", 0))[1]
+
+            # 3. Fallback: 无 DASH 时用 durl（合流 MP4，封顶 720P）
+            if not video_stream_url:
+                durl = pf_info.get("durl", []) or []
+                if durl:
+                    best = durl[0]
+                    video_stream_url = best.get("url", "") or (best.get("backup_url", [""])[:1] or [""])[0]
+                    best_qn = pf_info.get("quality", 0)
 
         # 构建 MediaItem
         items: list[MediaItem] = []
@@ -156,14 +212,18 @@ class BilibiliProvider(BaseProvider):
             # 封面作为图片项（可下载）
             items.append(MediaItem(url=pic, is_video=False, index=0))
 
-        # 视频流 URL（取最高分辨率，复用 pf_data）
-        if pf_data and pf_data.get("code") == 0:
-            durl = pf_data.get("data", {}).get("durl", [])
-            if durl:
-                best = durl[0]
-                video_url = best.get("url", "") or best.get("backup_url", [""])[0]
-                if video_url:
-                    items.append(MediaItem(url=video_url, is_video=True, index=len(items)))
+        # 视频项（URL 仅供预览展示，B站视频下载走 yt-dlp 路径）
+        if video_stream_url:
+            v_item = MediaItem(
+                url=video_stream_url,
+                is_video=True,
+                index=len(items),
+                extension="mp4",
+                media_type=MediaType.VIDEO,
+                height=best_height,
+                quality=_QN_MAP.get(best_qn, (f"qn={best_qn}",))[0],
+            )
+            items.append(v_item)
 
         return MediaInfo(
             platform=Platform.BILIBILI,

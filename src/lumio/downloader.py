@@ -1196,6 +1196,11 @@ def _download_hook_with_pause(
     pause_event: threading.Event,
     on_progress: ProgressCallback | None,
 ):
+    # 跟踪 yt-dlp 多流下载状态（bestvideo+bestaudio 会触发多次 downloading/finished）
+    # 用于在第二个流的 downloading 阶段避免 progress 从 0 跳变
+    # _stream_seq: 0=未开始, 1=视频流, 2=音频流, ...
+    state = {"seq": 0, "last_total": 0, "last_downloaded": 0, "finished_count": 0}
+
     def hook(d: dict):
         if task._cancelled:
             raise _CancelledError()
@@ -1204,17 +1209,42 @@ def _download_hook_with_pause(
         if d["status"] == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             downloaded = d.get("downloaded_bytes", 0)
-            task.progress = (downloaded / total * 100) if total else 0
+
+            # 多流下载进度平滑：yt-dlp 下载 bestvideo+bestaudio 时
+            # 视频流 finished → 音频流 downloading(progress=0)
+            # 旧实现直接上报 0，导致 UI 从 ~100% 跳到 0%（"从0重新开始"）
+            # 修复：检测到新流开始时，保留上一流的进度作为起点，
+            # 后续进度按 (last_downloaded + downloaded) / (last_total + total) 计算
+            if state["finished_count"] > 0 and total > 0:
+                # 累积模式：把已完成的流大小计入分母和分子
+                combined_total = state["last_total"] + total
+                combined_downloaded = state["last_downloaded"] + downloaded
+                task.progress = (combined_downloaded / combined_total * 100) if combined_total else 0
+            else:
+                task.progress = (downloaded / total * 100) if total else 0
+
             task.speed = d.get("_speed_str", "")
             task.filename = d.get("filename", "")
             task.status = "downloading"
+            if on_progress:
+                on_progress(task)
         elif d["status"] == "finished":
-            task.progress = 100
-            task.status = "done"
+            # 不立即设置 progress=100 和 status="done"！
+            # 原因：yt-dlp 多流下载会多次触发 finished（视频流→音频流→合并），
+            # 旧实现设置 progress=100 + status="done" 并调用 on_progress，
+            # 但 queue_manager.on_progress 跳过 "done" 状态不上报，
+            # 导致：
+            #   1. UI 卡在视频流最后进度（~99%）+ "下载中" 持续合并期间
+            #      （"100%状态显示还是在下载中"）
+            #   2. 下一个流的 downloading 从 0 上报，UI 跳变
+            #      （"快速到100%然后从0重新开始"）
+            # 修复：只更新 filename，记录当前流大小用于下一流进度累积，
+            # 不改变 progress/status，不调用 on_progress。
+            # 最终由 _yt_download_with_pause 末尾的 task.status="done" 触发 on_done。
+            state["finished_count"] += 1
+            state["last_total"] = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            state["last_downloaded"] = state["last_total"]  # finished 时已下载=总大小
             task.filename = d.get("filename", "")
-
-        if on_progress:
-            on_progress(task)
 
     return hook
 
@@ -1627,6 +1657,111 @@ def _x_download_with_pause(task, pause_event, on_progress):
     task.progress = 100
 
 
+def _bilibili_download_with_pause(task, pause_event, on_progress):
+    """B站视频下载：封面图走直链，视频走 yt-dlp（自动处理 DASH + ffmpeg 合并音视频）。
+
+    B站 web API 启用 fnval=404 后返回 DASH 结构（音视频分离），直链下载视频流
+    会没有声音。yt-dlp 内置 B站 extractor，自动选择最高画质 + 合并音视频 +
+    处理 Cookie/Referer，是最稳妥的下载路径。
+
+    流程：
+    1. 从 task.media_items_json 提取封面图 URL（图片项）→ 直链下载
+    2. 视频项 → 走 yt-dlp（用 task.url，让 yt-dlp 自己解析 DASH）
+    """
+    out_dir = _resolve_output_dir(task)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    policy = get_file_conflict_policy()
+    out_name = _effective_name(task)
+
+    # === 1. 下载封面图（如果 media_items 中有图片项）===
+    cover_downloaded = False
+    if task.media_items_json:
+        import json as _json
+        try:
+            items_data = _json.loads(task.media_items_json)
+            image_items = [i for i in items_data if not i.get("is_video", False)]
+            if image_items:
+                # 封面图文件名：out_name_cover.jpg
+                cover_name = _safe_filename(f"{out_name}_cover")
+                cover_path = out_dir / f"{cover_name}.jpg"
+                if not (cover_path.exists() and policy == "skip"):
+                    resolved = _resolve_conflict_path(cover_path, policy)
+                    if resolved is not None:
+                        cover_url = image_items[0].get("url", "")
+                        if cover_url:
+                            try:
+                                from .providers.network.headers import platform_headers
+                                from .providers.base import Platform as _P
+                                headers = platform_headers(_P.BILIBILI)
+                                resp = requests.get(cover_url, timeout=30, headers=headers)
+                                resp.raise_for_status()
+                                with open(resolved, "wb") as f:
+                                    f.write(resp.content)
+                                cover_downloaded = True
+                            except Exception as e:
+                                logger.warning("B站封面下载失败: %s", e)
+        except Exception as e:
+            logger.warning("B站封面解析失败: %s", e)
+
+    # === 2. 下载视频（走 yt-dlp 路径）===
+    resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
+    if resolved_stem is None:
+        task.status = "done"
+        task.progress = 100
+        task.filename = str(out_dir / f"{out_name}.mp4") if cover_downloaded else ""
+        return
+
+    cookie = get_cookie_path()
+    # 仅当 cookie 文件含 B站 SESSDATA 时才传给 yt-dlp
+    if cookie:
+        import http.cookiejar
+        try:
+            cj = http.cookiejar.MozillaCookieJar(str(cookie))
+            cj.load(ignore_discard=True, ignore_expires=True)
+            has_bilibili_cookie = any(
+                c.name in ("SESSDATA", "bili_jct")
+                and "bilibili.com" in c.domain
+                for c in cj
+            )
+            if not has_bilibili_cookie:
+                cookie = None
+        except Exception:
+            cookie = None
+
+    opts = _yt_opts(cookie)
+    opts["outtmpl"] = str(out_dir / f"{resolved_stem}.%(ext)s")
+    opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+    # B站：选最高画质，合并音视频为 mp4
+    opts["format"] = "bestvideo+bestaudio/best"
+    opts["merge_output_format"] = "mp4"
+    task.status = "downloading"
+    if on_progress:
+        on_progress(task)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([task.url])
+    except Exception as e:
+        # yt-dlp 失败时尝试降级：用 best 单流（合流 MP4，可能封顶 720P）
+        logger.warning("B站 yt-dlp 最佳画质下载失败，降级到 best: %s", e)
+        opts["format"] = "best[ext=mp4]/best"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([task.url])
+
+    # 验证输出文件
+    expected = out_dir / f"{resolved_stem}.mp4"
+    if not expected.exists():
+        candidates = list(out_dir.glob(f"{resolved_stem}.*"))
+        if not candidates:
+            task.status = "error"
+            task.error = "下载完成但文件未生成"
+            _cleanup_empty_dir(out_dir)
+            return
+        expected = candidates[0]
+    task.status = "done"
+    task.progress = 100
+    task.filename = str(expected)
+
+
 def _direct_download_with_pause(task, pause_event, on_progress):
     """通用直链下载（浏览器提取的媒体 URL 或本地文件路径）。"""
     import urllib.parse
@@ -2034,6 +2169,8 @@ def start_download_with_pause(
                     _ig_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.X:
                 _x_download_with_pause(task, pause_event, on_progress)
+            elif parsed.platform == Platform.BILIBILI:
+                _bilibili_download_with_pause(task, pause_event, on_progress)
             else:
                 # Phase 2: domestic platform items download (Weibo, Bilibili, etc.)
                 if task.media_items_json:
