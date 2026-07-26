@@ -338,13 +338,14 @@ let isQuitting = false;
 
 app.whenReady().then(async () => {
   // 注册 lumio-file:// protocol 的实际 handler
-  // lumio-file:///C:/Users/.../foo.mp4 → file:///C:/Users/.../foo.mp4
-  // 用 net.fetch 处理 Range 请求（视频拖动进度条需要）
+  // lumio-file:///C:/Users/.../foo.mp4 → 本地文件 → Response(stream)
   //
-  // 关键：net.fetch(file://) 返回的 Response Content-Type 默认是 application/octet-stream，
-  // <video> 标签会因 MIME 不匹配拒绝播放。这里根据文件扩展名手动推断 MIME，
-  // 重新构造 Response 强制设置 Content-Type。
-  protocol.handle("lumio-file", async (request) => {
+  // 可靠性设计：
+  // - 之前用 net.fetch(file://) 返回 Response，但 Windows 上 net.fetch 对 file:// 的
+  //   Range 请求处理不可靠，<video> 标签会拒绝播放（无声卡死或黑屏）
+  // - 改用 fs.createReadStream 直接读取文件，手动处理 Range 请求头
+  // - 根据文件扩展名推断 MIME，强制设置 Content-Type（video 标签要求 video/mp4 等）
+  protocol.handle("lumio-file", (request) => {
     try {
       // request.url 形如 lumio-file:///C%3A/Users/.../foo.mp4
       // URL 解析后 pathname 是 /C:/Users/.../foo.mp4（前导斜杠+盘符）
@@ -358,18 +359,63 @@ app.whenReady().then(async () => {
       if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
         return new Response("Not found", { status: 404 });
       }
-      // 推断 MIME（net.fetch 对 file:// 返回的 mime 不可靠，video 标签会拒绝播放）
+      // 推断 MIME（<video> 标签要求 video/mp4 等，application/octet-stream 会拒绝播放）
       const ext = path.extname(p).toLowerCase();
       const mime = MIME_TYPES[ext] || "application/octet-stream";
-      // 用 file:// URL 让 net.fetch 处理 Range 等细节
-      const fileResp = await net.fetch(pathToFileURL(p).toString());
-      // 重新构造 Response，强制设置 Content-Type
-      const headers = new Headers(fileResp.headers);
-      headers.set("Content-Type", mime);
-      headers.set("Accept-Ranges", "bytes");
-      return new Response(fileResp.body, {
-        status: fileResp.status,
-        statusText: fileResp.statusText,
+      const fileSize = fs.statSync(p).size;
+
+      // 处理 Range 请求（视频拖动进度条 / 分块加载必需）
+      const rangeHeader = request.headers.get("range");
+      let start = 0;
+      let end = fileSize - 1;
+      let isPartial = false;
+
+      if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+        const m = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+        if (m) {
+          isPartial = true;
+          start = m[1] ? parseInt(m[1], 10) : 0;
+          end = m[2] ? parseInt(m[2], 10) : fileSize - 1;
+          // 边界保护
+          if (start > end || start >= fileSize) {
+            return new Response("Range Not Satisfiable", {
+              status: 416,
+              headers: {
+                "Content-Range": `bytes */${fileSize}`,
+              },
+            });
+          }
+          end = Math.min(end, fileSize - 1);
+        }
+      }
+
+      const contentLength = end - start + 1;
+      const stream = fs.createReadStream(p, { start, end });
+
+      // Node Readable → Web ReadableStream
+      const webStream = new ReadableStream({
+        start(controller) {
+          stream.on("data", (chunk) => controller.enqueue(chunk));
+          stream.on("end", () => controller.close());
+          stream.on("error", (e) => controller.error(e));
+        },
+        cancel() {
+          stream.destroy();
+        },
+      });
+
+      const headers: Record<string, string> = {
+        "Content-Type": mime,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(contentLength),
+        "Cache-Control": "no-cache",
+      };
+      if (isPartial) {
+        headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`;
+      }
+
+      return new Response(webStream, {
+        status: isPartial ? 206 : 200,
         headers,
       });
     } catch (e) {
