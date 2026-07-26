@@ -323,18 +323,19 @@ def _task_to_dict(qt) -> dict:
 
 def _history_to_dict(r) -> dict:
     return {
-        "id": r.id,
+        "id": r.record_id,
         "url": r.url,
         "title": r.title or "",
         "platform": r.platform or "",
         "author": r.author or "",
         "file_path": r.file_path or "",
         "file_size": r.file_size,
-        "media_type": r.media_type or "",
+        "thumbnail_url": r.thumbnail_url or "",
+        "media_type": getattr(r, "media_type", "") or "",
         "success": r.success,
-        "error": r.error or "",
+        "error": getattr(r, "error", "") or "",
         "download_time": r.download_time or "",
-        "post_time": r.post_time or "",
+        "post_time": getattr(r, "post_time", "") or "",
         "batch_id": r.batch_id or "",
     }
 
