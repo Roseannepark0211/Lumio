@@ -1515,7 +1515,12 @@ def create_app() -> FastAPI:
         try:
             while True:
                 event = await q.get()
-                await ws.send_json(event)
+                try:
+                    await ws.send_json(event)
+                except (WebSocketDisconnect, RuntimeError):
+                    # 客户端断开：send_json 抛 RuntimeError "Cannot call send..."
+                    # 或 WebSocketDisconnect。跳出循环走 finally 退订。
+                    break
         except WebSocketDisconnect:
             pass
         except Exception:

@@ -175,6 +175,9 @@ class DownloadManager(QObject):
         self._active: dict[str, threading.Thread] = {}
         self._download_tasks: dict[str, DownloadTask] = {}
         self._paused_events: dict[str, threading.Event] = {}
+        # 进度上报节流：task_id → (last_progress, last_timestamp)
+        # 避免 downloader chunk_size=8KB 触发的事件风暴（10MB 文件 ~1250 次事件）
+        self._progress_throttle: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
         self._history_manager = history_manager
         self._library_manager = None
@@ -382,7 +385,9 @@ class DownloadManager(QObject):
             qt.error = ""
             qt.status = TaskStatus.WAITING.value
         self.task_status_changed.emit(task_id, TaskStatus.WAITING.value)
-        self._schedule()
+        # 仅启动该任务本身，不调度其他 waiting 任务
+        # （符合 AGENTS.md "任务完成后不自动启动下一个" 设计意图）
+        self._schedule(only_task_id=task_id)
 
     def delete_task(self, task_id: str):
         self.cancel_task(task_id)
@@ -532,6 +537,23 @@ class DownloadManager(QObject):
             qt.progress = p
             qt.speed = t.speed
             qt.filename = t.filename
+
+            # 节流：进度变化 < 1% 且距上次上报 < 0.3s 就跳过 emit
+            # （downloader 的 chunk_size=8KB，10MB 文件会触发 ~1250 次 on_progress，
+            #  多任务多项下载时事件量爆炸，WebSocket 来不及发送导致 socket.send() 异常）
+            # 用 dict 临时存储 last_p/last_ts，避免给 QueueTask 加字段
+            throttle = self._progress_throttle.get(qt.task_id)
+            now = time.monotonic()
+            if throttle is None:
+                self._progress_throttle[qt.task_id] = (p, now)
+            else:
+                last_p, last_ts = throttle
+                delta_p = abs(p - last_p)
+                delta_t = now - last_ts
+                if delta_p < 0.01 and delta_t < 0.3:
+                    return
+                self._progress_throttle[qt.task_id] = (p, now)
+
             self.task_progress.emit(qt.task_id, p, t.speed, t.filename)
 
         def on_done(t: DownloadTask):
@@ -564,7 +586,10 @@ class DownloadManager(QObject):
                     # "暂停→重试→进度归0→卡住→突然100%" 的糟糕体验
                     self.task_status_changed.emit(qt.task_id, qt.status)
                     delay = _RETRY_INTERVALS[min(qt.retry_count - 1, len(_RETRY_INTERVALS) - 1)]
-                    timer = threading.Timer(delay, self._schedule)
+                    # 仅重试该任务本身，不启动其他 waiting 任务
+                    # （旧实现调用 self._schedule 会启动所有 waiting 任务，
+                    #  违反"任务完成后不自动启动下一个"设计意图）
+                    timer = threading.Timer(delay, lambda tid=qt.task_id: self._schedule(only_task_id=tid))
                     timer.daemon = True
                     timer.start()
                     return  # don't count as finished yet
@@ -593,6 +618,7 @@ class DownloadManager(QObject):
         self._active.pop(task_id, None)
         self._download_tasks.pop(task_id, None)
         self._paused_events.pop(task_id, None)
+        self._progress_throttle.pop(task_id, None)
 
     def _record_history(self, qt: QueueTask):
         file_size = 0
@@ -653,17 +679,35 @@ class DownloadManager(QObject):
         if self._library_manager:
             self._library_manager.set_local_thumbnail(item_id, local_path)
 
-    def _schedule(self):
+    def _schedule(self, only_task_id: str | None = None):
+        """调度 waiting/retrying 任务启动下载。
+
+        Args:
+            only_task_id: 若指定，仅启动该任务本身，不启动其他 waiting 任务。
+                          用于 retry_task 和失败重试 Timer，避免单任务操作
+                          意外启动其他 waiting 任务（违反"任务完成后不自动启动
+                          下一个"的设计意图）。None 表示按 max_workers 并发调度
+                          所有 waiting 任务（用于 start_all / resume_all）。
+        """
         # Phase 1: under lock, collect which tasks to launch
         to_launch = []
         with self._lock:
-            while len(self._active) < self._max_workers:
-                next_qt = self._next_waiting_task()
-                if not next_qt:
-                    break
-                # Mark as downloading immediately to prevent re-selection
-                next_qt.status = TaskStatus.DOWNLOADING.value
-                to_launch.append(next_qt)
+            if only_task_id is not None:
+                # 单任务模式：仅启动指定任务（若仍在 waiting/retrying 且未在活跃中）
+                qt = self._tasks.get(only_task_id)
+                if qt and qt.status in (TaskStatus.WAITING.value, TaskStatus.RETRYING.value) \
+                        and qt.task_id not in self._active:
+                    qt.status = TaskStatus.DOWNLOADING.value
+                    to_launch.append(qt)
+            else:
+                # 全局调度模式：按 max_workers 并发启动所有 waiting 任务
+                while len(self._active) < self._max_workers:
+                    next_qt = self._next_waiting_task()
+                    if not next_qt:
+                        break
+                    # Mark as downloading immediately to prevent re-selection
+                    next_qt.status = TaskStatus.DOWNLOADING.value
+                    to_launch.append(next_qt)
 
         # Phase 2: outside lock, launch downloads (signals may re-enter)
         for qt in to_launch:

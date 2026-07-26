@@ -104,3 +104,15 @@
     border: 1px solid rgba(239, 68, 68, 0.3);
   }
 }
+
+/* LaserProgressBar 激光粒子拖尾动画 */
+@keyframes laser-particle {
+  0% {
+    transform: translateX(0) scaleX(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(-32px) scaleX(0.3);
+    opacity: 0;
+  }
+}
