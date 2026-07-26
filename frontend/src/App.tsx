@@ -2,23 +2,84 @@ import { useEffect, useState } from "react";
 import { api, type HealthResponse, type QueueTask, type LibraryItem } from "./api";
 import { getPageSwitch } from "./config";
 import { HomePage } from "./pages/HomePage";
+import { DownloadsPage } from "./pages/DownloadsPage";
 
 /**
  * 应用根组件。
  *
- * 根据 config.ts 中的页面级开关决定加载哪个页面：
- *   - USE_REACT_HOME = true  → 加载 React HomePage
- *   - USE_REACT_HOME = false → 加载 POC 验证页面（保留连通性检查）
+ * 根据 config.ts 中的页面级开关决定加载哪些 React 页面：
+ *   - 启用的页面会出现在顶部 tab 切换栏
+ *   - 未启用的页面 fallback 到 QML 版本（由 Electron 主进程处理）
  *
  * 后续迁移其他页面时同样按开关切换。
  */
 export default function App() {
   const useReactHome = getPageSwitch("USE_REACT_HOME");
+  const useReactDownloads = getPageSwitch("USE_REACT_DOWNLOADS");
 
-  if (useReactHome) {
-    return <HomePage />;
+  // 已启用的 React 页面列表
+  const enabledPages: PageKey[] = [];
+  if (useReactHome) enabledPages.push("home");
+  if (useReactDownloads) enabledPages.push("downloads");
+
+  // 没有任何 React 页面启用 → 显示 POC 验证页
+  if (enabledPages.length === 0) {
+    return <PocPage />;
   }
-  return <PocPage />;
+
+  return <PageSwitcher pages={enabledPages} />;
+}
+
+type PageKey = "home" | "downloads";
+
+/** 顶部 tab 切换器：在已启用的 React 页面之间切换。 */
+function PageSwitcher({ pages }: { pages: PageKey[] }) {
+  const [current, setCurrent] = useState<PageKey>(pages[0]);
+
+  // 如果 pages 列表变化导致当前页不在其中，重置为第一个
+  useEffect(() => {
+    if (!pages.includes(current) && pages.length > 0) {
+      setCurrent(pages[0]);
+    }
+  }, [pages, current]);
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* 顶部 tab 栏（仅当多个页面时显示） */}
+      {pages.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1 border-b border-white/5 px-4 py-2">
+          {pages.map((p) => (
+            <button
+              key={p}
+              onClick={() => setCurrent(p)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                current === p
+                  ? "bg-white/10 text-text"
+                  : "text-text-muted hover:bg-white/5 hover:text-text"
+              }`}
+            >
+              {pageLabel(p)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 页面内容 */}
+      <div className="min-h-0 flex-1">
+        {current === "home" && <HomePage />}
+        {current === "downloads" && <DownloadsPage />}
+      </div>
+    </div>
+  );
+}
+
+function pageLabel(p: PageKey): string {
+  switch (p) {
+    case "home":
+      return "Home";
+    case "downloads":
+      return "Downloads";
+  }
 }
 
 /**
