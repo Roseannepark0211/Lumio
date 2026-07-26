@@ -23,6 +23,75 @@ pip install -e .
 python -m lumio.main
 ```
 
+## 架构迁移规则（React + Electron + FastAPI 重构期）
+
+项目正从 QML 单体架构迁移到 **Electron + React 前端 / FastAPI 后端** 双进程架构。迁移期间必须遵守以下硬约束，确保任何阶段都能安全回滚。
+
+### 回滚保护（4 层防线）
+
+1. **L1 Git Tag — 绝对回滚点**
+   - 每个里程碑前**必须先打 tag**，作为"逃生通道"
+   - tag 命名：`v{版本}-pre-{里程碑名}`，例如 `v3.1.1-pre-react-migration`、`v3.2.0-pre-page-home`
+   - tag 必须推送到 origin：`git push origin <tag>`
+   - 回滚命令：`git reset --hard <tag>`
+
+2. **L2 目录隔离 — 删除即回滚**
+   - 新代码全部放在 `frontend/`（Electron + React）和 `src/lumio/api_fastapi.py`（FastAPI 包装层）
+   - **不允许修改** `src/lumio/qml/`、`src/lumio/gui/qml_bridge.py`、`src/lumio/providers/`、`src/lumio/queue_manager.py` 等核心业务代码
+   - Python 后端只做"新增包装"，不做"修改重构"
+   - 任何阶段删掉 `frontend/` 和 `api_fastapi.py`，QML 版本必须能正常运行
+
+3. **L3 页面级开关 — 单页回滚**
+   - 每迁移一个页面，在 `frontend/config.ts` 维护开关：`USE_REACT_{PAGE}: boolean`
+   - Electron 启动时按开关决定加载 React 页面还是 fallback 到 QML
+   - 单页出问题不影响其他页面
+
+4. **L4 数据级不变 — `~/.lumio/` 完全兼容**
+   - `library.db` / `history.json` / `config.json` / `queue.json` 的 schema 不变
+   - FastAPI 包装层只读现有 manager，不直接操作数据库
+   - React 前端通过 HTTP/WS 访问 Python，不直连 SQLite
+
+### Git 工作流（迁移期）
+
+- **main 始终可运行**：任何时刻 `python -m lumio.main` 必须能启动 QML 版
+- **不打长期迁移分支**：避免 3 个月后合并地狱
+- **每个任务用短期 feature branch**：`feat/fastapi-scaffold` / `feat/electron-scaffold` / `feat/react-tray-menu` / `feat/react-home-page` 等，活不过一周
+- **合并即删**：feature branch 合并 main 后立即删除
+
+### 打 Tag 时机（关键节点必须打）
+
+以下时间点**必须先打 tag 再提交/合并**：
+
+| 时机 | tag 命名 | 说明 |
+|---|---|---|
+| 开始任何重构工作前 | `v{当前版本}-pre-{里程碑}` | 整个迁移的起点 |
+| FastAPI 包装层完成前 | `v{版本}-pre-fastapi` | 后端 API 契约定型前 |
+| Electron 脚手架搭建前 | `v{版本}-pre-electron` | 前端工程化前 |
+| 每个页面迁移前 | `v{版本}-pre-page-{name}` | 单页迁移起点 |
+| 删除任何 QML 文件前 | `v{版本}-pre-qml-cleanup` | 旧代码下线前 |
+| Python 后端首次改动前 | `v{版本}-pre-backend-modify` | 突破"零改动"约束前（如有必要） |
+
+**TRAE Agent 行为约束**：在执行上述任一节点的 commit / merge 前，必须**主动提醒用户打 tag**，确认 tag 已打且推送到 origin 后，才能执行提交操作。如果用户跳过打 tag，应当暂停并解释风险，再次确认后再继续。
+
+### 当前架构状态
+
+```
+┌─────────────────────────────┐     HTTP/WS      ┌──────────────────────────┐
+│  Electron + React           │  ←───────────→   │  Python FastAPI          │
+│  (frontend/, 新建)          │                  │  (api_fastapi.py, 新建)  │
+│  - Vite + TypeScript        │                  │  - 包装现有 manager      │
+│  - Tailwind CSS             │                  │  - 零业务逻辑改动        │
+│  - Liquid Glass 设计稿      │                  │  - WebSocket 推送进度    │
+└─────────────────────────────┘                  └──────────────────────────┘
+                                                         ↓
+                                                  现有 Python 业务（零改动）
+                                                  yt-dlp / instaloader /
+                                                  Provider 系统 / SQLAlchemy /
+                                                  Flask / Telegram Bot
+```
+
+迁移完成后将删除 `src/lumio/qml/` 和 `src/lumio/gui/qml_bridge.py`，Python 后端剥离 PySide6 依赖。
+
 ## 项目结构
 
 ```
@@ -69,16 +138,10 @@ src/lumio/
         NotificationsPage.qml — 通知页面（环境/依赖/版本通知 + 分类筛选 + 永久通知）
         SettingsPage.qml   — 分组设置（通用/下载/Cookie/缓存/About）
 
-  gui/                — Python 侧 GUI 支持层（QML 迁移后大部分 QWidget 已废弃）
+  gui/                — Python 侧 GUI 支持层（QML 迁移后仅保留桥接与工具）
     qml_bridge.py     — QML 桥接层（QmlController：暴露后端能力给 QML，含 IconProvider/ThumbProvider）
     cookie_checker.py — Cookie 有效性检测（返回 missing/expired/warning/valid 枚举）
-    # 以下为旧 QWidget 版本文件，QML 版已弃用，仅供历史参考：
-    # window.py / sidebar.py / home_page.py / home_page_new.py / downloads_page.py
-    # history_page.py / library_page.py / stats_page.py / settings_page.py
-    # inbox_page.py / notification_page.py / format_dialog.py / profile_dialog.py
-    # yt_dialog.py / x_dialog.py / domestic_dialog.py / queue_panel.py
-    # history_panel.py / library_panel.py / preview_dialog.py / settings.py
-    # styles.py / widgets.py / icon_provider.py
+    （旧 QWidget 文件 window.py/sidebar.py/home_page.py 等 23 个已于 React 迁移启动前删除）
 
   utils/
     url_parser.py    — URL 平台识别（YouTube / Instagram / X / 国内平台 / 不支持）
