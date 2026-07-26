@@ -37,18 +37,26 @@ _NOTIF_FILE = Path.home() / ".lumio" / "notifications.json"
 _VERSION_CHECK_INTERVAL = 7 * 24 * 3600  # seconds
 
 # Python 运行时依赖（程序打包时的依赖）
+# 注意：dict 的 key 必须是 Python import 名，不是 pip 包名
+#   - yt-dlp 包的 import 名是 yt_dlp（连字符在 import 语法中非法）
+#   - python-telegram-bot 包的 import 名是 telegram
 _PYTHON_DEPS = {
-    "yt-dlp": "YouTube/X 视频解析与下载",
+    "yt_dlp": "YouTube/X 视频解析与下载",
     "instaloader": "Instagram 下载（逐步弃用）",
     "PySide6": "GUI 框架",
     "flask": "本地 API 服务",
     "sqlalchemy": "素材库 + 收件箱 ORM",
     "PIL": "缩略图生成",
-    "telegram": "Telegram Bot 轮询",
     "apify_client": "Apify Actor 代理",
     "imageio_ffmpeg": "内置 ffmpeg 二进制",
     "requests": "HTTP 请求",
     "packaging": "版本号对比",
+}
+
+# 可选依赖：仅当用户启用对应功能时才检测，缺失时降级为 low priority 提示
+# telegram（python-telegram-bot）→ Telegram Bot 跨设备采集功能
+_OPTIONAL_DEPS = {
+    "telegram": ("Telegram Bot 跨设备采集", "recommend_telegram"),
 }
 
 
@@ -200,6 +208,23 @@ class NotificationManager(QObject):
             count = self.unread_count()
         self.notifications_changed.emit(count)
 
+    def _remove_by_source_key(self, source_key: str) -> None:
+        """按 source_key 清理通知（用于修复历史误报后清理过时通知）。
+
+        清理成功后触发 notifications_changed 信号让 UI 刷新。
+        """
+        with self._lock:
+            before = len(self._notifications)
+            self._notifications = [
+                n for n in self._notifications if n.source_key != source_key
+            ]
+            if len(self._notifications) != before:
+                self._save_locked()
+                count = self.unread_count()
+            else:
+                return
+        self.notifications_changed.emit(count)
+
     # ── 启动检测（后台异步） ────────────────────────────────────────
 
     def check_all(self, async_run: bool = True) -> None:
@@ -244,13 +269,19 @@ class NotificationManager(QObject):
     # ── 检查逻辑 ────────────────────────────────────────────────────
 
     def _check_python_deps(self) -> None:
-        """检查 Python 运行时依赖是否完整。"""
+        """检查 Python 运行时依赖是否完整。
+
+        必需依赖缺失 → critical 通知；
+        可选依赖缺失 → 不发通知（已有 recommend_telegram 永久提示引导用户安装）。
+        之前发的过时通知（如 yt-dlp 误报）自动清理，避免历史污染。
+        """
         missing = []
         for mod, desc in _PYTHON_DEPS.items():
             try:
                 __import__(mod)
             except ImportError:
                 missing.append(f"{mod} ({desc})")
+
         if missing:
             self.add_notification(Notification(
                 category="deps",
@@ -262,6 +293,11 @@ class NotificationManager(QObject):
                 action_text=t("notif_action_install"),
                 source_key="python_deps_missing",
             ))
+        else:
+            # 必需依赖齐全 → 清理之前发的过时通知（如修复 import 名后 yt-dlp 不再误报）
+            self._remove_by_source_key("python_deps_missing")
+
+        # 可选依赖缺失不发通知（避免噪音），已有 recommend_* 永久通知引导用户
 
     def _check_network_proxy(self) -> None:
         """检查系统代理配置（国外平台需 VPN/代理）。
