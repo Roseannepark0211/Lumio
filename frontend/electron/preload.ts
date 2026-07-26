@@ -15,18 +15,21 @@ const fastapiToken = process.env.LUMIO_FASTAPI_TOKEN || "";
  * 把本地文件绝对路径转成 lumio-file:// URL。
  * 例：C:\Users\foo\bar.mp4 → lumio-file:///C:/Users/foo/bar.mp4
  * 渲染进程用 <video src={lumioFileUrl(path)}> 播放本地视频。
+ *
+ * 关键：不对路径做 encodeURIComponent！
+ * - encodeURIComponent("C:") = "C%3A"，导致 URL 形如 lumio-file:///C%3A/Users/...
+ * - Chromium 的 URL safety check 会拒绝带 %3A 的路径，
+ *   <video> 报错 "Media load rejected by URL safety check"
+ * - lumio-file:// 是自定义 protocol，路径部分直接拼接即可，
+ *   main.ts 的 handler 用 decodeURIComponent 兜底解码
  */
 function lumioFileUrl(p: string): string {
   if (!p) return "";
   // 反斜杠 → 正斜杠（Windows 路径兼容）
   const normalized = p.replace(/\\/g, "/");
-  // URL-encode 路径段，但保留 / 分隔符
-  const encoded = normalized
-    .split("/")
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
   // lumio-file:/// + 路径（带前导斜杠表示 absolute）
-  return `lumio-file:///${encoded}`;
+  // 不做 URL 编码，保留 C: 形式
+  return `lumio-file:///${normalized}`;
 }
 
 contextBridge.exposeInMainWorld("lumio", {
