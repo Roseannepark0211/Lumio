@@ -119,7 +119,13 @@ class NotificationManager(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._notifications: list[Notification] = []
-        self._lock = threading.Lock()
+        # 修复：用 RLock（可重入锁）替代 Lock
+        # 原因：add_notification / mark_read / dismiss / clear_read / _cleanup_expired
+        # 等方法在持锁状态下会调用 self.unread_count()，后者再次 with self._lock。
+        # threading.Lock 不可重入 → 同线程二次 acquire 永久阻塞 → 后台 _check_all_sync
+        # 线程死锁，锁永不释放，UI 线程调 getNotificationsJson 时永久卡死。
+        # RLock 允许同线程多次 acquire，彻底修复此死锁。
+        self._lock = threading.RLock()
         self._checking = False  # check_all 防重入
         self._load()
 
