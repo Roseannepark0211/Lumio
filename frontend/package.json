@@ -6,7 +6,7 @@
   "description": "Lumio desktop app frontend (Electron + React + Vite)",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev:electron": "npm run build:electron && concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "tsc -b && vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "preview": "vite preview",
