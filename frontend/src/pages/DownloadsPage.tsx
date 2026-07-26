@@ -32,7 +32,7 @@ import {
 export function DownloadsPage() {
   // —— 任务列表状态 ——
   const [tasks, setTasks] = useState<QueueTask[]>([]);
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+  const [filterStatus] = useState<FilterStatus>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

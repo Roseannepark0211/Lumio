@@ -60,7 +60,7 @@ export function HomePage() {
   const [selectedSearchItems, setSelectedSearchItems] = useState<Record<number, boolean>>({});
 
   // —— X-Sou 视频预览状态 ——
-  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+  const [, setPreviewDialogOpen] = useState(false);
   const [previewProgressDialogOpen, setPreviewProgressDialogOpen] = useState(false);
   const [previewProgress, setPreviewProgress] = useState<PreviewProgressPayload | null>(null);
   const [previewLocalPath, setPreviewLocalPath] = useState<string | null>(null);

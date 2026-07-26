@@ -24,7 +24,6 @@ import {
   normStatus,
   statusText,
   statusPillClass,
-  formatSize,
   formatPct,
 } from "../../utils/downloads";
 

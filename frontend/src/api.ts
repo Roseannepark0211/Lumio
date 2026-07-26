@@ -107,6 +107,24 @@ export interface LibraryItem {
   duration: number;
 }
 
+/** 历史记录条目（与 api_fastapi.py _history_to_dict 对齐） */
+export interface HistoryRecord {
+  id: string;
+  url: string;
+  title: string;
+  platform: string;
+  author: string;
+  file_path: string;
+  file_size: number;
+  thumbnail_url: string;
+  media_type: string;
+  success: boolean;
+  error: string;
+  download_time: string;
+  post_time: string;
+  batch_id: string;
+}
+
 // ============================================================
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
@@ -184,16 +202,6 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
-  return r.json() as Promise<T>;
-}
-
-async function put<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
-    method: "PUT",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -315,6 +323,19 @@ export const api = {
 
   // —— 素材库 ——
   getLibrary: () => get<LibraryItem[]>("/api/library"),
+
+  // —— 历史记录 ——
+  getHistory: () => get<HistoryRecord[]>("/api/history"),
+  deleteHistory: (id: string) => del<{ ok: boolean }>(`/api/history/${encodeURIComponent(id)}`),
+  clearHistory: () => del<{ ok: boolean }>("/api/history"),
+
+  // —— 文件操作 ——
+  /** 打开文件。source: "library" / "history" — 缺失时后端会推 file_missing 事件。 */
+  openFile: (path: string, source: string = "") =>
+    post<{ ok: boolean; error?: string }>("/api/open-file", { path, source }),
+  /** 打开文件所在目录。source 同上。 */
+  openFolder: (path: string, source: string = "") =>
+    post<{ ok: boolean; error?: string }>("/api/open-folder", { path, source }),
 };
 
 // ============================================================
