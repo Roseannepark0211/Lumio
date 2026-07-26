@@ -435,9 +435,9 @@ _TRANSLATIONS = {
         "notif_extension_tip_title": "安装浏览器插件",
         "notif_extension_tip_msg": "从浏览器一键发送链接到 Lumio，支持 YouTube、X 等平台。插件可在 GitHub 仓库下载。",
 
-        # IG 风险提示（永久通知）
-        "notif_ig_risk_title": "Instagram 下载风险提示",
-        "notif_ig_risk_msg": "Instagram 对自动化行为检测严格，频繁下载可能导致账号受限或封禁。\n\n建议：\n· 不要频繁批量抓取主页帖子\n· 单个帖子不要连续重复下载\n· 建议使用小号 Cookie，不要用主号\n· 插件发送 IG 链接时走浏览器直链，不调用 IG API，风险较低",
+        # IG 风险提示 + Apify 替代方案（永久通知，已合并）
+        "notif_ig_risk_title": "Instagram 下载风险与应对方案",
+        "notif_ig_risk_msg": "Instagram 对自动化行为检测严格，频繁下载可能导致账号受限或封禁。\n\n应对方案（按推荐顺序）：\n· 浏览器扩展：右键 IG 页面时一次性注入提取直链，不调用 IG API，风险最低（强烈推荐）\n· Apify Token：通过 Apify Actor 代理替代直接 API 调用，避免账号风控\n    - Free plan 每月 $5 额度（约 500 次 IG 解析）\n    - 在设置中填入 Token 即可启用，配额耗尽自动回退到 Cookie 模式\n    - 适合需要批量下载 IG 的用户\n· 小号 Cookie：用小号 Cookie 不要用主号\n· 控制频率：不要频繁批量抓取主页帖子，单个帖子不要连续重复下载",
 
         # 配套软件建议（永久通知）
         "recommend_vpn_title": "国外平台需配置 VPN/代理",
@@ -448,8 +448,6 @@ _TRANSLATIONS = {
         "recommend_player_msg": "Lumio 内置预览支持图片/视频/音频，但建议安装专用播放器获得最佳体验：\n\n· PotPlayer（推荐，Windows）\n· VLC（跨平台）\n· mpv（极客向）\n\nLibrary 中双击素材可用系统默认播放器打开。",
         "recommend_telegram_title": "Telegram Bot（可选高级功能）",
         "recommend_telegram_msg": "配置 Telegram Bot 后，可在 Telegram 中发送链接/媒体/笔记/相册到 Lumio Inbox 收件箱，跨设备采集。\n\n· 在设置中填入 Bot Token 即可启用\n· 部署本地 Bot API Server（--local）可突破 20MB 下载限制和 2GB 上传限制\n· 支持多设备绑定（配对码机制）",
-        "recommend_apify_title": "Apify Token（可选，IG 替代方案）",
-        "recommend_apify_msg": "Apify Actor 代理可替代直接 Instagram API 调用，避免账号风控。\n\n· Free plan 每月 $5 额度（约 500 次 IG 解析）\n· 在设置中填入 Token 即可启用\n· 配额耗尽自动回退到 Cookie 模式\n· 适合需要批量下载 IG 的用户",
 
         # 版权与使用声明（永久通知，critical priority）
         "copyright_notice_title": "⚠️ 版权与使用声明（请务必阅读）",
@@ -1156,9 +1154,9 @@ _TRANSLATIONS = {
         "notif_extension_tip_title": "Install Browser Extension",
         "notif_extension_tip_msg": "Send links to Lumio directly from your browser with one click. Supports YouTube, X, and more. Download from GitHub repository.",
 
-        # IG risk notice (permanent)
-        "notif_ig_risk_title": "Instagram API Risk Notice",
-        "notif_ig_risk_msg": "Instagram has strict automation detection. Frequent downloads may lead to account restrictions or bans.\n\nRecommendations:\n· Avoid frequent batch scraping of profile posts\n· Do not repeatedly download the same post\n· Use a secondary account's cookie, not your primary\n· Browser extension sends IG links via direct browser extraction, not IG API, which is lower risk",
+        # IG risk notice + Apify alternative (permanent, merged)
+        "notif_ig_risk_title": "Instagram Download Risk & Mitigations",
+        "notif_ig_risk_msg": "Instagram has strict automation detection. Frequent downloads may lead to account restrictions or bans.\n\nMitigations (in order of recommendation):\n· Browser extension: one-time injection extracts direct links from DOM, no IG API call, lowest risk (strongly recommended)\n· Apify Token: proxy via Apify Actor instead of direct API calls to avoid account risk\n    - Free plan: $5 monthly quota (~500 IG parses)\n    - Enter Token in Settings to enable; auto-fallback to Cookie mode when quota exhausted\n    - Suitable for users who need batch IG downloads\n· Secondary account cookie: use a secondary account's cookie, not your primary\n· Rate limit: avoid frequent batch scraping of profile posts; do not repeatedly download the same post",
 
         # Software recommendations (permanent)
         "recommend_vpn_title": "VPN/Proxy Required for Foreign Platforms",
@@ -1169,8 +1167,6 @@ _TRANSLATIONS = {
         "recommend_player_msg": "Lumio has built-in preview for images/video/audio, but a dedicated player is recommended for the best experience:\n\n· PotPlayer (recommended, Windows)\n· VLC (cross-platform)\n· mpv (for power users)\n\nDouble-click any item in Library to open with system default player.",
         "recommend_telegram_title": "Telegram Bot (Optional Advanced)",
         "recommend_telegram_msg": "Configure a Telegram Bot to send links/media/notes/albums to Lumio Inbox from Telegram — cross-device collection.\n\n· Enter Bot Token in Settings to enable\n· Deploy local Bot API Server (--local) to bypass 20MB download and 2GB upload limits\n· Supports multi-device binding (pairing code)",
-        "recommend_apify_title": "Apify Token (Optional, IG Alternative)",
-        "recommend_apify_msg": "Apify Actor proxy replaces direct Instagram API calls to avoid account risk.\n\n· Free plan: $5 monthly quota (~500 IG parses)\n· Enter Token in Settings to enable\n· Auto-fallback to Cookie mode when quota exhausted\n· Suitable for users who need batch IG downloads",
 
         # Copyright & usage notice (permanent, critical priority)
         "copyright_notice_title": "⚠️ Copyright & Usage Notice (Please Read)",

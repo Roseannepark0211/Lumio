@@ -429,7 +429,13 @@ class NotificationManager(QObject):
             logger.debug("Extension tip check failed: %s", e)
 
     def _check_ig_risk(self) -> None:
-        """永久通知：Instagram 下载风险提示。"""
+        """永久通知：Instagram 下载风险提示 + Apify 替代方案（已合并）。
+
+        文案更新时需强制覆盖旧通知（add_notification 按 source_key 去重会跳过），
+        否则用户重启后看不到新内容。
+        """
+        # 先清理旧版本的 ig_risk_warning（让 add_notification 重新写入新文案）
+        self._remove_by_source_key("ig_risk_warning")
         self.add_notification(Notification(
             category="env",
             type="warning",
@@ -501,18 +507,10 @@ class NotificationManager(QObject):
             dismissable=False,
         ))
 
-        # 5. Apify Token（可选，low priority）
-        self.add_notification(Notification(
-            category="system",
-            type="tip",
-            priority="low",
-            title=t("recommend_apify_title"),
-            message=t("recommend_apify_msg"),
-            action="open_page:settings",
-            action_text=t("notif_action_configure"),
-            source_key="recommend_apify",
-            dismissable=False,
-        ))
+        # 5. Apify Token 已合并到 IG 风险提示（notif_ig_risk）
+        # 不再单独发 recommend_apify 通知，避免重复。
+        # 清理之前发的 recommend_apify 通知（如果存在）
+        self._remove_by_source_key("recommend_apify")
 
         # 6. 版权与使用声明（critical priority，最显眼，不可关闭）
         # 放在所有 system 永久通知最前（按 priority 排序时 critical 高于 high/normal/low）
