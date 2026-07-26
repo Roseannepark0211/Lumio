@@ -64,6 +64,14 @@ Item {
                 if (n.category === fc && n.dismissable) out.push(n)
             }
         }
+        // 按优先级排序：critical > high > normal > low（同级保持插入顺序）
+        // 这样重要的永久通知（如版权声明）会显示在列表最上方
+        var _priorityOrder = { "critical": 0, "high": 1, "normal": 2, "low": 3 }
+        out.sort(function(a, b) {
+            var pa = _priorityOrder[a.priority] !== undefined ? _priorityOrder[a.priority] : 2
+            var pb = _priorityOrder[b.priority] !== undefined ? _priorityOrder[b.priority] : 2
+            return pa - pb
+        })
         _list.model = out
         _updateBadge()
     }

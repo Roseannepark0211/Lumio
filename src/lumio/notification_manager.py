@@ -478,6 +478,18 @@ class NotificationManager(QObject):
             dismissable=False,
         ))
 
+        # 6. 版权与使用声明（critical priority，最显眼，不可关闭）
+        # 放在所有 system 永久通知最前（按 priority 排序时 critical 高于 high/normal/low）
+        self.add_notification(Notification(
+            category="system",
+            type="warning",
+            priority="critical",
+            title=t("copyright_notice_title"),
+            message=t("copyright_notice_msg"),
+            source_key="copyright_notice",
+            dismissable=False,
+        ))
+
     def _check_version_periodic(self) -> None:
         """周期性版本检查（7 天一次）。
 

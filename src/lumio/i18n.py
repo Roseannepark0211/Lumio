@@ -451,6 +451,10 @@ _TRANSLATIONS = {
         "recommend_apify_title": "Apify Token（可选，IG 替代方案）",
         "recommend_apify_msg": "Apify Actor 代理可替代直接 Instagram API 调用，避免账号风控。\n\n· Free plan 每月 $5 额度（约 500 次 IG 解析）\n· 在设置中填入 Token 即可启用\n· 配额耗尽自动回退到 Cookie 模式\n· 适合需要批量下载 IG 的用户",
 
+        # 版权与使用声明（永久通知，critical priority）
+        "copyright_notice_title": "⚠️ 版权与使用声明（请务必阅读）",
+        "copyright_notice_msg": "本软件仅供个人学习与技术研究使用，严禁将通过本软件下载的任何媒体素材用于商业用途或以其他方式获利。\n\n使用者须自行承担因使用本软件下载、存储、传播媒体素材而产生的一切法律责任，包括但不限于：\n· 违反各平台用户协议或版权法\n· 侵犯他人肖像权、著作权、隐私权等合法权益\n· 其他任何违法行为\n\n继续使用本软件即表示您已知晓并同意以上声明。",
+
         # 版本检查
         "notif_version_new_title": "发现新版本",
         "notif_version_new_msg": "当前版本 v{0}，最新版本 v{1}。建议更新以获取新功能和修复。",
@@ -1167,6 +1171,10 @@ _TRANSLATIONS = {
         "recommend_telegram_msg": "Configure a Telegram Bot to send links/media/notes/albums to Lumio Inbox from Telegram — cross-device collection.\n\n· Enter Bot Token in Settings to enable\n· Deploy local Bot API Server (--local) to bypass 20MB download and 2GB upload limits\n· Supports multi-device binding (pairing code)",
         "recommend_apify_title": "Apify Token (Optional, IG Alternative)",
         "recommend_apify_msg": "Apify Actor proxy replaces direct Instagram API calls to avoid account risk.\n\n· Free plan: $5 monthly quota (~500 IG parses)\n· Enter Token in Settings to enable\n· Auto-fallback to Cookie mode when quota exhausted\n· Suitable for users who need batch IG downloads",
+
+        # Copyright & usage notice (permanent, critical priority)
+        "copyright_notice_title": "⚠️ Copyright & Usage Notice (Please Read)",
+        "copyright_notice_msg": "This software is for personal study and technical research only. Any commercial use or profit-making from media downloaded via this software is strictly prohibited.\n\nThe user bears all legal responsibility arising from downloading, storing, or distributing media obtained through this software, including but not limited to:\n· Violating platform terms of service or copyright law\n· Infringing on others' portrait, copyright, privacy, or other legal rights\n· Any other unlawful activity\n\nContinued use of this software constitutes your acknowledgment and acceptance of this notice.",
 
         # Version check
         "notif_version_new_title": "New Version Available",
