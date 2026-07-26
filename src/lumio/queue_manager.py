@@ -175,6 +175,9 @@ class DownloadManager(QObject):
         self._active: dict[str, threading.Thread] = {}
         self._download_tasks: dict[str, DownloadTask] = {}
         self._paused_events: dict[str, threading.Event] = {}
+        # 进度上报节流：task_id → (last_progress, last_timestamp)
+        # 避免 downloader chunk_size=8KB 触发的事件风暴（10MB 文件 ~1250 次事件）
+        self._progress_throttle: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
         self._history_manager = history_manager
         self._library_manager = None
@@ -534,6 +537,23 @@ class DownloadManager(QObject):
             qt.progress = p
             qt.speed = t.speed
             qt.filename = t.filename
+
+            # 节流：进度变化 < 1% 且距上次上报 < 0.3s 就跳过 emit
+            # （downloader 的 chunk_size=8KB，10MB 文件会触发 ~1250 次 on_progress，
+            #  多任务多项下载时事件量爆炸，WebSocket 来不及发送导致 socket.send() 异常）
+            # 用 dict 临时存储 last_p/last_ts，避免给 QueueTask 加字段
+            throttle = self._progress_throttle.get(qt.task_id)
+            now = time.monotonic()
+            if throttle is None:
+                self._progress_throttle[qt.task_id] = (p, now)
+            else:
+                last_p, last_ts = throttle
+                delta_p = abs(p - last_p)
+                delta_t = now - last_ts
+                if delta_p < 0.01 and delta_t < 0.3:
+                    return
+                self._progress_throttle[qt.task_id] = (p, now)
+
             self.task_progress.emit(qt.task_id, p, t.speed, t.filename)
 
         def on_done(t: DownloadTask):
@@ -598,6 +618,7 @@ class DownloadManager(QObject):
         self._active.pop(task_id, None)
         self._download_tasks.pop(task_id, None)
         self._paused_events.pop(task_id, None)
+        self._progress_throttle.pop(task_id, None)
 
     def _record_history(self, qt: QueueTask):
         file_size = 0
