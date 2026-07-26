@@ -399,6 +399,12 @@ def _notification_to_dict(n) -> dict:
     # 字段名与 Notification dataclass 对齐（notification_manager.py）
     # 旧版误用 level/body/action_label/action_url/is_read，实际字段是
     # type/message/action/action_text/read
+    # 注意：created_at 在 dataclass 中是 str（ISO 格式字符串，由
+    # datetime.now(timezone.utc).isoformat() 生成），不是 datetime 对象，
+    # 不能调 .isoformat()，否则 AttributeError
+    created_at = n.created_at
+    if hasattr(created_at, "isoformat"):
+        created_at = created_at.isoformat()
     return {
         "id": n.id,
         "category": n.category,
@@ -419,7 +425,7 @@ def _notification_to_dict(n) -> dict:
         "body": n.message or "",
         "action_label": getattr(n, "action_text", "") or "",
         "action_url": n.action or "",
-        "created_at": n.created_at.isoformat() if n.created_at else "",
+        "created_at": created_at or "",
     }
 
 
