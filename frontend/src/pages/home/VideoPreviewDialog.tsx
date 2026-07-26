@@ -11,7 +11,7 @@
  * - 不需要 AudioOutput / MediaPlayer 复杂状态机
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { lumioFileUrl } from "../../api";
 
 interface Props {
@@ -24,6 +24,7 @@ interface Props {
 
 export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // Esc 键关闭
   useEffect(() => {
@@ -34,9 +35,15 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // localPath 变化时重置错误状态
+  useEffect(() => {
+    setVideoError(null);
+  }, [localPath]);
+
   if (!localPath && !error) return null;
 
   const videoSrc = localPath ? lumioFileUrl(localPath) : "";
+  console.log("[VideoPreviewDialog] videoSrc =", videoSrc, "localPath =", localPath);
 
   return (
     <div
@@ -44,9 +51,9 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/10 bg-bg-surface shadow-2xl"
+        className="relative flex items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
         onClick={(e) => e.stopPropagation()}
-        style={{ minWidth: 480, minHeight: 320 }}
+        style={{ width: "80vw", height: "80vh" }}
       >
         {/* 关闭按钮 */}
         <button
@@ -61,7 +68,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
         </button>
 
         {error ? (
-          <div className="flex h-[60vh] w-[80vw] max-w-3xl flex-col items-center justify-center gap-3 p-8 text-center">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/15">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6 text-danger">
                 <circle cx="12" cy="12" r="10" />
@@ -72,14 +79,40 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
             <div className="text-sm font-medium text-danger">视频加载失败</div>
             <div className="text-xs text-text-muted">{error}</div>
           </div>
+        ) : videoError ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/15">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6 text-danger">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <div className="text-sm font-medium text-danger">视频播放失败</div>
+            <div className="max-w-md text-xs text-text-muted">{videoError}</div>
+          </div>
         ) : (
           <video
             ref={videoRef}
             src={videoSrc}
             controls
             autoPlay
-            className="max-h-[90vh] max-w-[90vw]"
-            style={{ display: 'block' }}
+            className="h-full w-full object-contain"
+            onError={(e) => {
+              const v = e.currentTarget;
+              const code = v.error?.code;
+              const msg = v.error?.message;
+              const codeMap: Record<number, string> = {
+                1: "MEDIA_ERR_ABORTED",
+                2: "MEDIA_ERR_NETWORK",
+                3: "MEDIA_ERR_DECODE",
+                4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+              };
+              const label = code ? codeMap[code] || `code ${code}` : "unknown";
+              console.error("[VideoPreviewDialog] video error:", { code, message: msg, src: videoSrc });
+              setVideoError(`${label}: ${msg || "无详细信息"} (src=${videoSrc})`);
+            }}
+            onLoadedData={() => console.log("[VideoPreviewDialog] video loaded OK")}
           />
         )}
       </div>

@@ -162,6 +162,17 @@ export interface InboxItem {
   error_message: string;
 }
 
+/** 统计数据（与 api_fastapi.py /api/stats 对齐） */
+export interface StatsResponse {
+  total_downloads: number;
+  total_size: number;
+  /** 0-100 的百分比，例如 87.5 */
+  success_rate: number;
+  today_count: number;
+  /** 平台 → 下载次数的映射 */
+  platforms: Record<string, number>;
+}
+
 // ============================================================
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
@@ -419,6 +430,9 @@ export const api = {
   /** 清空所有已下载 / 已归档的条目 */
   inboxClearCompleted: () =>
     post<{ ok: boolean; deleted: number }>("/api/inbox/clear-completed"),
+
+  // —— 统计 ——
+  getStats: () => get<StatsResponse>("/api/stats"),
 
   // —— 文件操作 ——
   /** 打开文件。source: "library" / "history" — 缺失时后端会推 file_missing 事件。 */

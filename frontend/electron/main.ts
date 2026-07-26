@@ -79,6 +79,37 @@ protocol.registerSchemesAsPrivileged([
 // 工具函数
 // ============================================================
 
+/** 文件扩展名 → MIME 映射（lumio-file:// handler 用）。
+ *  net.fetch(file://) 返回的 Content-Type 不可靠（通常是 application/octet-stream），
+ *  <video>/<audio> 标签会因 MIME 不匹配拒绝播放，这里手动推断。 */
+const MIME_TYPES: Record<string, string> = {
+  // 视频
+  ".mp4": "video/mp4",
+  ".m4v": "video/x-m4v",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".flv": "video/x-flv",
+  ".ogv": "video/ogg",
+  // 音频
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".opus": "audio/opus",
+  // 图片
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+};
+
 /** 在 10000-60000 之间挑一个看起来没被占用的端口。 */
 function pickUnusedPort(): number {
   // 简单策略：随机一个高位端口。即使偶尔冲突，FastAPI 启动失败也能感知。
@@ -307,8 +338,13 @@ let isQuitting = false;
 
 app.whenReady().then(async () => {
   // 注册 lumio-file:// protocol 的实际 handler
-  // lumio-file:///C:/Users/.../foo.mp4 → file:///C:/Users/.../foo.mp4
-  // 用 net.fetch 处理 Range 请求（视频拖动进度条需要）
+  // lumio-file:///C:/Users/.../foo.mp4 → 本地文件 → Response(stream)
+  //
+  // 可靠性设计：
+  // - 之前用 net.fetch(file://) 返回 Response，但 Windows 上 net.fetch 对 file:// 的
+  //   Range 请求处理不可靠，<video> 标签会拒绝播放（无声卡死或黑屏）
+  // - 改用 fs.createReadStream 直接读取文件，手动处理 Range 请求头
+  // - 根据文件扩展名推断 MIME，强制设置 Content-Type（video 标签要求 video/mp4 等）
   protocol.handle("lumio-file", (request) => {
     try {
       // request.url 形如 lumio-file:///C%3A/Users/.../foo.mp4
@@ -323,8 +359,65 @@ app.whenReady().then(async () => {
       if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
         return new Response("Not found", { status: 404 });
       }
-      // 用 file:// URL 让 net.fetch 处理 Range 等细节
-      return net.fetch(pathToFileURL(p).toString());
+      // 推断 MIME（<video> 标签要求 video/mp4 等，application/octet-stream 会拒绝播放）
+      const ext = path.extname(p).toLowerCase();
+      const mime = MIME_TYPES[ext] || "application/octet-stream";
+      const fileSize = fs.statSync(p).size;
+
+      // 处理 Range 请求（视频拖动进度条 / 分块加载必需）
+      const rangeHeader = request.headers.get("range");
+      let start = 0;
+      let end = fileSize - 1;
+      let isPartial = false;
+
+      if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+        const m = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+        if (m) {
+          isPartial = true;
+          start = m[1] ? parseInt(m[1], 10) : 0;
+          end = m[2] ? parseInt(m[2], 10) : fileSize - 1;
+          // 边界保护
+          if (start > end || start >= fileSize) {
+            return new Response("Range Not Satisfiable", {
+              status: 416,
+              headers: {
+                "Content-Range": `bytes */${fileSize}`,
+              },
+            });
+          }
+          end = Math.min(end, fileSize - 1);
+        }
+      }
+
+      const contentLength = end - start + 1;
+      const stream = fs.createReadStream(p, { start, end });
+
+      // Node Readable → Web ReadableStream
+      const webStream = new ReadableStream({
+        start(controller) {
+          stream.on("data", (chunk) => controller.enqueue(chunk));
+          stream.on("end", () => controller.close());
+          stream.on("error", (e) => controller.error(e));
+        },
+        cancel() {
+          stream.destroy();
+        },
+      });
+
+      const headers: Record<string, string> = {
+        "Content-Type": mime,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(contentLength),
+        "Cache-Control": "no-cache",
+      };
+      if (isPartial) {
+        headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`;
+      }
+
+      return new Response(webStream, {
+        status: isPartial ? 206 : 200,
+        headers,
+      });
     } catch (e) {
       console.error("[electron] lumio-file handler error:", e);
       return new Response(`Internal error: ${e}`, { status: 500 });

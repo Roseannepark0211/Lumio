@@ -613,6 +613,10 @@ def download_to_preview_cache(
                 if progress_cb and total:
                     progress_cb(downloaded, total)
         tmp.replace(dest)
+        # 强制 emit 100% 进度（content-length 与实际 body 大小可能有偏差，
+        # 导致最后一次 emit 不是 100%，前端进度条会卡在 99%）
+        if progress_cb and total:
+            progress_cb(total, total)
         return dest
     except Exception as e:
         logger.warning("下载预览缓存失败 %s: %s", url, e)
