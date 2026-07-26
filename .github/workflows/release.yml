@@ -1,9 +1,19 @@
 name: Build & Release
 
+# 仅在正式版本 tag 上触发构建发布。
+# 排除迁移期 tag（含 pre- / post- / dev），这些 tag 只用作回滚锚点，
+# 不应该触发 Release 构建（AGENTS.md Git 工作流：迁移期不打长期分支，
+# 每个里程碑前打 tag 作为逃生通道，但不是发布版本）。
+#
+# GitHub Actions 用 glob（非正则）。先匹配 v* 再用 ! 排除迁移期 tag。
 on:
   push:
     tags:
       - 'v*'
+      - '!v*-pre-*'
+      - '!v*-post-*'
+      - '!v*dev*'
+      - '!v*-rc-*'
 
 permissions:
   contents: write

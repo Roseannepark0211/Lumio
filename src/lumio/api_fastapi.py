@@ -1439,6 +1439,10 @@ def create_app() -> FastAPI:
             r = session.get(url, headers=headers, timeout=15, stream=False)
             r.raise_for_status()
             return Response(content=r.content, media_type=r.headers.get("Content-Type", "image/jpeg"))
+        except requests.HTTPError as e:
+            # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
+            status = e.response.status_code if e.response is not None else 0
+            raise HTTPException(502, f"thumb fetch failed (upstream {status}): {e}")
         except Exception as e:
             raise HTTPException(502, f"thumb fetch failed: {e}")
 
