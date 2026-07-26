@@ -44,9 +44,9 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-2xl border border-white/10 bg-bg-surface shadow-2xl"
+        className="relative flex items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
         onClick={(e) => e.stopPropagation()}
-        style={{ minWidth: 480, minHeight: 320 }}
+        style={{ width: "80vw", height: "80vh" }}
       >
         {/* 关闭按钮 */}
         <button
@@ -61,7 +61,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
         </button>
 
         {error ? (
-          <div className="flex h-[60vh] w-[80vw] max-w-3xl flex-col items-center justify-center gap-3 p-8 text-center">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/15">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6 text-danger">
                 <circle cx="12" cy="12" r="10" />
@@ -78,8 +78,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
             src={videoSrc}
             controls
             autoPlay
-            className="max-h-[90vh] max-w-[90vw]"
-            style={{ display: 'block' }}
+            className="h-full w-full object-contain"
           />
         )}
       </div>

@@ -79,6 +79,37 @@ protocol.registerSchemesAsPrivileged([
 // 工具函数
 // ============================================================
 
+/** 文件扩展名 → MIME 映射（lumio-file:// handler 用）。
+ *  net.fetch(file://) 返回的 Content-Type 不可靠（通常是 application/octet-stream），
+ *  <video>/<audio> 标签会因 MIME 不匹配拒绝播放，这里手动推断。 */
+const MIME_TYPES: Record<string, string> = {
+  // 视频
+  ".mp4": "video/mp4",
+  ".m4v": "video/x-m4v",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".flv": "video/x-flv",
+  ".ogv": "video/ogg",
+  // 音频
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".opus": "audio/opus",
+  // 图片
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+};
+
 /** 在 10000-60000 之间挑一个看起来没被占用的端口。 */
 function pickUnusedPort(): number {
   // 简单策略：随机一个高位端口。即使偶尔冲突，FastAPI 启动失败也能感知。
@@ -309,7 +340,11 @@ app.whenReady().then(async () => {
   // 注册 lumio-file:// protocol 的实际 handler
   // lumio-file:///C:/Users/.../foo.mp4 → file:///C:/Users/.../foo.mp4
   // 用 net.fetch 处理 Range 请求（视频拖动进度条需要）
-  protocol.handle("lumio-file", (request) => {
+  //
+  // 关键：net.fetch(file://) 返回的 Response Content-Type 默认是 application/octet-stream，
+  // <video> 标签会因 MIME 不匹配拒绝播放。这里根据文件扩展名手动推断 MIME，
+  // 重新构造 Response 强制设置 Content-Type。
+  protocol.handle("lumio-file", async (request) => {
     try {
       // request.url 形如 lumio-file:///C%3A/Users/.../foo.mp4
       // URL 解析后 pathname 是 /C:/Users/.../foo.mp4（前导斜杠+盘符）
@@ -323,8 +358,20 @@ app.whenReady().then(async () => {
       if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
         return new Response("Not found", { status: 404 });
       }
+      // 推断 MIME（net.fetch 对 file:// 返回的 mime 不可靠，video 标签会拒绝播放）
+      const ext = path.extname(p).toLowerCase();
+      const mime = MIME_TYPES[ext] || "application/octet-stream";
       // 用 file:// URL 让 net.fetch 处理 Range 等细节
-      return net.fetch(pathToFileURL(p).toString());
+      const fileResp = await net.fetch(pathToFileURL(p).toString());
+      // 重新构造 Response，强制设置 Content-Type
+      const headers = new Headers(fileResp.headers);
+      headers.set("Content-Type", mime);
+      headers.set("Accept-Ranges", "bytes");
+      return new Response(fileResp.body, {
+        status: fileResp.status,
+        statusText: fileResp.statusText,
+        headers,
+      });
     } catch (e) {
       console.error("[electron] lumio-file handler error:", e);
       return new Response(`Internal error: ${e}`, { status: 500 });
