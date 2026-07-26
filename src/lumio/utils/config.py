@@ -53,7 +53,9 @@ def load_config() -> dict:
         return _cache
     cfg = dict(DEFAULTS)
     if _CONFIG_FILE.exists():
-        with open(_CONFIG_FILE, encoding="utf-8") as f:
+        # utf-8-sig 自动剥离 BOM：config.json 可能被外部编辑器/QML 侧写入带 BOM，
+        # 普通 utf-8 解码会让 json.load 抛 JSONDecodeError，FastAPI 启动失败。
+        with open(_CONFIG_FILE, encoding="utf-8-sig") as f:
             cfg.update(json.load(f))
     _cache = cfg
     return cfg

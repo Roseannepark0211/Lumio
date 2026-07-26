@@ -59,10 +59,11 @@ def _ensure_qt_app() -> QApplication:
     return _qt_app
 
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .utils.config import load_config, save_config, get_download_dir, get_cookie_path
 from .i18n import t as _i18n_t, set_lang as _i18n_set_lang
@@ -478,6 +479,26 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Token 鉴权 middleware（如环境变量 LUMIO_FASTAPI_TOKEN 设置，则所有 /api/* 必须带 X-Lumio-Token）
+    expected_token = os.environ.get("LUMIO_FASTAPI_TOKEN", "")
+
+    class TokenAuthMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            if expected_token and request.url.path.startswith("/api/"):
+                # /api/health 不鉴权（Electron 主进程轮询用）
+                # OPTIONS 预检请求不鉴权（浏览器自动发，不带 token；由 CORSMiddleware 处理）
+                if request.url.path != "/api/health" and request.method != "OPTIONS":
+                    token = request.headers.get("X-Lumio-Token", "")
+                    if token != expected_token:
+                        return JSONResponse(
+                            status_code=401,
+                            content={"detail": "invalid token"},
+                        )
+            return await call_next(request)
+
+    if expected_token:
+        app.add_middleware(TokenAuthMiddleware)
 
     # EventBus 需要 asyncio loop，延迟到 startup 创建
     ctx: dict[str, Any] = {}
@@ -1424,6 +1445,32 @@ def create_app() -> FastAPI:
         }
 
     # ============================================================
+    # 16. 优雅关闭（Electron 主进程退出时调用）
+    # ============================================================
+
+    @app.post("/api/shutdown")
+    async def shutdown() -> dict:
+        """Electron 退出前调用，触发 manager.shutdown() 后退出进程。
+        token 鉴权由 middleware 处理。
+        """
+        import threading
+
+        def _do_shutdown():
+            import time
+            time.sleep(0.5)  # 让响应先返回
+            try:
+                _ctx().shutdown()
+            except Exception:
+                pass
+            # 给 uvicorn 发 SIGINT
+            import os
+            import signal
+            os.kill(os.getpid(), signal.SIGINT)
+
+        threading.Thread(target=_do_shutdown, daemon=True).start()
+        return {"ok": True}
+
+    # ============================================================
     # WebSocket /ws/events
     # ============================================================
 
@@ -1645,15 +1692,20 @@ def _version_lt(a: str, b: str) -> bool:
 # ============================================================
 
 def main() -> None:
-    """启动 FastAPI 服务（uvicorn）。"""
+    """启动 FastAPI 服务（uvicorn）。
+    端口和 token 从环境变量读取（由 Electron 主进程注入）。
+    """
     import uvicorn
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    cfg = load_config()
-    host = cfg.get("fastapi_host", "127.0.0.1")
-    port = cfg.get("fastapi_port", 38910)
+    # 优先用环境变量（Electron 注入），否则回退到 config
+    host = os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1")
+    port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
+    logger.info("Starting FastAPI on %s:%d (token=%s)",
+                host, port,
+                "yes" if os.environ.get("LUMIO_FASTAPI_TOKEN") else "no")
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")
 
