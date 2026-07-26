@@ -396,17 +396,36 @@ def _inbox_item_to_dict(it) -> dict:
 
 
 def _notification_to_dict(n) -> dict:
+    # 字段名与 Notification dataclass 对齐（notification_manager.py）
+    # 旧版误用 level/body/action_label/action_url/is_read，实际字段是
+    # type/message/action/action_text/read
+    # 注意：created_at 在 dataclass 中是 str（ISO 格式字符串，由
+    # datetime.now(timezone.utc).isoformat() 生成），不是 datetime 对象，
+    # 不能调 .isoformat()，否则 AttributeError
+    created_at = n.created_at
+    if hasattr(created_at, "isoformat"):
+        created_at = created_at.isoformat()
     return {
         "id": n.id,
         "category": n.category,
-        "level": n.level,
+        "type": getattr(n, "type", "info"),
+        "priority": getattr(n, "priority", "normal"),
         "title": n.title or "",
-        "body": n.body or "",
-        "action_label": n.action_label or "",
-        "action_url": n.action_url or "",
+        "message": n.message or "",
+        "action": n.action or "",
+        "action_text": getattr(n, "action_text", "") or "",
+        "source_key": getattr(n, "source_key", "") or "",
+        "expires_at": getattr(n, "expires_at", "") or "",
+        "group_key": getattr(n, "group_key", "") or "",
         "dismissable": bool(n.dismissable),
-        "is_read": bool(n.is_read),
-        "created_at": n.created_at.isoformat() if n.created_at else "",
+        "read": bool(n.read),
+        # 向后兼容旧字段名（QML 旧版/其他客户端可能引用）
+        "is_read": bool(n.read),
+        "level": getattr(n, "type", "info"),
+        "body": n.message or "",
+        "action_label": getattr(n, "action_text", "") or "",
+        "action_url": n.action or "",
+        "created_at": created_at or "",
     }
 
 
@@ -490,16 +509,11 @@ def create_app() -> FastAPI:
         version="3.2.0-api",
     )
 
-    # CORS：允许 Electron 渲染进程（file:// 或 http://localhost:5173）跨域调用
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # 桌面应用本地调用，无敏感风险
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    # Token 鉴权 middleware（如环境变量 LUMIO_FASTAPI_TOKEN 设置，则所有 /api/* 必须带 X-Lumio-Token）
+    # 中间件顺序（Starlette 栈式：后添加的先执行/外层）：
+    #   请求 → CORSMiddleware（外层）→ TokenAuthMiddleware（内层）→ 路由
+    #   响应 → 路由 → TokenAuthMiddleware → CORSMiddleware → 返回
+    # 关键：CORSMiddleware 必须在最外层，确保所有响应（包括 TokenAuth 的 401）
+    #       都带 CORS 头，否则浏览器报 CORS 错误而非真实的 401
     expected_token = os.environ.get("LUMIO_FASTAPI_TOKEN", "")
 
     class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -520,7 +534,17 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     if expected_token:
+        # 先 add TokenAuthMiddleware（内层）
         app.add_middleware(TokenAuthMiddleware)
+
+    # 后 add CORSMiddleware（外层）— 必须最后 add 才能在最外层
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 桌面应用本地调用，无敏感风险
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # EventBus 需要 asyncio loop，延迟到 startup 创建
     ctx: dict[str, Any] = {}

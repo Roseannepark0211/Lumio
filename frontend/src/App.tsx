@@ -7,6 +7,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { InboxPage } from "./pages/InboxPage";
 import { StatsPage } from "./pages/StatsPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 
 /**
  * 应用根组件。
@@ -24,6 +25,7 @@ export default function App() {
   const useReactLibrary = getPageSwitch("USE_REACT_LIBRARY");
   const useReactInbox = getPageSwitch("USE_REACT_INBOX");
   const useReactStats = getPageSwitch("USE_REACT_STATS");
+  const useReactNotifications = getPageSwitch("USE_REACT_NOTIFICATIONS");
 
   // 已启用的 React 页面列表
   const enabledPages: PageKey[] = [];
@@ -33,6 +35,7 @@ export default function App() {
   if (useReactLibrary) enabledPages.push("library");
   if (useReactInbox) enabledPages.push("inbox");
   if (useReactStats) enabledPages.push("stats");
+  if (useReactNotifications) enabledPages.push("notifications");
 
   // 没有任何 React 页面启用 → 显示 POC 验证页
   if (enabledPages.length === 0) {
@@ -42,7 +45,7 @@ export default function App() {
   return <PageSwitcher pages={enabledPages} />;
 }
 
-type PageKey = "home" | "downloads" | "history" | "library" | "inbox" | "stats";
+type PageKey = "home" | "downloads" | "history" | "library" | "inbox" | "stats" | "notifications";
 
 /** 顶部 tab 切换器：在已启用的 React 页面之间切换。 */
 function PageSwitcher({ pages }: { pages: PageKey[] }) {
@@ -97,6 +100,9 @@ function PageSwitcher({ pages }: { pages: PageKey[] }) {
         <div style={{ display: current === "stats" ? "contents" : "none" }}>
           <StatsPage />
         </div>
+        <div style={{ display: current === "notifications" ? "contents" : "none" }}>
+          <NotificationsPage />
+        </div>
       </div>
     </div>
   );
@@ -116,6 +122,8 @@ function pageLabel(p: PageKey): string {
       return "Inbox";
     case "stats":
       return "Stats";
+    case "notifications":
+      return "Notifications";
   }
 }
 
