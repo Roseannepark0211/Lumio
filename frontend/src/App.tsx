@@ -4,6 +4,7 @@ import { getPageSwitch } from "./config";
 import { HomePage } from "./pages/HomePage";
 import { DownloadsPage } from "./pages/DownloadsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { LibraryPage } from "./pages/LibraryPage";
 
 /**
  * 应用根组件。
@@ -18,12 +19,14 @@ export default function App() {
   const useReactHome = getPageSwitch("USE_REACT_HOME");
   const useReactDownloads = getPageSwitch("USE_REACT_DOWNLOADS");
   const useReactHistory = getPageSwitch("USE_REACT_HISTORY");
+  const useReactLibrary = getPageSwitch("USE_REACT_LIBRARY");
 
   // 已启用的 React 页面列表
   const enabledPages: PageKey[] = [];
   if (useReactHome) enabledPages.push("home");
   if (useReactDownloads) enabledPages.push("downloads");
   if (useReactHistory) enabledPages.push("history");
+  if (useReactLibrary) enabledPages.push("library");
 
   // 没有任何 React 页面启用 → 显示 POC 验证页
   if (enabledPages.length === 0) {
@@ -33,7 +36,7 @@ export default function App() {
   return <PageSwitcher pages={enabledPages} />;
 }
 
-type PageKey = "home" | "downloads" | "history";
+type PageKey = "home" | "downloads" | "history" | "library";
 
 /** 顶部 tab 切换器：在已启用的 React 页面之间切换。 */
 function PageSwitcher({ pages }: { pages: PageKey[] }) {
@@ -72,6 +75,7 @@ function PageSwitcher({ pages }: { pages: PageKey[] }) {
         {current === "home" && <HomePage />}
         {current === "downloads" && <DownloadsPage />}
         {current === "history" && <HistoryPage />}
+        {current === "library" && <LibraryPage />}
       </div>
     </div>
   );
@@ -85,6 +89,8 @@ function pageLabel(p: PageKey): string {
       return "Downloads";
     case "history":
       return "History";
+    case "library":
+      return "Library";
   }
 }
 

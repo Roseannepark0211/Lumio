@@ -105,6 +105,18 @@ export interface LibraryItem {
   batch_id: string;
   content_hash: string;
   duration: number;
+  /** 该素材已加入的 Collection id 列表（按分类筛选用） */
+  collection_ids: number[];
+}
+
+/** 素材库 Collection（与 api_fastapi.py /api/library/collections 对齐） */
+export interface LibraryCollection {
+  id: number;
+  name: string;
+  /** 该 Collection 下的素材数量（后端动态计算） */
+  count: number;
+  /** 总字节数（后端动态计算） */
+  total_size: number;
 }
 
 /** 历史记录条目（与 api_fastapi.py _history_to_dict 对齐） */
@@ -218,6 +230,15 @@ async function del<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+async function patch<T>(path: string): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  return r.json() as Promise<T>;
+}
+
 // ============================================================
 // 请求 ID 生成（用于异步 WS 事件关联）
 // ============================================================
@@ -323,6 +344,26 @@ export const api = {
 
   // —— 素材库 ——
   getLibrary: () => get<LibraryItem[]>("/api/library"),
+  toggleFavorite: (itemId: string) =>
+    post<{ is_favorite: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}/favorite`),
+  deleteLibraryItem: (itemId: string) =>
+    del<{ ok: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}`),
+
+  // —— 素材库 Collection ——
+  getCollections: () => get<LibraryCollection[]>("/api/library/collections"),
+  createCollection: (name: string) =>
+    post<{ id: number }>(`/api/library/collections?name=${encodeURIComponent(name)}`),
+  deleteCollection: (cid: number) =>
+    del<{ ok: boolean }>(`/api/library/collections/${cid}`),
+  renameCollection: (cid: number, name: string) =>
+    patch<{ ok: boolean }>(`/api/library/collections/${cid}?name=${encodeURIComponent(name)}`),
+  addItemToCollection: (itemId: string, cid: number) =>
+    post<{ ok: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}/collections/${cid}`),
+  removeItemFromCollection: (itemId: string, cid: number) =>
+    del<{ ok: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}/collections/${cid}`),
+  /** 获取某素材已加入的 Collection id 列表 */
+  getItemCollections: (itemId: string) =>
+    get<number[]>(`/api/library/items/${encodeURIComponent(itemId)}/collections`),
 
   // —— 历史记录 ——
   getHistory: () => get<HistoryRecord[]>("/api/history"),

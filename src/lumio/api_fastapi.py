@@ -341,6 +341,14 @@ def _history_to_dict(r) -> dict:
 
 
 def _library_item_to_dict(it, lib_mgr) -> dict:
+    # 收集该素材已加入的 Collection id 列表（供前端按分类筛选）
+    # 与 qml_bridge.py 保持一致（参考 AGENTS.md "Collection sidebar" 行为）
+    collection_ids: list[int] = []
+    if lib_mgr is not None:
+        try:
+            collection_ids = [c.id for c in lib_mgr.get_item_collections(it.id)]
+        except Exception:
+            pass
     return {
         "id": it.id,
         "title": it.title or "",
@@ -359,6 +367,7 @@ def _library_item_to_dict(it, lib_mgr) -> dict:
         "batch_id": it.batch_id or "",
         "content_hash": it.content_hash or "",
         "duration": it.duration or 0,
+        "collection_ids": collection_ids,
     }
 
 
