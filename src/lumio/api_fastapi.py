@@ -372,6 +372,8 @@ def _library_item_to_dict(it, lib_mgr) -> dict:
 
 
 def _inbox_item_to_dict(it) -> dict:
+    # InboxItem 模型字段名为 `type`（url/video/image），不是 `media_type`
+    # 时间字段名为 `captured_at`（QML InboxPage.qml 使用），不是 `created_at`
     return {
         "id": it.id,
         "url": it.url or "",
@@ -380,12 +382,16 @@ def _inbox_item_to_dict(it) -> dict:
         "platform": it.platform or "",
         "author": it.author or "",
         "thumbnail_url": it.thumbnail_url or "",
-        "media_type": it.media_type or "",
+        "type": it.type or "",
+        "media_type": it.type or "",  # 兼容其他页面统一字段名
         "status": it.status or "new",
         "source": it.source or "",
         "post_time": it.post_time or "",
         "duration": getattr(it, "duration", 0) or 0,
+        "captured_at": it.captured_at.isoformat() if it.captured_at else "",
         "created_at": it.created_at.isoformat() if it.created_at else "",
+        "content": getattr(it, "content", "") or "",
+        "error_message": getattr(it, "error_message", "") or "",
     }
 
 
