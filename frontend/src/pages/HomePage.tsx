@@ -516,6 +516,14 @@ export function HomePage() {
           onClearSelection={() => setSelectedSearchItems({})}
           onBatchEnqueue={batchEnqueueSearch}
           onPreview={previewXVideo}
+          onClose={() => {
+            // 清空搜索结果与状态，保留搜索框输入
+            setSearchResults([]);
+            setSearchTotal(0);
+            setSearchPage(0);
+            setSelectedSearchItems({});
+            setIsSearching(false);
+          }}
         />
       )}
 

@@ -24,6 +24,8 @@ interface Props {
   onClearSelection: () => void;
   onBatchEnqueue: () => void;
   onPreview: (videoUrl: string) => void;
+  /** 关闭搜索面板：清空结果并隐藏列表区域 */
+  onClose: () => void;
 }
 
 export function XSouSearchPanel({
@@ -38,10 +40,13 @@ export function XSouSearchPanel({
   onClearSelection,
   onBatchEnqueue,
   onPreview,
+  onClose,
 }: Props) {
   const [query, setQuery] = useState("");
   const selectedCount = Object.values(selectedItems).filter(Boolean).length;
   const totalPages = Math.ceil(searchTotal / searchLimit) || 1;
+  // 有结果或正在搜索或已输入关键词时显示"关闭"按钮
+  const canClose = searchResults.length > 0 || isSearching || searchPage > 0;
 
   return (
     <div className="glass-card mb-4 p-4 animate-slide-up">
@@ -66,6 +71,15 @@ export function XSouSearchPanel({
         >
           {isSearching ? "搜索中..." : "搜索"}
         </button>
+        {canClose && (
+          <button
+            onClick={onClose}
+            title="关闭搜索结果"
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-text-muted transition-colors hover:bg-white/10 hover:text-text"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* 18+ 警告 */}

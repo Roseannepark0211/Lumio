@@ -722,13 +722,24 @@ def create_app() -> FastAPI:
 
     @app.post("/api/preview-x-video")
     async def preview_x_video(req: PreviewXVideoRequest) -> dict:
-        """X-Sou 视频预览：后台下载到 cache/preview，完成后 WS 推 preview_ready。"""
+        """X-Sou 视频预览：后台下载到 cache/preview，完成后 WS 推 preview_ready。
+
+        可靠性设计：
+        - worker 的 finished_ok/failed signal 用 DirectConnection 连接，理论上能在 worker
+          线程内同步触发 callback。但 PySide6 signal 在 QThread 子线程 emit 时偶发丢失
+          （特别是 emit 后立即 return，QThread 退出），导致前端 preview_ready 事件丢失，
+          进度对话框卡在 99%。
+        - 修复：保留 signal 连接（向后兼容 QML 版本），同时用 asyncio.to_thread(worker.wait)
+          在线程池等待 worker 退出，根据 dest 文件是否存在手动 publish preview_ready/preview_failed。
+          这条路径不依赖 signal，是可靠兜底。
+        """
         if not req.video_url:
             return {"ok": False, "error": "empty"}
 
         async def _run() -> None:
             try:
                 from .gui.qml_bridge import _PreviewCacheWorker
+                from .utils.cache_manager import get_preview_cache_path
                 # _PreviewCacheWorker 是 QThread，需要 QApplication（已创建）
                 worker = _PreviewCacheWorker(req.video_url)
                 # 维护 worker 引用，供 /api/preview-cancel 取消
@@ -760,7 +771,19 @@ def create_app() -> FastAPI:
                     Qt.DirectConnection,
                 )
                 worker.start()
-                # 不阻塞，worker 结束时自己 deleteLater
+                # 不阻塞当前协程；在线程池等待 worker 退出，退出后用 dest 文件存在性兜底
+                # publish preview_ready/preview_failed，避免 signal 丢失导致前端卡住
+                await asyncio.to_thread(worker.wait)
+                # worker 退出后检查 dest 文件是否存在（不依赖 signal 是否触发）
+                # 仅在前端还没收到 preview_ready/preview_failed 时兜底
+                # 这里没有简单方法判断"是否已 publish"，所以直接 publish 一次，
+                # 前端收到重复 preview_ready 时 setPreviewDialogOpen(true) 是幂等的
+                dest = get_preview_cache_path(req.video_url)
+                if dest.exists() and dest.stat().st_size > 0:
+                    _bus().publish("preview_ready", {"path": str(dest)})
+                else:
+                    # 文件不存在 → 下载失败或被取消
+                    _bus().publish("preview_failed", {"error": "download failed"})
             except Exception as e:
                 _bus().publish("preview_failed", {"error": str(e)})
 
