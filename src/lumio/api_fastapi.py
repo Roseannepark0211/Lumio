@@ -503,16 +503,11 @@ def create_app() -> FastAPI:
         version="3.2.0-api",
     )
 
-    # CORS：允许 Electron 渲染进程（file:// 或 http://localhost:5173）跨域调用
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # 桌面应用本地调用，无敏感风险
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    # Token 鉴权 middleware（如环境变量 LUMIO_FASTAPI_TOKEN 设置，则所有 /api/* 必须带 X-Lumio-Token）
+    # 中间件顺序（Starlette 栈式：后添加的先执行/外层）：
+    #   请求 → CORSMiddleware（外层）→ TokenAuthMiddleware（内层）→ 路由
+    #   响应 → 路由 → TokenAuthMiddleware → CORSMiddleware → 返回
+    # 关键：CORSMiddleware 必须在最外层，确保所有响应（包括 TokenAuth 的 401）
+    #       都带 CORS 头，否则浏览器报 CORS 错误而非真实的 401
     expected_token = os.environ.get("LUMIO_FASTAPI_TOKEN", "")
 
     class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -533,7 +528,17 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     if expected_token:
+        # 先 add TokenAuthMiddleware（内层）
         app.add_middleware(TokenAuthMiddleware)
+
+    # 后 add CORSMiddleware（外层）— 必须最后 add 才能在最外层
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 桌面应用本地调用，无敏感风险
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # EventBus 需要 asyncio loop，延迟到 startup 创建
     ctx: dict[str, Any] = {}
