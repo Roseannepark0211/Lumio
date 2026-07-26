@@ -137,6 +137,31 @@ export interface HistoryRecord {
   batch_id: string;
 }
 
+/** 收件箱条目（与 api_fastapi.py _inbox_item_to_dict 对齐） */
+export interface InboxItem {
+  id: string;
+  url: string;
+  direct_url: string;
+  title: string;
+  platform: string;
+  author: string;
+  thumbnail_url: string;
+  /** 模型字段名为 type（url/video/image） — 这里同时给出 type 和 media_type 两个别名 */
+  type: string;
+  media_type: string;
+  /** new / queued / downloaded / archived / failed */
+  status: string;
+  /** browser / telegram / manual */
+  source: string;
+  post_time: string;
+  duration: number;
+  /** 收件箱捕获时间（QML 使用此字段） */
+  captured_at: string;
+  created_at: string;
+  content: string;
+  error_message: string;
+}
+
 // ============================================================
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
@@ -370,6 +395,31 @@ export const api = {
   deleteHistory: (id: string) => del<{ ok: boolean }>(`/api/history/${encodeURIComponent(id)}`),
   clearHistory: () => del<{ ok: boolean }>("/api/history"),
 
+  // —— 收件箱 ——
+  getInbox: () => get<InboxItem[]>("/api/inbox"),
+  getInboxUnreadCount: () => get<{ count: number }>("/api/inbox/unread-count"),
+  /** 单条入队下载（status 为 new/failed 时可用） */
+  inboxDownload: (itemId: string) =>
+    post<{ ok: boolean; task_id: string }>(`/api/inbox/items/${encodeURIComponent(itemId)}/download`),
+  /** 批量入队下载 */
+  inboxBatchDownload: (ids: string[]) =>
+    post<{ ok: boolean }>("/api/inbox/batch-download", { ids }),
+  /** 标记单条为已下载（手动场景使用） */
+  inboxMarkDownloaded: (itemId: string) =>
+    post<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}/mark-downloaded`),
+  /** 归档单条 */
+  inboxArchive: (itemId: string) =>
+    post<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}/archive`),
+  /** 删除单条 */
+  inboxDelete: (itemId: string) =>
+    del<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}`),
+  /** 批量删除 */
+  inboxBatchDelete: (ids: string[]) =>
+    post<{ ok: boolean }>("/api/inbox/batch-delete", { ids }),
+  /** 清空所有已下载 / 已归档的条目 */
+  inboxClearCompleted: () =>
+    post<{ ok: boolean; deleted: number }>("/api/inbox/clear-completed"),
+
   // —— 文件操作 ——
   /** 打开文件。source: "library" / "history" — 缺失时后端会推 file_missing 事件。 */
   openFile: (path: string, source: string = "") =>
@@ -377,6 +427,9 @@ export const api = {
   /** 打开文件所在目录。source 同上。 */
   openFolder: (path: string, source: string = "") =>
     post<{ ok: boolean; error?: string }>("/api/open-folder", { path, source }),
+  /** 在系统默认浏览器中打开外部 URL（InboxPage 的"打开原网页"按钮） */
+  openExternalUrl: (url: string) =>
+    post<{ ok: boolean; error?: string }>("/api/open-external-url", { url }),
 };
 
 // ============================================================
