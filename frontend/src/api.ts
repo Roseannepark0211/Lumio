@@ -173,6 +173,24 @@ export interface StatsResponse {
   platforms: Record<string, number>;
 }
 
+/** 通知项（与 notification_manager.py Notification dataclass 对齐） */
+export interface NotificationItem {
+  id: string;
+  category: string;       // deps / env / update / system / inbox
+  type: string;           // warning / info / update / tip
+  priority: string;       // critical / high / normal / low
+  title: string;
+  message: string;
+  action: string;         // "open_page:settings" / "open_url:xxx" / "retry_task:id"
+  action_text: string;    // 按钮文字
+  source_key: string;
+  expires_at: string;
+  group_key: string;
+  dismissable: boolean;
+  read: boolean;
+  created_at: string;
+}
+
 // ============================================================
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
@@ -433,6 +451,14 @@ export const api = {
 
   // —— 统计 ——
   getStats: () => get<StatsResponse>("/api/stats"),
+
+  // —— 通知 ——
+  getNotifications: () => get<NotificationItem[]>("/api/notifications"),
+  getUnreadCount: () => get<{ count: number }>("/api/notifications/unread-count"),
+  markAllRead: () => post<{ ok: boolean }>("/api/notifications/read-all"),
+  markRead: (id: string) => post<{ ok: boolean }>(`/api/notifications/${id}/read`),
+  clearRead: () => post<{ ok: boolean }>("/api/notifications/clear-read"),
+  dismiss: (id: string) => post<{ ok: boolean }>(`/api/notifications/${id}/dismiss`),
 
   // —— 文件操作 ——
   /** 打开文件。source: "library" / "history" — 缺失时后端会推 file_missing 事件。 */

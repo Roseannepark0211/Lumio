@@ -396,16 +396,29 @@ def _inbox_item_to_dict(it) -> dict:
 
 
 def _notification_to_dict(n) -> dict:
+    # 字段名与 Notification dataclass 对齐（notification_manager.py）
+    # 旧版误用 level/body/action_label/action_url/is_read，实际字段是
+    # type/message/action/action_text/read
     return {
         "id": n.id,
         "category": n.category,
-        "level": n.level,
+        "type": getattr(n, "type", "info"),
+        "priority": getattr(n, "priority", "normal"),
         "title": n.title or "",
-        "body": n.body or "",
-        "action_label": n.action_label or "",
-        "action_url": n.action_url or "",
+        "message": n.message or "",
+        "action": n.action or "",
+        "action_text": getattr(n, "action_text", "") or "",
+        "source_key": getattr(n, "source_key", "") or "",
+        "expires_at": getattr(n, "expires_at", "") or "",
+        "group_key": getattr(n, "group_key", "") or "",
         "dismissable": bool(n.dismissable),
-        "is_read": bool(n.is_read),
+        "read": bool(n.read),
+        # 向后兼容旧字段名（QML 旧版/其他客户端可能引用）
+        "is_read": bool(n.read),
+        "level": getattr(n, "type", "info"),
+        "body": n.message or "",
+        "action_label": getattr(n, "action_text", "") or "",
+        "action_url": n.action or "",
         "created_at": n.created_at.isoformat() if n.created_at else "",
     }
 

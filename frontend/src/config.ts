@@ -27,8 +27,9 @@ export interface PageSwitches {
   USE_REACT_INBOX: boolean;
   /** Stats 页面是否用 React（false = 用 QML StatsPage.qml） */
   USE_REACT_STATS: boolean;
+  /** Notifications 页面是否用 React（false = 用 QML NotificationsPage.qml） */
+  USE_REACT_NOTIFICATIONS: boolean;
   // 后续迁移时新增：
-  // USE_REACT_NOTIFICATIONS: boolean;
   // USE_REACT_SETTINGS: boolean;
 }
 
@@ -40,6 +41,7 @@ export const DEFAULTS: PageSwitches = {
   USE_REACT_LIBRARY: true,      // Library 页面迁移完成，已验证
   USE_REACT_INBOX: true,        // Inbox 页面迁移完成，已验证
   USE_REACT_STATS: true,          // Stats 页面迁移完成，已验证
+  USE_REACT_NOTIFICATIONS: false,  // 开发中，验证通过后改 true
 };
 
 const STORAGE_KEY = "lumio_page_switches";
