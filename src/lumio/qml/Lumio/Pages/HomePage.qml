@@ -597,7 +597,11 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 48
                 Layout.rightMargin: 48
-                Layout.preferredHeight: 380
+                // 高度根据内容比例动态调整：
+                // - 竖屏（aspectRatio < 1.0，如抖音 9:16）：580px（多出 200px 让竖屏视频显示更大）
+                // - 横屏/正方形（aspectRatio >= 1.0）：380px（默认）
+                // 避免竖屏内容在固定 380px 高度下被压缩成 150×267 的小窗口
+                Layout.preferredHeight: _previewAspectRatio() < 1.0 ? 580 : 380
                 radius: Theme.rXL
                 visible: root.previewInfo !== null
 
@@ -613,22 +617,24 @@ Item {
                         Layout.fillHeight: true
 
                         // 居中容器：比例自适应内容
-                        // 横屏内容（B站 16:9）→ 16:9 容器
-                        // 正方形内容（抖音封面 1:1）→ 1:1 容器
-                        // 竖屏内容（抖音视频 9:16）→ 9:16 容器
+                        // 横屏内容（B站 16:9）→ 16:9 容器，宽度优先（目标 480px）
+                        // 正方形内容（抖音封面 1:1）→ 1:1 容器，高度优先（占满预览区高度）
+                        // 竖屏内容（抖音视频 9:16）→ 9:16 容器，高度优先（需配合 GlassCard 580px 高度）
                         // 避免非 16:9 内容在 16:9 容器中留大片黑边/变小
                         Item {
                             anchors.centerIn: parent
                             // 根据选中项比例计算容器尺寸
                             property real _aspectRatio: _previewAspectRatio()
-                            // 正方形/竖屏内容缩窄宽度，避免左右大片空白
-                            // _aspectRatio = width / height（横屏>1，正方形=1，竖屏<1）
-                            width: _aspectRatio >= 1.0
+                            // 容器尺寸计算（_aspectRatio = width / height）：
+                            // - 明显横屏（aspectRatio > 1.2，如 16:9=1.78）：宽度优先，目标 480px
+                            // - 正方形/竖屏（aspectRatio <= 1.2）：高度优先，占满预览区高度
+                            //   （正方形 1:1 → 267×267；竖屏 9:16 → 263×467，需 GlassCard 580px）
+                            width: _aspectRatio > 1.2
                                    ? Math.min(parent.width - 48, 480)
-                                   : Math.min(parent.width - 48, (parent.height - 32) * _aspectRatio)
-                            height: _aspectRatio >= 1.0
+                                   : (parent.height - 32) * _aspectRatio
+                            height: _aspectRatio > 1.2
                                     ? Math.min(parent.height - 32, width / _aspectRatio)
-                                    : Math.min(parent.height - 32, width / _aspectRatio)
+                                    : Math.min(parent.height - 32, 480)
 
                             Rectangle {
                                 anchors.fill: parent
