@@ -25,6 +25,7 @@ import { TaskCard } from "./downloads/TaskCard";
 import {
   applyFilter,
   countActive,
+  normStatus,
   type FilterStatus,
 } from "../utils/downloads";
 
@@ -40,10 +41,32 @@ export function DownloadsPage() {
   tasksRef.current = tasks;
 
   // —— 拉取队列 ——
+  // 注意：对 downloading/retrying 状态的任务，保留前端最新的 progress/speed，
+  // 不以后端返回的为准。因为 getQueue 返回的 progress 可能比 task_progress
+  // 事件延迟（后端 getQueue 读取的是 qt.progress，而 task_progress 事件携带的
+  // 是 downloader 实时上报的进度），全量覆盖会导致"进度条来回跳"。
   const reloadQueue = useCallback(async () => {
     try {
       const q = await api.getQueue();
-      setTasks(q);
+      setTasks((prev) => {
+        // 旧任务 progress 缓存（仅对活跃任务保留）
+        const prevActive: Record<string, { progress: number; speed: string }> = {};
+        for (const t of prev) {
+          const n = normStatus(t.status);
+          if (n === "downloading" || n === "retrying") {
+            prevActive[t.task_id] = { progress: t.progress, speed: t.speed };
+          }
+        }
+        // 合并：活跃任务保留前端 progress/speed，其他字段以后端为准
+        return q.map((t) => {
+          const cached = prevActive[t.task_id];
+          const n = normStatus(t.status);
+          if (cached && (n === "downloading" || n === "retrying")) {
+            return { ...t, progress: cached.progress, speed: cached.speed };
+          }
+          return t;
+        });
+      });
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -105,6 +128,7 @@ export function DownloadsPage() {
 
   // —— 单任务操作 ——
   const onStart = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] startTask:", id);
     try {
       await api.startTask(id);
     } catch (e) {
@@ -112,6 +136,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onPause = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] pauseTask:", id);
     try {
       await api.pauseTask(id);
     } catch (e) {
@@ -119,6 +144,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onResume = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] resumeTask:", id);
     try {
       await api.resumeTask(id);
     } catch (e) {
@@ -126,6 +152,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onRetry = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] retryTask:", id);
     try {
       await api.retryTask(id);
     } catch (e) {
@@ -133,6 +160,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onCancel = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] cancelTask:", id);
     try {
       await api.cancelTask(id);
     } catch (e) {
@@ -140,6 +168,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onDelete = useCallback(async (id: string) => {
+    console.log("[DownloadsPage] deleteTask:", id);
     try {
       await api.deleteTask(id);
     } catch (e) {
@@ -149,6 +178,7 @@ export function DownloadsPage() {
 
   // —— 全局操作 ——
   const onStartAll = useCallback(async () => {
+    console.log("[DownloadsPage] startAll (global)");
     try {
       await api.startAll();
     } catch (e) {
@@ -156,6 +186,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onPauseAll = useCallback(async () => {
+    console.log("[DownloadsPage] pauseAll (global)");
     try {
       await api.pauseAll();
     } catch (e) {
@@ -163,6 +194,7 @@ export function DownloadsPage() {
     }
   }, []);
   const onResumeAll = useCallback(async () => {
+    console.log("[DownloadsPage] resumeAll (global)");
     try {
       await api.resumeAll();
     } catch (e) {
