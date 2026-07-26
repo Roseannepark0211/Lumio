@@ -39,7 +39,7 @@ export const DEFAULTS: PageSwitches = {
   USE_REACT_HISTORY: true,      // History 页面迁移完成，已验证
   USE_REACT_LIBRARY: true,      // Library 页面迁移完成，已验证
   USE_REACT_INBOX: true,        // Inbox 页面迁移完成，已验证
-  USE_REACT_STATS: false,       // Stats 页面开发中
+  USE_REACT_STATS: true,          // Stats 页面迁移完成，已验证
 };
 
 const STORAGE_KEY = "lumio_page_switches";
