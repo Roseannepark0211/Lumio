@@ -170,11 +170,12 @@ class BilibiliProvider(BaseProvider):
             accept_description = pf_info.get("accept_description", []) or []
 
             # 1. 构建 FormatOption 列表（必须填 height，否则 downloader._build_format_options 跳过）
-            for i, q in enumerate(accept_quality):
-                label = accept_description[i] if i < len(accept_description) else f"品质{q}"
-                _, height = _QN_MAP.get(q, (label, 0))
+            #    label 用 _QN_MAP 的简洁标签（"720P"/"1080P"/"1080P+"），
+            #    不用 B站 API 返回的 accept_description（"高清 720P"/"高清 1080P" 都带"高清"前缀，混淆）
+            for q in accept_quality:
+                q_label, height = _QN_MAP.get(q, (f"qn={q}", 0))
                 formats.append(FormatOption(
-                    format_id=str(q), label=label, type="video", ext="mp4",
+                    format_id=str(q), label=q_label, type="video", ext="mp4",
                     width=0, height=height,
                 ))
 

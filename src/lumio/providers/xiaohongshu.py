@@ -74,11 +74,14 @@ def _pick_best_image_url(img: dict) -> str:
     return ""
 
 
-def _pick_best_video_url(stream: dict) -> str:
-    """从 stream 字典中选出最高画质视频 URL。
+def _pick_best_video(stream: dict) -> tuple[str, int]:
+    """从 stream 字典中选出最高画质视频 URL + 高度。
 
     新版结构：stream.{h264,h265,av1}[].masterUrl / backupUrls
     h264 兼容性最好优先用，其次按 qualityType/weight 排序。
+
+    Returns:
+        (url, height) — height 为 0 表示未知
     """
     for codec in ("h264", "h265", "av1", "h266"):
         codec_list = stream.get(codec) or []
@@ -94,13 +97,24 @@ def _pick_best_video_url(stream: dict) -> str:
             if not isinstance(v, dict):
                 continue
             master = (v.get("masterUrl") or "").strip()
+            url = ""
             if master and master.startswith("http"):
-                return master
-            # fallback: backupUrls
-            for b in v.get("backupUrls") or []:
-                if isinstance(b, str) and b.startswith("http"):
-                    return b
-    return ""
+                url = master
+            else:
+                # fallback: backupUrls
+                for b in v.get("backupUrls") or []:
+                    if isinstance(b, str) and b.startswith("http"):
+                        url = b
+                        break
+            if url:
+                height = int(v.get("height") or v.get("videoHeight") or 0)
+                return url, height
+    return "", 0
+
+
+def _pick_best_video_url(stream: dict) -> str:
+    """兼容旧调用：只返回 URL。"""
+    return _pick_best_video(stream)[0]
 
 
 def _extract_media_items_from_note(note: dict) -> list[MediaItem]:
@@ -120,10 +134,18 @@ def _extract_media_items_from_note(note: dict) -> list[MediaItem]:
     video = note.get("video") or {}
     media = video.get("media") or {}
     stream = media.get("stream") or {}
-    main_video_url = _pick_best_video_url(stream)
+    main_video_url, main_video_h = _pick_best_video(stream)
     if main_video_url and main_video_url not in seen_urls:
         seen_urls.add(main_video_url)
-        videos.append(MediaItem(url=main_video_url, is_video=True, index=len(videos)))
+        videos.append(MediaItem(
+            url=main_video_url,
+            is_video=True,
+            index=len(videos),
+            media_type=MediaType.VIDEO,
+            height=main_video_h,
+            quality=f"{main_video_h}P" if main_video_h else "",
+            extension="mp4",
+        ))
 
     # 2) imageList（图片 + 实况图视频流）
     #    兼容 camelCase (imageList) 和 snake_case (image_list) 两种字段名
@@ -135,10 +157,18 @@ def _extract_media_items_from_note(note: dict) -> list[MediaItem]:
         is_livephoto = bool(img.get("livePhoto") or img.get("live_photo"))
         if is_livephoto:
             lp_stream = img.get("stream") or {}
-            lp_video_url = _pick_best_video_url(lp_stream)
-            if lp_video_url and lp_video_url not in seen_urls:
-                seen_urls.add(lp_video_url)
-                videos.append(MediaItem(url=lp_video_url, is_video=True, index=len(videos)))
+            lp_url, lp_h = _pick_best_video(lp_stream)
+            if lp_url and lp_url not in seen_urls:
+                seen_urls.add(lp_url)
+                videos.append(MediaItem(
+                    url=lp_url,
+                    is_video=True,
+                    index=len(videos),
+                    media_type=MediaType.VIDEO,
+                    height=lp_h,
+                    quality=f"{lp_h}P" if lp_h else "",
+                    extension="mp4",
+                ))
         # 图片原图
         img_url = _pick_best_image_url(img)
         if img_url and img_url not in seen_urls:

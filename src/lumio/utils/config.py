@@ -68,9 +68,30 @@ def save_config(cfg: dict) -> None:
 
 
 def get_cookie_path() -> Path | None:
+    """返回用户 cookie 文件路径，无效时返回 None。
+
+    判定无效的情况（避免 yt-dlp / MozillaCookieJar 报错）：
+    - 文件不存在
+    - 文件为空（0 字节）
+    - 文件不以 Netscape 格式 cookie header 开头
+      （Netscape 格式首行通常是 # Netscape HTTP Cookie File 或注释行 # ...）
+    """
     cookie_file = load_config().get("cookie_file") or str(_APP_DIR / "cookies.txt")
     p = Path(cookie_file)
-    return p if p.exists() else None
+    if not p.exists():
+        return None
+    # 空文件无效（yt-dlp 会报 "does not look like a Netscape format cookies file"）
+    if p.stat().st_size == 0:
+        return None
+    # 非 Netscape 格式无效（首字符必须是 #，Netscape 格式以注释行开头）
+    try:
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            first_line = f.readline().strip()
+        if not first_line.startswith("#"):
+            return None
+    except Exception:
+        return None
+    return p
 
 
 def get_download_dir() -> Path:
