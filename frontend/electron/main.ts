@@ -117,6 +117,9 @@ function startFastApi(): Promise<void> {
     const args = ["-m", "lumio.api_fastapi"];
 
     console.log(`[electron] starting FastAPI on port ${fastapiPort} (token: ${fastapiToken.slice(0, 8)}...)`);
+    console.log(`[electron] cwd: ${projectRoot}`);
+    console.log(`[electron] cmd: ${pythonCmd} ${args.join(" ")}`);
+    console.log(`[electron] PYTHONPATH: ${path.join(projectRoot, "src")}`);
 
     fastapiProc = spawn(pythonCmd, args, {
       cwd: projectRoot,
@@ -129,6 +132,13 @@ function startFastApi(): Promise<void> {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    fastapiProc.on("error", (err) => {
+      // spawn 本身失败（如 python 命令不存在）
+      console.error(`[electron] spawn python failed: ${err.message}`);
+      console.error(`[electron] PATH: ${process.env.PATH}`);
+      reject(new Error(`spawn python failed: ${err.message}`));
+    });
+
     const stdoutBuf: string[] = [];
     fastapiProc.stdout?.on("data", (d) => {
       const s = d.toString();
@@ -138,8 +148,11 @@ function startFastApi(): Promise<void> {
     fastapiProc.stderr?.on("data", (d) => {
       process.stderr.write(`[fastapi] ${d}`);
     });
-    fastapiProc.on("exit", (code) => {
-      console.log(`[electron] FastAPI exited with code ${code}`);
+    fastapiProc.on("exit", (code, signal) => {
+      console.log(`[electron] FastAPI exited with code ${code} signal ${signal}`);
+      if (code !== 0 && code !== null) {
+        reject(new Error(`FastAPI exited with code ${code}`));
+      }
       fastapiProc = null;
     });
 
