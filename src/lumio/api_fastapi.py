@@ -1438,7 +1438,13 @@ def create_app() -> FastAPI:
             session.trust_env = True  # 读取系统代理（HTTP_PROXY/HTTPS_PROXY/Windows 注册表）
             r = session.get(url, headers=headers, timeout=15, stream=False)
             r.raise_for_status()
-            return Response(content=r.content, media_type=r.headers.get("Content-Type", "image/jpeg"))
+            # 设置长缓存（7 天）：缩略图 URL 通常带版本 hash，URL 不变则内容不变
+            # 浏览器缓存命中后不再请求后端，切换页面/滚动都不会重新加载
+            headers_out = {
+                "Cache-Control": "public, max-age=604800, immutable",
+                "Content-Type": r.headers.get("Content-Type", "image/jpeg"),
+            }
+            return Response(content=r.content, headers=headers_out)
         except requests.HTTPError as e:
             # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
             status = e.response.status_code if e.response is not None else 0

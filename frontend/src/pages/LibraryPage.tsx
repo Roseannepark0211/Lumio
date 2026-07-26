@@ -17,7 +17,7 @@
  *   - QML 用 Dialog，React 用 ModalDialog 组件（与 HistoryPage 同款）
  */
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, memo } from "react";
 import {
   api,
   subscribeEvents,
@@ -568,7 +568,14 @@ export function LibraryPage() {
         {/* 媒体网格 — 3 列固定布局 */}
         {filtered.length > 0 && (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid grid-cols-3 gap-6 p-1">
+            <div
+              className="grid grid-cols-3 gap-6 p-1"
+              style={{
+                // 让浏览器跳过不可见卡片的渲染工作（大幅提升滚动性能）
+                // contain-intrinsic-size 防止滚动条跳动
+                contain: "layout style",
+              }}
+            >
               {filtered.map((it) => (
                 <LibraryCard
                   key={it.id}
@@ -755,7 +762,7 @@ interface LibraryCardProps {
   ) => void;
 }
 
-function LibraryCard({
+function LibraryCardInner({
   item,
   activeCollectionId,
   onToggleFavorite,
@@ -779,13 +786,22 @@ function LibraryCard({
     (item.collection_ids || []).includes(activeCollectionId);
 
   return (
-    <div className="glass-card flex h-[260px] flex-col overflow-hidden">
+    <div
+      className="glass-card flex h-[260px] flex-col overflow-hidden"
+      style={{
+        // 卡片不在视口内时跳过渲染（contain-intrinsic-size 给占位高度防滚动条抖动）
+        contentVisibility: "auto",
+        containIntrinsicSize: "260px",
+      }}
+    >
       {/* 封面区 */}
       <div className="relative mx-2.5 mt-2.5 h-[150px] overflow-hidden rounded-lg bg-black/30">
         {thumbSrc ? (
           <img
             src={thumbSrc}
             alt=""
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -889,6 +905,13 @@ function LibraryCard({
     </div>
   );
 }
+
+/**
+ * 用 React.memo 包裹 LibraryCard，仅在 props 真正变化时重渲染。
+ * 父组件的 searchText / filterPlatform 等状态变化导致 items 数组重建时，
+ * memo 会逐项对比 item 引用，未变化的卡片直接跳过渲染。
+ */
+const LibraryCard = memo(LibraryCardInner);
 
 // ============================================================
 // 子组件：Collection 菜单（加入/移除）

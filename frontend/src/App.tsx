@@ -70,12 +70,21 @@ function PageSwitcher({ pages }: { pages: PageKey[] }) {
         </div>
       )}
 
-      {/* 页面内容 */}
+      {/* 页面内容 — keep-alive 模式：所有页面同时挂载，用 display 切换
+          避免切换页面时 unmount/remount 导致重新拉数据 + 图片重新加载 */}
       <div className="min-h-0 flex-1">
-        {current === "home" && <HomePage />}
-        {current === "downloads" && <DownloadsPage />}
-        {current === "history" && <HistoryPage />}
-        {current === "library" && <LibraryPage />}
+        <div style={{ display: current === "home" ? "contents" : "none" }}>
+          <HomePage />
+        </div>
+        <div style={{ display: current === "downloads" ? "contents" : "none" }}>
+          <DownloadsPage />
+        </div>
+        <div style={{ display: current === "history" ? "contents" : "none" }}>
+          <HistoryPage />
+        </div>
+        <div style={{ display: current === "library" ? "contents" : "none" }}>
+          <LibraryPage />
+        </div>
       </div>
     </div>
   );
