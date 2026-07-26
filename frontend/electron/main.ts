@@ -16,12 +16,13 @@
  *   3. 强制 kill 残留进程（兜底）
  */
 
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell, protocol, net } from "electron";
 import { spawn, ChildProcess, execSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import http from "node:http";
 import crypto from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 // ============================================================
 // 全局状态
@@ -51,6 +52,28 @@ process.env.LUMIO_FASTAPI_TOKEN = fastapiToken;
     // 如果设置失败（比如目录不可写），让 Electron 用默认路径
   }
 }
+
+// 注册 lumio-file:// 自定义 protocol，映射本地文件路径
+// 必须在 app.whenReady() 之前调用 registerSchemesAsPrivileged，
+// 否则 Chromium 同源策略会拦截跨 protocol 的 fetch/video/image 请求
+// 用途：
+//   - X-Sou 视频预览：~/.lumio/cache/preview/<hash>.mp4 → <video src="lumio-file://...">
+//   - Library 缩略图（未来）：~/.lumio/cache/thumbs/<id>.jpg → <img src="lumio-file://...">
+//   - 素材预览（未来）：本地视频/图片文件
+// 调用约定：lumio-file:///<absolute_path>（path 自动 URL-decode）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "lumio-file",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,            // 关键：让 <video> 能 Range 请求流式播放
+      bypassCSP: true,
+      codeCache: true,
+    },
+  },
+]);
 
 // ============================================================
 // 工具函数
@@ -231,10 +254,10 @@ async function stopFastApi(): Promise<void> {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1120,
+    height: 720,
+    minWidth: 880,
+    minHeight: 560,
     backgroundColor: "#0a0a0f",
     title: "Lumio",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
@@ -270,6 +293,31 @@ function createWindow(): void {
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  // 注册 lumio-file:// protocol 的实际 handler
+  // lumio-file:///C:/Users/.../foo.mp4 → file:///C:/Users/.../foo.mp4
+  // 用 net.fetch 处理 Range 请求（视频拖动进度条需要）
+  protocol.handle("lumio-file", (request) => {
+    try {
+      // request.url 形如 lumio-file:///C%3A/Users/.../foo.mp4
+      // URL 解析后 pathname 是 /C:/Users/.../foo.mp4（前导斜杠+盘符）
+      const u = new URL(request.url);
+      let p = decodeURIComponent(u.pathname);
+      // Windows 路径前导斜杠去掉：/C:/foo → C:/foo
+      if (process.platform === "win32" && /^\/[A-Za-z]:\//.test(p)) {
+        p = p.slice(1);
+      }
+      // 安全校验：必须存在且是文件
+      if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
+        return new Response("Not found", { status: 404 });
+      }
+      // 用 file:// URL 让 net.fetch 处理 Range 等细节
+      return net.fetch(pathToFileURL(p).toString());
+    } catch (e) {
+      console.error("[electron] lumio-file handler error:", e);
+      return new Response(`Internal error: ${e}`, { status: 500 });
+    }
+  });
+
   try {
     await startFastApi();
   } catch (e) {

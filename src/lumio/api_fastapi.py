@@ -237,6 +237,9 @@ class AppContext:
         self.inbox_manager = InboxManager()
         self.notification_manager = NotificationManager()
         set_notification_manager(self.notification_manager)
+        # X-Sou 视频预览的 _PreviewCacheWorker 引用（由 /api/preview-x-video 设置，
+        # /api/preview-cancel 读取，worker 结束后清空）
+        self.preview_worker = None
 
         cfg = load_config()
         # 浏览器扩展的 /capture API 仍由原 Flask 服务提供（端口 38900）
@@ -490,6 +493,9 @@ def create_app() -> FastAPI:
                 # OPTIONS 预检请求不鉴权（浏览器自动发，不带 token；由 CORSMiddleware 处理）
                 if request.url.path != "/api/health" and request.method != "OPTIONS":
                     token = request.headers.get("X-Lumio-Token", "")
+                    # <img src>/WS 等浏览器原生请求无法带 header，支持 ?token=xxx query 兜底
+                    if not token:
+                        token = request.query_params.get("token", "")
                     if token != expected_token:
                         return JSONResponse(
                             status_code=401,
@@ -658,8 +664,8 @@ def create_app() -> FastAPI:
 
         async def _run() -> None:
             try:
-                from .downloader import resolve_via_providers
-                info = await asyncio.to_thread(resolve_via_providers, url)
+                from .downloader import extract_info
+                info = await asyncio.to_thread(extract_info, url)
                 # 序列化 VideoInfo
                 _bus().publish("parse_completed", {
                     "request_id": rid,
@@ -682,10 +688,9 @@ def create_app() -> FastAPI:
 
         async def _run() -> None:
             try:
-                from .x_sou_client import XSouClient
-                client = XSouClient()
+                from .x_sou_client import x_sou_search
                 results = await asyncio.to_thread(
-                    client.search, q, req.page or 1, req.limit or 20
+                    x_sou_search, q, req.page or 1, req.limit or 20
                 )
                 _bus().publish("search_completed", {
                     "request_id": rid,
@@ -710,8 +715,15 @@ def create_app() -> FastAPI:
                 from .gui.qml_bridge import _PreviewCacheWorker
                 # _PreviewCacheWorker 是 QThread，需要 QApplication（已创建）
                 worker = _PreviewCacheWorker(req.video_url)
+                # 维护 worker 引用，供 /api/preview-cancel 取消
+                _ctx().preview_worker = worker
+                # progress = Signal(int, int) → (downloaded_bytes, total_bytes)
+                # 旧代码 lambda p 单参数会抛 TypeError
                 worker.progress.connect(
-                    lambda p: _bus().publish("preview_progress", {"progress": p}),
+                    lambda d, t: _bus().publish(
+                        "preview_progress",
+                        {"downloaded": d, "total": t},
+                    ),
                     Qt.DirectConnection,
                 )
                 worker.finished_ok.connect(
@@ -722,18 +734,39 @@ def create_app() -> FastAPI:
                     lambda err: _bus().publish("preview_failed", {"error": err}),
                     Qt.DirectConnection,
                 )
+                # worker 结束后清理引用
+                worker.finished_ok.connect(
+                    lambda _: _cleanup_preview_worker(),
+                    Qt.DirectConnection,
+                )
+                worker.failed.connect(
+                    lambda _: _cleanup_preview_worker(),
+                    Qt.DirectConnection,
+                )
                 worker.start()
                 # 不阻塞，worker 结束时自己 deleteLater
             except Exception as e:
                 _bus().publish("preview_failed", {"error": str(e)})
+
+        def _cleanup_preview_worker() -> None:
+            """worker 结束后清理 _ctx().preview_worker 引用。
+
+            finished_ok/failed 信号在 worker 线程内 emit，此时 run() 即将返回，
+            isRunning() 可能仍为 True，但已无实际工作，直接清空引用让 Python GC 处理。
+            """
+            _ctx().preview_worker = None
 
         asyncio.create_task(_run())
         return {"ok": True}
 
     @app.post("/api/preview-cancel")
     async def preview_cancel() -> dict:
-        # 简化：取消逻辑依赖客户端不再订阅事件
-        return {"ok": True}
+        """取消 X-Sou 视频预览下载。"""
+        worker = getattr(_ctx(), "preview_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.cancel()
+            return {"ok": True}
+        return {"ok": False, "error": "no active preview"}
 
     # ============================================================
     # 3. 历史记录
@@ -1391,7 +1424,8 @@ def create_app() -> FastAPI:
                     headers["Cookie"] = load_cookie_string(str(cookie_path))
                 except Exception:
                     pass
-            session = requests.Session(trust_env=True)
+            session = requests.Session()
+            session.trust_env = True  # 读取系统代理（HTTP_PROXY/HTTPS_PROXY/Windows 注册表）
             r = session.get(url, headers=headers, timeout=15, stream=False)
             r.raise_for_status()
             return Response(content=r.content, media_type=r.headers.get("Content-Type", "image/jpeg"))
@@ -1508,7 +1542,10 @@ def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
             bus.publish(event_type, data)
         return cb
 
-    m.task_added.connect(_wrap("task_added"), Qt.DirectConnection)
+    m.task_added.connect(
+        _wrap("task_added", lambda qt: _task_to_dict(qt)),
+        Qt.DirectConnection,
+    )
     m.task_started.connect(_wrap("task_started"), Qt.DirectConnection)
     m.task_progress.connect(
         _wrap("task_progress",
