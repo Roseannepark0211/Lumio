@@ -120,6 +120,9 @@ def get_cache_stats() -> dict[str, dict]:
         "size_mb": round(total_size / (1024 * 1024), 2),
         "file_count": total_files,
     }
+    # 暴露总缓存根路径（~/.lumio），供设置页标题旁显示
+    # 跟随用户 home 自动变化，无需硬编码
+    stats["_root"] = str(_APP_DIR)
     return stats
 
 

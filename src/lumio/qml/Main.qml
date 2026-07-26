@@ -222,37 +222,61 @@ ApplicationWindow {
                     return idx < 0 ? 0 : idx
                 }
 
-                // 8 个页面（用 Loader 延迟加载，节省启动时间）
+                // ============================================================
+                // 页面保活策略（修复问题5+6）
+                // ------------------------------------------------------------
+                // 旧实现：`active: _pageStack.currentIndex === N`
+                //   → 切换页面时旧页面 Loader.active=false，页面被销毁
+                //   → 切回来重新创建，导致：
+                //     1. 滚动位置丢失（问题5）
+                //     2. 重建开销大，快速切换时卡顿（问题6）
+                //
+                // 新实现：lazy load + keep alive
+                //   - 首次访问才加载（节省启动时间）
+                //   - 加载后保持存活，切换页面只切 visible（不销毁）
+                //   - 滚动位置/内部状态自动保留
+                //   - 二次切换零开销，无卡顿
+                // ============================================================
+
+                property var _loadedPages: ({})  // {pageIndex: true} 已加载过的页面
+
+                // 当前页面变化时标记为已加载
+                onCurrentIndexChanged: {
+                    _loadedPages[currentIndex] = true
+                }
+                Component.onCompleted: _loadedPages[currentIndex] = true
+
                 Loader {
-                    active: _pageStack.currentIndex === 0
+                    // 首次切到该页或已加载过 → 保持 active
+                    active: _pageStack.currentIndex === 0 || _pageStack._loadedPages[0] === true
                     source: "Lumio/Pages/HomePage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 1
+                    active: _pageStack.currentIndex === 1 || _pageStack._loadedPages[1] === true
                     source: "Lumio/Pages/InboxPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 2
+                    active: _pageStack.currentIndex === 2 || _pageStack._loadedPages[2] === true
                     source: "Lumio/Pages/DownloadsPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 3
+                    active: _pageStack.currentIndex === 3 || _pageStack._loadedPages[3] === true
                     source: "Lumio/Pages/HistoryPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 4
+                    active: _pageStack.currentIndex === 4 || _pageStack._loadedPages[4] === true
                     source: "Lumio/Pages/LibraryPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 5
+                    active: _pageStack.currentIndex === 5 || _pageStack._loadedPages[5] === true
                     source: "Lumio/Pages/StatsPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 6
+                    active: _pageStack.currentIndex === 6 || _pageStack._loadedPages[6] === true
                     source: "Lumio/Pages/NotificationsPage.qml"
                 }
                 Loader {
-                    active: _pageStack.currentIndex === 7
+                    active: _pageStack.currentIndex === 7 || _pageStack._loadedPages[7] === true
                     source: "Lumio/Pages/SettingsPage.qml"
                 }
             }

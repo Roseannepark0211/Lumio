@@ -9,6 +9,7 @@ NotificationManager）暴露给 QML UI。
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 import threading
@@ -25,6 +26,8 @@ from PySide6.QtQuick import QQuickImageProvider
 
 from ..i18n import t, get_lang, set_lang
 from ..utils.config import load_config, save_config
+
+logger = logging.getLogger(__name__)
 
 _ICONS_SVG_PATH = Path(__file__).parent.parent / "qml" / "Lumio" / "Assets" / "icons.svg"
 
@@ -449,6 +452,10 @@ def _notification_to_dict(n) -> dict:
         "created_at": n.created_at,
         "read": n.read,
         "dismissable": n.dismissable,
+        "priority": getattr(n, "priority", "normal"),
+        "source_key": getattr(n, "source_key", ""),
+        "expires_at": getattr(n, "expires_at", ""),
+        "group_key": getattr(n, "group_key", ""),
     }
 
 
@@ -524,6 +531,11 @@ class QmlController(QObject):
     previewProgress = Signal(int, int, arguments=["downloaded", "total"])  # bytes
     previewReady = Signal(str, arguments=["local_path"])
     previewFailed = Signal(str, arguments=["error_message"])
+    # Apify 月度用量查询完成（异步）
+    apifyUsageUpdated = Signal(str, arguments=["usage_json"])
+    # 文件缺失（被外部删除）— QML 弹确认对话框「是否删除本条记录？」
+    # source: "library" / "history"，由调用方传入
+    fileMissing = Signal(str, str, arguments=["path", "source"])
 
     def __init__(self, manager=None, inbox_manager=None, library_manager=None,
                  history_manager=None, notification_manager=None, parent=None) -> None:
@@ -536,6 +548,8 @@ class QmlController(QObject):
         self._parse_workers: list[_ParseWorker] = []
         self._search_workers: list[_SearchWorker] = []
         self._preview_worker: _PreviewCacheWorker | None = None
+        # Apify 月度用量缓存（避免每次切页面都打 API）
+        self._apify_usage_cache: dict = {}
 
         # 初始主题与语言
         cfg = load_config()
@@ -558,11 +572,27 @@ class QmlController(QObject):
             self._inbox_manager.item_added.connect(lambda _: self.inboxChanged.emit())
             self._inbox_manager.item_updated.connect(lambda _: self.inboxChanged.emit())
             self._inbox_manager.items_deleted.connect(lambda _: self.inboxChanged.emit())
+            # Inbox 新内容只走 sidebar 红点（不进通知中心）
+            self._inbox_manager.item_added.connect(
+                lambda _: self._on_inbox_new_item()
+            )
 
         if self._notification_manager:
             self._notification_manager.notifications_changed.connect(
                 lambda c: self.notificationsChanged.emit(c)
             )
+
+    def _on_inbox_new_item(self) -> None:
+        """Inbox 收到新内容时，触发 sidebar 红点刷新。
+
+        Inbox 新内容只走 sidebar 红点，不进通知中心。
+        通过 notifications_changed 信号让 sidebar 刷新（badge 会读取 inbox 未读数）。
+        """
+        if self._notification_manager:
+            try:
+                self._notification_manager.notify_inbox_new(1)
+            except Exception:
+                pass
 
     # ============================================================
     # 属性
@@ -866,6 +896,19 @@ class QmlController(QObject):
 
     @Slot(str, result=bool)
     def openFile(self, path: str) -> bool:
+        """打开文件（无 source 版本，向后兼容）。"""
+        return self._openFileWithSource(path, "")
+
+    @Slot(str, str, result=bool)
+    def openFileFromSource(self, path: str, source: str) -> bool:
+        """打开文件 — 带数据源标识。
+
+        source: "library" / "history" / "" — 文件缺失时发 fileMissing 信号，
+        QML 据此弹「是否删除本条记录」对话框。
+        """
+        return self._openFileWithSource(path, source)
+
+    def _openFileWithSource(self, path: str, source: str) -> bool:
         """打开文件 — 调用系统默认程序。
 
         - 单文件：直接 os.startfile（视频→系统播放器，文档→默认程序）
@@ -874,6 +917,7 @@ class QmlController(QObject):
           避免 .jpg 关联到 PotPlayer 等第三方播放器；
           若 Microsoft 照片不可用则回退到 os.startfile（系统默认）
         - 目录（多图帖/视频+图片混合）：找第一张图片/视频文件打开
+        - 路径不存在时：发 fileMissing 信号（若有 source）让 QML 弹删除确认对话框
         """
         if not path:
             self.toastRequested.emit("Open failed: empty path")
@@ -885,19 +929,17 @@ class QmlController(QObject):
             # 如果是目录，找第一张图片/视频文件作为打开目标
             if os.path.isdir(path):
                 target = self._first_openable_media(path) or path
-            # 路径不存在时给出明确提示
+            # 路径不存在时：发信号让 QML 弹删除确认（而非只 toast）
             if not os.path.exists(target):
-                self.toastRequested.emit(f"Open failed: file not found — {target}")
+                if source:
+                    self.fileMissing.emit(path, source)
+                else:
+                    self.toastRequested.emit(f"Open failed: file not found — {target}")
                 return False
             # 图片类型用 Microsoft 照片（UWP），避免 .jpg 被关联到 PotPlayer
             if sys.platform == "win32":
                 ext = os.path.splitext(target)[1].lower()
                 if ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}:
-                    # Microsoft 照片通过 ms-photos:viewer?fileName=<path> 协议启动
-                    # 官方文档要求传 fully-qualified path（原始 Windows 反斜杠路径），
-                    # 不要 URL 编码、不要转成正斜杠、不要加 file:// 前缀
-                    # 否则 Photos 启动但解析路径失败 → 黑屏
-                    # ref: https://github.com/MicrosoftDocs/windows-dev-docs/issues/4881
                     photos_uri = f"ms-photos:viewer?fileName={target}"
                     try:
                         subprocess.Popen(
@@ -908,7 +950,6 @@ class QmlController(QObject):
                         )
                         return True
                     except Exception:
-                        # Microsoft 照片不可用 → 回退到系统默认程序
                         os.startfile(target)  # type: ignore[attr-defined]
                         return True
                 os.startfile(target)  # type: ignore[attr-defined]
@@ -937,11 +978,27 @@ class QmlController(QObject):
 
     @Slot(str, result=bool)
     def openFolder(self, path: str) -> bool:
+        """打开文件夹（无 source 版本，向后兼容）。"""
+        return self._openFolderWithSource(path, "")
+
+    @Slot(str, str, result=bool)
+    def openFolderFromSource(self, path: str, source: str) -> bool:
+        """打开文件夹 — 带数据源标识。文件缺失时发 fileMissing 信号。"""
+        return self._openFolderWithSource(path, source)
+
+    def _openFolderWithSource(self, path: str, source: str) -> bool:
         if not path:
             return False
         try:
             import os
             import subprocess
+            # 路径完全不存在时：发信号让 QML 弹删除确认
+            if not os.path.exists(path):
+                if source:
+                    self.fileMissing.emit(path, source)
+                else:
+                    self.toastRequested.emit(f"Open folder failed: path not found — {path}")
+                return False
             folder = os.path.dirname(path) if os.path.isfile(path) else path
             if sys.platform == "win32":
                 os.startfile(folder)  # type: ignore[attr-defined]
@@ -968,11 +1025,16 @@ class QmlController(QObject):
             ensure_ascii=False,
         )
 
-    @Slot(str)
-    def toggleFavorite(self, item_id: str) -> None:
+    @Slot(str, result=bool)
+    def toggleFavorite(self, item_id: str) -> bool:
+        """切换收藏状态，返回新的 is_favorite 值。
+
+        不发 libraryChanged 信号——只改了一个布尔字段，全量 reload 会导致
+        所有卡片 Repeater 重建闪烁。QML 端用返回值直接更新本地 isFav property。
+        """
         if self._library_manager:
-            self._library_manager.toggle_favorite(item_id)
-            self.libraryChanged.emit()
+            return bool(self._library_manager.toggle_favorite(item_id))
+        return False
 
     @Slot(str)
     def deleteLibraryItem(self, item_id: str) -> None:
@@ -1024,6 +1086,13 @@ class QmlController(QObject):
             self._library_manager.add_item_to_collection(item_id, collection_id)
             self.libraryChanged.emit()
 
+    @Slot(str, int)
+    def removeItemFromCollection(self, item_id: str, collection_id: int) -> None:
+        """从 Collection 移除素材（仅解除关联，不删除素材本身）。"""
+        if self._library_manager:
+            self._library_manager.remove_item_from_collection(item_id, collection_id)
+            self.libraryChanged.emit()
+
     @Slot(str, result=str)
     def getItemCollectionsJson(self, item_id: str) -> str:
         """获取某素材已加入的 Collection id 列表（JSON 数组）。"""
@@ -1045,6 +1114,16 @@ class QmlController(QObject):
             return "[]"
         items = self._inbox_manager.get_all()
         return json.dumps([_inbox_item_to_dict(it) for it in items], ensure_ascii=False)
+
+    @Slot(result=int)
+    def unreadInbox(self) -> int:
+        """返回 Inbox 中 status='new' 的未读数量（供 Sidebar 红点徽章使用）。"""
+        if not self._inbox_manager:
+            return 0
+        try:
+            return len(self._inbox_manager.get_all(status_filter="new"))
+        except Exception:
+            return 0
 
     @Slot(str)
     def inboxDownload(self, item_id: str) -> None:
@@ -1182,6 +1261,22 @@ class QmlController(QObject):
             self._notification_manager.mark_all_read()
 
     @Slot(str)
+    def markNotificationRead(self, notif_id: str) -> None:
+        """单条标记已读（修复：原 QML 版缺此 API，只能全部已读或关闭）。"""
+        if self._notification_manager:
+            self._notification_manager.mark_read(notif_id)
+
+    @Slot()
+    def clearReadNotifications(self) -> None:
+        """清除已读通知（永久通知保留）。
+
+        修复：原 QML 版用逐条 dismissNotification 实现，存在循环中操作过期数据
+        和 dismiss 不检查 dismissable 的双重 bug。改为后端一次性 clear_read()。
+        """
+        if self._notification_manager:
+            self._notification_manager.clear_read()
+
+    @Slot(str)
     def dismissNotification(self, notif_id: str) -> None:
         if self._notification_manager:
             self._notification_manager.dismiss(notif_id)
@@ -1240,6 +1335,17 @@ class QmlController(QObject):
             value = value_json
         cfg = load_config()
         cfg[key] = value
+        # Apify token/actor 变化时清除验证状态 + 重置 client 缓存 + 清空用量缓存
+        # 避免假 token 输入后 connected 仍显示 true，或刷新用量仍用旧的有效 client
+        if key in ("apify_token", "apify_ig_actor"):
+            cfg["apify_verified"] = False
+            try:
+                from ..apify_client import reset_apify_client
+                reset_apify_client()
+            except Exception:
+                pass
+            # 清空用量缓存，强制下次查询用新 token
+            self._apify_usage_cache = {"_ts": 0}
         save_config(cfg)
         self.configChanged.emit()
         self.toastRequested.emit(self._tr("settings_saved"))
@@ -1477,6 +1583,218 @@ class QmlController(QObject):
         except Exception as e:
             self.toastRequested.emit(f"Copy failed: {e}")
 
+    @Slot(result=str)
+    def getClipboardText(self) -> str:
+        """读取系统剪贴板文本。
+
+        QML 端无法直接访问 QClipboard.text（QClipboard 未将 text 暴露为
+        Q_PROPERTY，且 text() 非 Q_INVOKABLE），故由此 Slot 转发。
+        """
+        try:
+            from PySide6.QtGui import QGuiApplication
+            cb = QGuiApplication.clipboard()
+            return cb.text() if cb else ""
+        except Exception:
+            return ""
+
+    # ============================================================
+    # Apify IG 代理（恢复老版本功能）
+    # ------------------------------------------------------------
+    # 通过 Apify Actor 代理提取 IG 数据，避免直接调用 IG 移动 API
+    # 导致账号风控。用户需在 https://console.apify.io 注册并创建
+    # Instagram Scraper Actor，获取 token + actor_id 填入设置。
+    # ============================================================
+
+    @Slot(str, str, result=str)
+    def validateApifyToken(self, token: str, actor_id: str) -> str:
+        """验证 Apify Token + Actor ID 是否可用。
+
+        返回 JSON: {"ok": true, "username": "..."} 或 {"ok": false, "error": "..."}
+        验证成功后自动保存配置并重置缓存的 Apify client。
+        """
+        token = (token or "").strip()
+        actor_id = (actor_id or "").strip()
+        if not token:
+            return json.dumps({"ok": False, "error": self._tr("apify_token_empty")},
+                              ensure_ascii=False)
+        if not actor_id:
+            return json.dumps({"ok": False, "error": self._tr("apify_actor_empty")},
+                              ensure_ascii=False)
+        try:
+            from ..apify_client import ApifyIGClient
+            client = ApifyIGClient(token=token, actor_id=actor_id)
+            ok = client.test_connection()
+            if ok:
+                # 保存到 config 并标记为已验证 + 重置缓存
+                cfg = load_config()
+                cfg["apify_token"] = token
+                cfg["apify_ig_actor"] = actor_id
+                cfg["apify_verified"] = True  # 验证成功，标记有效
+                save_config(cfg)
+                try:
+                    from ..apify_client import reset_apify_client
+                    reset_apify_client()
+                except Exception:
+                    pass
+                # 清空用量缓存时间戳，允许立即查询用量
+                self._apify_usage_cache = {"_ts": 0}
+                self.configChanged.emit()
+                return json.dumps({"ok": True}, ensure_ascii=False)
+            else:
+                return json.dumps({"ok": False, "error": self._tr("apify_validate_fail")},
+                                  ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+
+    @Slot(result=str)
+    def getApifyStatusJson(self) -> str:
+        """返回 Apify 配置状态 JSON。
+
+        持久状态字段（不依赖验证瞬态结果，切页面回来自动恢复）：
+        - token_configured / actor_configured: bool
+        - connected: token + actor 都已配置（不代表网络可达，仅表示「已配置可调用」）
+        - enabled: instagram_mode == "api"（当前是否真正走 Apify 路径）
+        - token_preview / actor_id: 脱敏显示
+
+        额度字段（额度数据走后台异步刷新，初始为空）：
+        - usage_usd: 当月已用金额（USD）
+        - plan_credits_usd: 月度免费额度（Free 通常 $5）
+        - usage_updated: 数据更新时间戳（ISO）
+        """
+        try:
+            cfg = load_config()
+            token = cfg.get("apify_token", "")
+            actor = cfg.get("apify_ig_actor", "")
+            verified = cfg.get("apify_verified", False) is True
+            enabled = cfg.get("instagram_mode", "cookie") == "api"
+
+            payload = {
+                "token_configured": bool(token),
+                "actor_configured": bool(actor),
+                # connected = 已配置且已验证有效（输入框变化时自动清除 verified）
+                "connected": bool(token and actor and verified),
+                "verified": verified,  # 是否已验证（供 UI 区分"待验证"/"已验证"）
+                "enabled": enabled,
+                "token_preview": ("apify_api_" + token[10:] + "...") if len(token) > 14 else (token or ""),
+                "actor_id": actor,
+                # 额度数据从缓存读，避免每次切页面都打 API
+                "usage_usd": self._apify_usage_cache.get("usage_usd"),
+                "plan_credits_usd": self._apify_usage_cache.get("plan_credits_usd"),
+                "plan_name": self._apify_usage_cache.get("plan_name"),
+                "usage_updated": self._apify_usage_cache.get("usage_updated"),
+            }
+            return json.dumps(payload, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    @Slot()
+    def refreshApifyUsage(self) -> None:
+        """后台查询 Apify 月度用量（GET /v2/users/me）。
+
+        通过 apify_client.ApifyClient.user().get() 调用，返回 plan 和 currentUsageUsd。
+        结果缓存到 self._apify_usage_cache，并通过 apifyUsageUpdated 信号通知 QML 刷新。
+        频率限制：5 分钟内不重复查询。
+        """
+        import time as _time
+        now = _time.time()
+        # 5 分钟内不重复查询
+        if now - self._apify_usage_cache.get("_ts", 0) < 300:
+            return
+        self._do_refresh_apify_usage()
+
+    @Slot()
+    def forceRefreshApifyUsage(self) -> None:
+        """强制刷新 Apify 用量（绕过 5 分钟缓存）。
+
+        供设置页「刷新」按钮调用：用户主动点击时不应该被缓存限制。
+        """
+        self._do_refresh_apify_usage()
+
+    def _do_refresh_apify_usage(self) -> None:
+        """实际执行 Apify 用量查询（后台线程）。
+
+        正确的查询方式（apify-client 已通过 pluck_data 剥掉 {"data": ...} 外壳）：
+        - client.user().get() → 直接返回 user dict（含 plan.monthlyUsageCreditsUsd 总额度）
+        - client.user().monthly_usage() → 直接返回 usage dict（含 totalUsageCreditsUsdAfterVolumeDiscount 当前用量）
+
+        旧实现错误：用错字段名 totalUsageUsd（不存在），导致 usage_usd 永远是 0
+        （真实余额 0.02/5.00 显示成 0.00/5.00）。
+        """
+        import time as _time
+        try:
+            from ..apify_client import get_apify_client as _get_apify_client
+            client = _get_apify_client()
+        except Exception as e:
+            # token/actor 未配置等
+            self._apify_usage_cache["_ts"] = _time.time()
+            self.apifyUsageUpdated.emit(json.dumps({"error": str(e)}, ensure_ascii=False))
+            return
+
+        def _fetch():
+            try:
+                user_client = client._client.user()
+                # 1. GET /v2/users/me — 拿 plan（总额度）+ tier
+                user_data = user_client.get()
+                # 2. GET /v2/users/me/usage/monthly — 拿月度用量明细
+                usage_data = user_client.monthly_usage()
+
+                if not user_data:
+                    self.apifyUsageUpdated.emit(json.dumps(
+                        {"error": "user get() returned empty"}, ensure_ascii=False))
+                    return
+
+                # apify-client 已 pluck_data，直接是 user dict（无 {"data": ...} 外壳）
+                udata = user_data if isinstance(user_data, dict) else {}
+                plan = udata.get("plan", {}) or {}
+                plan_credits = float(plan.get("monthlyUsageCreditsUsd", 0) or 0)
+                plan_name = plan.get("id", "") or udata.get("tier", "") or ""
+
+                # monthly_usage() 同样已 pluck_data，直接是 usage dict
+                # 正确字段名：totalUsageCreditsUsdAfterVolumeDiscount（当前周期已用额度）
+                # 兜底字段：totalUsageCreditsUsdBeforeVolumeDiscount / dailyServiceUsages 末项
+                usage_total = 0.0
+                if usage_data and isinstance(usage_data, dict):
+                    usage_total = float(
+                        usage_data.get("totalUsageCreditsUsdAfterVolumeDiscount")
+                        or usage_data.get("totalUsageCreditsUsdBeforeVolumeDiscount")
+                        or 0
+                    )
+                    # 兜底：从 dailyServiceUsages 末项取 totalUsageCreditsUsd 累加
+                    if usage_total == 0.0:
+                        daily = usage_data.get("dailyServiceUsages") or []
+                        if daily:
+                            usage_total = sum(
+                                float(d.get("totalUsageCreditsUsd", 0) or 0)
+                                for d in daily
+                            )
+
+                self._apify_usage_cache.update({
+                    "usage_usd": usage_total,
+                    "plan_credits_usd": plan_credits,
+                    "plan_name": plan_name,
+                    "usage_updated": _time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "_ts": _time.time(),
+                })
+                # 清掉旧的 error 标记（如果有的话）
+                self._apify_usage_cache.pop("error", None)
+                self.apifyUsageUpdated.emit(json.dumps(self._apify_usage_cache,
+                                                      ensure_ascii=False))
+
+                # 接入通知系统：配额 >80% / 耗尽时发通知
+                try:
+                    from ..notification_manager import get_notification_manager
+                    get_notification_manager().notify_apify_quota(
+                        usage_total, plan_credits
+                    )
+                except Exception as _e:
+                    logger.debug("notify_apify_quota failed: %s", _e)
+            except Exception as e:
+                self._apify_usage_cache["_ts"] = _time.time()
+                self.apifyUsageUpdated.emit(json.dumps(
+                    {"error": str(e)}, ensure_ascii=False))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
     # ============================================================
     # 主题 / 语言
     # ============================================================
@@ -1540,8 +1858,19 @@ class QmlController(QObject):
         def _do():
             try:
                 from ..utils.cache_manager import clean_cache_by_rules
-                clean_cache_by_rules()
+                results = clean_cache_by_rules()
+                # 汇总清理结果：仅当确实清理了文件时发通知
+                total_files = sum(r.get("deleted", 0) for r in results.values())
+                total_size = sum(r.get("freed", 0) for r in results.values())
                 self.toastRequested.emit(self._tr("cache_cleaned"))
+                if total_files > 0:
+                    try:
+                        from ..notification_manager import get_notification_manager
+                        get_notification_manager().notify_cache_cleaned(
+                            total_files, total_size
+                        )
+                    except Exception as _e:
+                        logger.debug("notify_cache_cleaned failed: %s", _e)
             except Exception as e:
                 traceback.print_exc()
                 self.toastRequested.emit(f"Clean failed: {e}")
@@ -1554,8 +1883,18 @@ class QmlController(QObject):
         def _do():
             try:
                 from ..utils.cache_manager import force_clear_cache
-                force_clear_cache()
+                results = force_clear_cache()
+                total_files = sum(r.get("deleted", 0) for r in results.values())
+                total_size = sum(r.get("freed", 0) for r in results.values())
                 self.toastRequested.emit(self._tr("cache_cleaned"))
+                if total_files > 0:
+                    try:
+                        from ..notification_manager import get_notification_manager
+                        get_notification_manager().notify_cache_cleaned(
+                            total_files, total_size
+                        )
+                    except Exception as _e:
+                        logger.debug("notify_cache_cleaned failed: %s", _e)
             except Exception as e:
                 traceback.print_exc()
                 self.toastRequested.emit(f"Clear failed: {e}")

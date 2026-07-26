@@ -1178,6 +1178,19 @@ def _effective_name(task: DownloadTask) -> str:
 
 # ---- Pause-aware download (V2 queue system) ----
 
+def _wait_pause_or_cancel(pause_event: threading.Event, task: DownloadTask) -> None:
+    """阻塞等待暂停事件恢复，同时定期检查取消标志。
+
+    旧实现 pause_event.wait() 无超时，导致暂停期间 cancel 永远无法生效
+    （线程卡在 wait() 无法检测 _cancelled）。改用 100ms 超时循环。
+    """
+    while not pause_event.wait(timeout=0.1):
+        if task._cancelled:
+            raise _CancelledError()
+    if task._cancelled:
+        raise _CancelledError()
+
+
 def _download_hook_with_pause(
     task: DownloadTask,
     pause_event: threading.Event,
@@ -1186,9 +1199,7 @@ def _download_hook_with_pause(
     def hook(d: dict):
         if task._cancelled:
             raise _CancelledError()
-        pause_event.wait()  # blocks when paused
-        if task._cancelled:
-            raise _CancelledError()
+        _wait_pause_or_cancel(pause_event, task)
 
         if d["status"] == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -1324,11 +1335,7 @@ def _ig_download_with_pause(task, pause_event, on_progress):
             try:
                 with open(filename, "ab" if is_resume else "wb") as f:
                     for chunk in resp.iter_content(8192):
-                        if task._cancelled:
-                            raise _CancelledError()
-                        pause_event.wait()  # blocks when paused
-                        if task._cancelled:
-                            raise _CancelledError()
+                        _wait_pause_or_cancel(pause_event, task)
                         f.write(chunk)
                         downloaded += len(chunk)
                         if total_size:
@@ -1420,11 +1427,7 @@ def _apify_download_with_pause(task, pause_event, on_progress):
             try:
                 with open(filename, "ab" if is_resume else "wb") as f:
                     for chunk in resp.iter_content(8192):
-                        if task._cancelled:
-                            raise _CancelledError()
-                        pause_event.wait()
-                        if task._cancelled:
-                            raise _CancelledError()
+                        _wait_pause_or_cancel(pause_event, task)
                         f.write(chunk)
                         downloaded += len(chunk)
                         if total_size:
@@ -1487,9 +1490,7 @@ def _x_download_direct(task, pause_event, on_progress):
         try:
             with open(filename, "wb") as f:
                 for chunk in resp.iter_content(8192):
-                    pause_event.wait()
-                    if task._cancelled:
-                        raise _CancelledError()
+                    _wait_pause_or_cancel(pause_event, task)
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total_size:
@@ -1588,9 +1589,7 @@ def _x_download_with_pause(task, pause_event, on_progress):
                 try:
                     with open(filename, "ab" if is_resume else "wb") as f:
                         for chunk in resp.iter_content(8192):
-                            pause_event.wait()
-                            if task._cancelled:
-                                raise _CancelledError()
+                            _wait_pause_or_cancel(pause_event, task)
                             f.write(chunk)
                             downloaded += len(chunk)
                             if total_size:
@@ -1761,19 +1760,39 @@ def _direct_download_with_pause(task, pause_event, on_progress):
     # 这对 video.twimg.com 在中国大陆必须的代理访问至关重要
     session = requests.Session()
     session.trust_env = True
+
+    # 断点续传：检查是否有部分文件，支持暂停/断线后恢复
+    # （旧实现总是 "wb" 覆盖 + except Exception 删除部分文件，导致暂停后重试从 0 开始）
+    is_resume = filename.exists() and filename.stat().st_size > 0
+    resume_headers = dict(headers)
+    if is_resume:
+        resume_headers["Range"] = f"bytes={filename.stat().st_size}-"
+
     resp = session.get(
         task.direct_url, stream=True, timeout=120,
-        headers=headers, cookies=_wb_cookies or None,
+        headers=resume_headers, cookies=_wb_cookies or None,
     )
     try:
+        if resp.status_code == 416:
+            # Range not satisfiable — 文件已完整下载
+            resp.close()
+            task.filename = str(filename)
+            task.status = "done"
+            task.progress = 100
+            if on_progress:
+                on_progress(task)
+            return
         resp.raise_for_status()
+        is_resume = resp.status_code == 206
         total_size = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(filename, "wb") as f:
+        if is_resume:
+            downloaded = filename.stat().st_size
+            total_size += downloaded
+        else:
+            downloaded = 0
+        with open(filename, "ab" if is_resume else "wb") as f:
             for chunk in resp.iter_content(8192):
-                pause_event.wait()
-                if task._cancelled:
-                    raise _CancelledError()
+                _wait_pause_or_cancel(pause_event, task)
                 f.write(chunk)
                 downloaded += len(chunk)
                 if total_size > 0:
@@ -1786,9 +1805,9 @@ def _direct_download_with_pause(task, pause_event, on_progress):
     except _CancelledError:
         Path(filename).unlink(missing_ok=True)
         raise
-    except Exception:
-        Path(filename).unlink(missing_ok=True)
-        raise
+    # 注意：except Exception 不再删除部分文件！
+    # 连接断开（暂停期间超时等）时保留 .part 文件，以便重试时断点续传。
+    # 只有用户主动取消（_CancelledError）才删除。
     finally:
         resp.close()
 
@@ -1895,11 +1914,7 @@ def _items_download_with_pause(
                     try:
                         with open(filename, "ab" if is_resume else "wb") as f:
                             for chunk in resp.iter_content(8192):
-                                if task._cancelled:
-                                    raise _CancelledError()
-                                pause_event.wait()
-                                if task._cancelled:
-                                    raise _CancelledError()
+                                _wait_pause_or_cancel(pause_event, task)
                                 f.write(chunk)
                                 downloaded += len(chunk)
                                 if total_size:

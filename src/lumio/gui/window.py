@@ -107,8 +107,10 @@ class MainWindow(QMainWindow):
         self._downloads_page = DownloadsPage(self._manager)
         self._history_page = HistoryPage(self._history_manager)
         self._stats_page = StatsPage(self._history_manager)
-        from .notification_page import NotificationPage
-        self._notif_page = NotificationPage(self._notif_manager)
+        # QWidget 版 NotificationPage 已删除，QML 版为当前主路径
+        # 旧版 window.py 不再维护，此处用占位 widget 避免破坏
+        from PySide6.QtWidgets import QWidget
+        self._notif_page = QWidget()
         self._settings_page = SettingsPage()
         self._library_page = LibraryPage(self._library_manager)
 

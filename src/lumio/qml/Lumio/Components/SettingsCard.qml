@@ -34,13 +34,37 @@ GlassCard {
     // 内容槽
     default property alias content: _contentSlot.children
 
-    // 高度 = 内容总高 + 上下 padding（margins 20×2 = 40）
-    implicitHeight: _col.implicitHeight + 40
+    // ============================================================
+    // 高度自适应 — 用 Binding 保证内容变化时自动更新
+    // ------------------------------------------------------------
+    // 历史问题：原写法 `implicitHeight: _col.implicitHeight + 40`
+    // 是一次性快照计算，初始化时 _contentSlot 还没有外部注入的
+    // children，导致高度算少了；后续新增内容（Cookie 网格、
+    // Telegram 配对码等）时卡片不会自动变高 → 内容溢出。
+    //
+    // 根治：用 Binding 显式绑定，任何 child 增减/尺寸变化都会
+    // 自动重新计算 implicitHeight。
+    //
+    // padding：顶部 24 + 底部 32 = 56（底部多留 8px，避免最后
+    // 一行内容贴卡片底边，视觉上更舒适）。
+    // ============================================================
+    Binding on implicitHeight {
+        value: _col.implicitHeight + 56
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+
+    implicitWidth: 300
 
     ColumnLayout {
         id: _col
-        anchors.fill: parent
-        anchors.margins: 20
+        // 注意：不用 anchors.fill: parent（会与 implicitHeight 形成循环依赖）
+        // 改用 top/left/right 锚定，bottom 不设 — 让高度按内容计算
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.topMargin: 24
+        anchors.leftMargin: 24
+        anchors.rightMargin: 24
         spacing: 14
 
         // ===== Header（图标 + 标题 + 描述）=====
@@ -74,7 +98,7 @@ GlassCard {
                     text: root.title
                     color: Theme.textPrimary
                     font.family: Theme.fontDisplay
-                    font.pixelSize: 18              // 文档要求卡片标题 22，但 22 在卡内太大；18 更协调
+                    font.pixelSize: 18
                     font.weight: Font.DemiBold
                 }
 
@@ -97,7 +121,8 @@ GlassCard {
             color: Theme.glassBorder
         }
 
-        // 内容槽
+        // 内容槽 — 高度由内容驱动
+        // 关键：不设 Layout.fillHeight，让 ColumnLayout 按内容计算 implicitHeight
         ColumnLayout {
             id: _contentSlot
             Layout.fillWidth: true

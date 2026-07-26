@@ -18,6 +18,7 @@ DEFAULTS = {
     "storage_mode": "simple",
     "file_conflict_policy": "rename",
     "auto_download_inbox": False,
+    "enable_xsou": False,  # X-Sou 搜索默认关闭（可能浏览到 18+ 内容，需用户显式启用）
     "api_port": 38900,
     "telegram_bot_token": "",
     "telegram_enabled": False,
@@ -26,6 +27,7 @@ DEFAULTS = {
     # Platform credentials
     "apify_token": "",
     "apify_ig_actor": "",
+    "apify_verified": False,  # Token 是否已验证有效（输入框变化时自动清除，验证成功时置 True）
     "instagram_mode": "cookie",   # "cookie" | "api"
     "x_mode": "cookie",           # "cookie" | "api"
     "youtube_mode": "cookie",     # "cookie" | "api"

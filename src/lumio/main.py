@@ -1,3 +1,4 @@
+import signal
 import sys
 from pathlib import Path
 
@@ -10,9 +11,15 @@ _ASSETS = Path(__file__).parent / "assets"
 
 
 def main():
+    # 修复：Qt 事件循环默认不响应 SIGINT，导致终端 Ctrl+C 无效
+    # 让 Python 默认 SIGINT 处理器接管，可在运行中按 Ctrl+C 退出
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
     app = QApplication(sys.argv)
     app.setApplicationName("Lumio")
-    app.setQuitOnLastWindowClosed(False)  # 托盘模式：隐藏窗口不退出
+    # 修复：QML 版本未创建系统托盘（QWidget 版 window.py 才有），
+    # 关闭窗口应直接退出，否则会变成"窗口关了但进程不退"的僵尸状态
+    app.setQuitOnLastWindowClosed(True)
     logo = _ASSETS / "logo.png"
     if logo.exists():
         app.setWindowIcon(QIcon(str(logo)))
@@ -20,7 +27,10 @@ def main():
 
     _init_app_components(app, cfg)
 
-    sys.exit(app.exec())
+    # 兜底：app.exec() 异常返回时强制退出
+    # （某些后台 daemon 线程可能持有资源导致 sys.exit 不彻底）
+    exit_code = app.exec()
+    sys.exit(exit_code)
 
 
 def _init_app_components(app, cfg):
@@ -29,7 +39,7 @@ def _init_app_components(app, cfg):
     from .gui.qml_bridge import launch_qml, QmlController
     from .inbox_manager import InboxManager
     from .queue_manager import DownloadManager
-    from .notification_manager import NotificationManager
+    from .notification_manager import NotificationManager, set_notification_manager
 
     manager = DownloadManager()
     manager.load_queue()
@@ -47,10 +57,13 @@ def _init_app_components(app, cfg):
     start_server(inbox_manager, port=cfg.get("api_port", 38900))
     app.aboutToQuit.connect(stop_server)
 
-    # LibraryManager + HistoryManager 已在上方创建并绑定到 manager
-    # 此处只需创建 NotificationManager（QML 端通过 controller 调用）
+    # 创建 NotificationManager 并注册为全局单例
+    # （settings_page 等其他模块通过 get_notification_manager() 复用此实例，
+    # 避免双实例并发写 JSON 文件导致数据丢失）
     notification_manager = NotificationManager()
-    # 启动时检测环境（Cookie / FFmpeg / 插件提示 / IG 风险）
+    set_notification_manager(notification_manager)
+    # 启动时检测环境（Python deps / 网络代理 / FFmpeg / Cookie 7天预警 / 插件 / IG 风险 / 版本检查）
+    # check_all 默认后台异步执行，不阻塞 GUI 启动
     try:
         notification_manager.check_all()
     except Exception:

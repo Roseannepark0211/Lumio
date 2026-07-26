@@ -73,10 +73,27 @@ _TRANSLATIONS = {
         "apify_validate": "验证连接",
         "apify_validating": "验证中...",
         "apify_connected": "已连接",
+        "apify_pending_verify": "待验证",
         "apify_validate_fail": "验证失败",
         "apify_token_empty": "请先填写 Token",
         "apify_actor_empty": "请先填写 Actor ID",
         "apify_token_saved": "Token 已保存",
+        "settings_apify_section": "Instagram API 代理",
+        "apify_section_desc": "Apify Actor 代理 IG 数据提取，避免账号风控",
+        "apify_enable": "启用 Apify 代理",
+        "apify_enable_hint": "启用后 IG 解析走 Apify Actor，跳过 Cookie 鉴权；免费额度每月 $5，个人使用足够",
+        "apify_status_on": "已启用",
+        "apify_status_off": "未启用",
+        "apify_token_hint": "在 console.apify.io → Settings → API 获取",
+        "apify_actor_hint": "如 shu8hvrXbJbY3Eb9W（Instagram Scraper）",
+        "apify_quota_hint": "Apify 提供每月 $5 免费额度，个人使用足够；用量在 console.apify.io 查看",
+        "apify_quota_label": "本月用量",
+        "apify_quota_updated": "更新于",
+        "apify_quota_loading": "正在查询用量...",
+        "apify_quota_error": "用量查询失败：{err}（请检查 Token 是否有效）",
+        "apify_quota_refresh": "刷新",
+        "apify_parse_error": "Apify 解析失败：{err}。请检查 Token/Actor ID 是否有效，或网络是否能访问 api.apify.com",
+        "apify_proxy_hint": "Apify API 服务器在境外（api.apify.com），国内网络需挂代理才能解析成功；下载媒体文件走 Apify CDN 同样需要代理",
         "ig_cookie_hint": "需要包含 sessionid cookie",
         "x_cookie_hint": "需要包含 auth_token + ct0 cookie",
         "yt_cookie_hint": "需要包含 LOGIN_INFO cookie",
@@ -213,6 +230,10 @@ _TRANSLATIONS = {
         "history_open_dir": "打开目录",
         "history_delete": "删除",
         "history_confirm_clear": "确定要清空全部下载历史吗？此操作不可撤销。",
+        # 文件缺失（被外部删除）提示
+        "file_missing_title": "文件已从本地删除",
+        "file_missing_msg": "该文件在系统资源管理器中已被删除，但本条记录仍然留存。是否删除本条记录？",
+        "file_missing_delete": "删除本条记录",
         # Navigation
         "home": "主页",
         "downloads": "下载队列",
@@ -361,6 +382,9 @@ _TRANSLATIONS = {
         "inbox_confirm_clear": "确认清空已完成的项目？",
         "auto_download_inbox": "自动下载采集内容",
         "auto_download_inbox_desc": "开启后，浏览器采集的内容将自动下载",
+        "enable_xsou": "启用 X-Sou 搜索",
+        "enable_xsou_desc": "首页显示搜索按钮（X-Sou 第三方接口，搜索结果可能含 18+ 内容，请谨慎启用）",
+        "enable_xsou_warning": "⚠️ X-Sou 搜索结果可能包含成人向(18+)内容",
         "api_started": "本地 API 已启动",
         "api_port_conflict": "端口 {port} 被占用",
         # Notifications
@@ -372,9 +396,66 @@ _TRANSLATIONS = {
         "notif_cat_deps": "依赖",
         "notif_cat_env": "环境",
         "notif_cat_update": "版本",
+        "notif_cat_system": "系统",
+        "notif_cat_permanent": "永久",
+        "notif_unread_count": "{n} 未读 · {total} 条",
+        "notif_permanent_locked": "永久通知，无法关闭",
         "go_settings": "去设置",
         "download_update": "查看更新",
         "learn_more": "了解",
+
+        # ── 通知文案（v2 重构） ────────────────────────────────────
+        # 通用动作
+        "notif_action_install": "安装",
+        "notif_action_configure": "去配置",
+        "notif_action_update": "去更新",
+        "notif_action_view": "查看详情",
+        "notif_action_download": "下载",
+        "notif_action_learn": "了解",
+
+        # Python 依赖检查
+        "notif_python_deps_missing_title": "Python 依赖缺失",
+        "notif_python_deps_missing_msg": "以下依赖缺失，部分功能将不可用：{0}",
+
+        # 网络代理检查
+        "notif_proxy_missing_title": "未检测到系统代理",
+        "notif_proxy_missing_msg": "国外平台（YouTube/Instagram/X）解析和下载需要 VPN 或系统代理。国内平台（B站/抖音/快手/微博/小红书）不受影响。请在系统设置或环境变量中配置代理。",
+
+        # FFmpeg 检查
+        "notif_ffmpeg_missing_title": "FFmpeg 未安装",
+        "notif_ffmpeg_missing_msg": "视频合并功能依赖 FFmpeg，当前未检测到。imageio-ffmpeg 内置二进制可能损坏。",
+
+        # Cookie 检查
+        "notif_cookie_missing_title": "Cookie 未配置或已过期",
+        "notif_cookie_missing_msg": "以下平台 Cookie 缺失或已过期：{0}",
+        "notif_cookie_expiring_title": "Cookie 即将过期",
+        "notif_cookie_expiring_msg": "以下平台 Cookie 将在 7 天内过期：{0}。过期后相关功能将失效，建议提前更新。",
+
+        # 浏览器插件提示
+        "notif_extension_tip_title": "安装浏览器插件",
+        "notif_extension_tip_msg": "从浏览器一键发送链接到 Lumio，支持 YouTube、X 等平台。插件可在 GitHub 仓库下载。",
+
+        # IG 风险提示（永久通知）
+        "notif_ig_risk_title": "Instagram 下载风险提示",
+        "notif_ig_risk_msg": "Instagram 对自动化行为检测严格，频繁下载可能导致账号受限或封禁。\n\n建议：\n· 不要频繁批量抓取主页帖子\n· 单个帖子不要连续重复下载\n· 建议使用小号 Cookie，不要用主号\n· 插件发送 IG 链接时走浏览器直链，不调用 IG API，风险较低",
+
+        # 版本检查
+        "notif_version_new_title": "发现新版本",
+        "notif_version_new_msg": "当前版本 v{0}，最新版本 v{1}。建议更新以获取新功能和修复。",
+        "notif_version_latest_title": "已是最新版本",
+        "notif_version_latest_msg": "当前版本 v{0}，已是最新。下次检查将在 7 天后自动执行。",
+
+        # Apify 配额
+        "notif_apify_warning_title": "Apify 月度配额使用超过 80%",
+        "notif_apify_warning_msg": "当前用量 {0} / {1}（{2}）。剩余额度有限，请控制使用节奏。可在设置中查看详情。",
+        "notif_apify_exhausted_title": "Apify 月度配额已耗尽",
+        "notif_apify_exhausted_msg": "Apify Free plan 月度额度已用完（{0} / {1}）。Instagram 解析将失败，将自动改用 Cookie 模式提取（请在设置中导入 Instagram Cookie）。",
+
+        # 缓存清理
+        "notif_cache_cleaned_title": "缓存清理完成",
+        "notif_cache_cleaned_msg": "已清理 {0} 个文件，释放 {1} 空间。",
+        "notif_cache_status_title": "缓存概览",
+        "notif_cache_status_msg": "总占用 {0} · {1} 个文件\n{2}",
         # Version check
         "check_update": "检查更新",
         "update_checking": "检查中...",
@@ -697,10 +778,27 @@ _TRANSLATIONS = {
         "apify_validate": "Verify Connection",
         "apify_validating": "Verifying...",
         "apify_connected": "Connected",
+        "apify_pending_verify": "Pending Verification",
         "apify_validate_fail": "Verification Failed",
         "apify_token_empty": "Please enter Token first",
         "apify_actor_empty": "Please enter Actor ID first",
         "apify_token_saved": "Token saved",
+        "settings_apify_section": "Instagram API Proxy",
+        "apify_section_desc": "Apify Actor proxies IG data extraction, avoiding account risk",
+        "apify_enable": "Enable Apify Proxy",
+        "apify_enable_hint": "When enabled, IG parsing uses Apify Actor instead of Cookie; $5 free quota per month, enough for personal use",
+        "apify_status_on": "Enabled",
+        "apify_status_off": "Disabled",
+        "apify_token_hint": "Get from console.apify.io → Settings → API",
+        "apify_actor_hint": "e.g. shu8hvrXbJbY3Eb9W (Instagram Scraper)",
+        "apify_quota_hint": "Apify offers $5 free quota per month, enough for personal use; usage at console.apify.io",
+        "apify_quota_label": "Monthly Usage",
+        "apify_quota_updated": "Updated",
+        "apify_quota_loading": "Loading usage...",
+        "apify_quota_error": "Usage query failed: {err} (please verify Token is valid)",
+        "apify_quota_refresh": "Refresh",
+        "apify_parse_error": "Apify parse failed: {err}. Please verify Token/Actor ID, or check network access to api.apify.com",
+        "apify_proxy_hint": "Apify API server is overseas (api.apify.com); proxy/VPN required for parsing in mainland China; media downloads via Apify CDN also need proxy",
         "ig_cookie_hint": "Requires sessionid cookie",
         "x_cookie_hint": "Requires auth_token + ct0 cookies",
         "yt_cookie_hint": "Requires LOGIN_INFO cookie",
@@ -837,6 +935,10 @@ _TRANSLATIONS = {
         "history_open_dir": "Open Dir",
         "history_delete": "Delete",
         "history_confirm_clear": "Clear all download history? This cannot be undone.",
+        # 文件缺失（被外部删除）提示
+        "file_missing_title": "File deleted from local disk",
+        "file_missing_msg": "This file has been deleted from the system file explorer, but the record remains. Delete this record?",
+        "file_missing_delete": "Delete this record",
         # Navigation
         "home": "Home",
         "downloads": "Downloads",
@@ -985,6 +1087,9 @@ _TRANSLATIONS = {
         "inbox_confirm_clear": "Clear all completed items?",
         "auto_download_inbox": "Auto Download Captured Content",
         "auto_download_inbox_desc": "When enabled, captured content is downloaded automatically",
+        "enable_xsou": "Enable X-Sou Search",
+        "enable_xsou_desc": "Show search button on home page (X-Sou is a third-party API; search results may contain 18+ content — enable with caution)",
+        "enable_xsou_warning": "⚠️ X-Sou search results may contain adult (18+) content",
         "api_started": "Local API started",
         "api_port_conflict": "Port {port} is in use",
         # Notifications
@@ -996,9 +1101,66 @@ _TRANSLATIONS = {
         "notif_cat_deps": "Deps",
         "notif_cat_env": "Env",
         "notif_cat_update": "Version",
+        "notif_cat_system": "System",
+        "notif_cat_permanent": "Permanent",
+        "notif_unread_count": "{n} unread · {total} items",
+        "notif_permanent_locked": "Permanent notification, cannot be dismissed",
         "go_settings": "Go to Settings",
         "download_update": "View Update",
         "learn_more": "Learn More",
+
+        # ── Notification messages (v2 refactor) ──────────────────
+        # Common actions
+        "notif_action_install": "Install",
+        "notif_action_configure": "Configure",
+        "notif_action_update": "Update",
+        "notif_action_view": "View Details",
+        "notif_action_download": "Download",
+        "notif_action_learn": "Learn More",
+
+        # Python deps check
+        "notif_python_deps_missing_title": "Python Dependencies Missing",
+        "notif_python_deps_missing_msg": "The following dependencies are missing, some features will be unavailable: {0}",
+
+        # Network proxy check
+        "notif_proxy_missing_title": "No System Proxy Detected",
+        "notif_proxy_missing_msg": "Foreign platforms (YouTube/Instagram/X) require VPN or system proxy for parsing and downloading. Domestic platforms (Bilibili/Douyin/Kuaishou/Weibo/Xiaohongshu) are not affected. Please configure proxy in system settings or environment variables.",
+
+        # FFmpeg check
+        "notif_ffmpeg_missing_title": "FFmpeg Not Installed",
+        "notif_ffmpeg_missing_msg": "Video merging requires FFmpeg, which is not detected. The imageio-ffmpeg bundled binary may be corrupted.",
+
+        # Cookie check
+        "notif_cookie_missing_title": "Cookie Not Configured or Expired",
+        "notif_cookie_missing_msg": "Cookies for the following platforms are missing or expired: {0}",
+        "notif_cookie_expiring_title": "Cookie Expiring Soon",
+        "notif_cookie_expiring_msg": "Cookies for the following platforms will expire within 7 days: {0}. Please update them before expiration to avoid service interruption.",
+
+        # Browser extension tip
+        "notif_extension_tip_title": "Install Browser Extension",
+        "notif_extension_tip_msg": "Send links to Lumio directly from your browser with one click. Supports YouTube, X, and more. Download from GitHub repository.",
+
+        # IG risk notice (permanent)
+        "notif_ig_risk_title": "Instagram API Risk Notice",
+        "notif_ig_risk_msg": "Instagram has strict automation detection. Frequent downloads may lead to account restrictions or bans.\n\nRecommendations:\n· Avoid frequent batch scraping of profile posts\n· Do not repeatedly download the same post\n· Use a secondary account's cookie, not your primary\n· Browser extension sends IG links via direct browser extraction, not IG API, which is lower risk",
+
+        # Version check
+        "notif_version_new_title": "New Version Available",
+        "notif_version_new_msg": "Current version v{0}, latest version v{1}. Update recommended for new features and fixes.",
+        "notif_version_latest_title": "Up to Date",
+        "notif_version_latest_msg": "Current version v{0} is the latest. Next check will run automatically in 7 days.",
+
+        # Apify quota
+        "notif_apify_warning_title": "Apify Monthly Quota Exceeds 80%",
+        "notif_apify_warning_msg": "Current usage {0} / {1} ({2}). Limited quota remaining, please pace your usage. View details in Settings.",
+        "notif_apify_exhausted_title": "Apify Monthly Quota Exhausted",
+        "notif_apify_exhausted_msg": "Apify Free plan monthly quota is used up ({0} / {1}). Instagram parsing will fail and fall back to Cookie mode (please import Instagram Cookie in Settings).",
+
+        # Cache cleanup
+        "notif_cache_cleaned_title": "Cache Cleanup Complete",
+        "notif_cache_cleaned_msg": "Cleaned {0} files, freed {1} of space.",
+        "notif_cache_status_title": "Cache Overview",
+        "notif_cache_status_msg": "Total {0} · {1} files\n{2}",
         # Version check
         "check_update": "Check for Updates",
         "update_checking": "Checking...",
@@ -1261,11 +1423,20 @@ def _get_lang() -> str:
     return _LANG
 
 
-def t(key: str, **kwargs) -> str:
+def t(key: str, *args, **kwargs) -> str:
+    """翻译 key 对应的文本。
+
+    支持两种占位符语法（保持向后兼容）：
+    - 位置参数：`t("notif_xxx_msg", "value1", "value2")` → 模板 `{0}` `{1}`
+    - 关键字参数：`t("notif_xxx_msg", name="value")` → 模板 `{name}`
+
+    重构背景：notification_manager 早期调用使用位置参数，旧版 t() 仅支持
+    kwargs，导致 `TypeError: t() takes 1 positional argument but 2 were given`。
+    """
     lang = _get_lang()
     text = _TRANSLATIONS.get(lang, _TRANSLATIONS["zh"]).get(key, key)
-    if kwargs:
-        text = text.format(**kwargs)
+    if args or kwargs:
+        text = text.format(*args, **kwargs)
     return text
 
 

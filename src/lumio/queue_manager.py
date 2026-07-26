@@ -277,6 +277,7 @@ class DownloadManager(QObject):
 
     def start_task(self, task_id: str):
         qt_to_launch = None
+        to_emit = None
         with self._lock:
             qt = self._tasks.get(task_id)
             if not qt:
@@ -287,28 +288,44 @@ class DownloadManager(QObject):
                 if event:
                     event.set()
                 qt.status = TaskStatus.DOWNLOADING.value
-                self.task_status_changed.emit(task_id, qt.status)
-                return
-            if qt.status not in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
-                return
-            qt.status = TaskStatus.DOWNLOADING.value
-            qt_to_launch = qt
-        self.task_status_changed.emit(task_id, qt_to_launch.status)
-        self._launch_download(qt_to_launch)
+                to_emit = (task_id, qt.status)
+            else:
+                if qt.status not in (TaskStatus.WAITING.value, TaskStatus.PAUSED.value):
+                    return
+                qt.status = TaskStatus.DOWNLOADING.value
+                qt_to_launch = qt
+        # 信号必须在锁外发射——QML slot 会同步调用 getQueueJson() → get_all_tasks()
+        # 再次获锁，锁内 emit 会死锁（参考 AGENTS.md 踩坑记录）
+        if to_emit:
+            self.task_status_changed.emit(*to_emit)
+            return
+        if qt_to_launch:
+            self.task_status_changed.emit(task_id, qt_to_launch.status)
+            self._launch_download(qt_to_launch)
 
     def pause_task(self, task_id: str):
         with self._lock:
+            qt = self._tasks.get(task_id)
+            if not qt:
+                return
+            # 仅对真正在下载的任务生效；WAITING/RETRYING 暂停后会丢失调度入口
+            # 导致状态卡在 PAUSED 但无线程，resume 时走错分支
+            if qt.status != TaskStatus.DOWNLOADING.value:
+                return
             event = self._paused_events.get(task_id)
             if event:
                 event.clear()
-            qt = self._tasks.get(task_id)
-            if qt:
-                qt.status = TaskStatus.PAUSED.value
-        if qt:
-            self.task_status_changed.emit(task_id, TaskStatus.PAUSED.value)
-            self.queue_changed.emit()
+            qt.status = TaskStatus.PAUSED.value
+        self.task_status_changed.emit(task_id, TaskStatus.PAUSED.value)
+        self.queue_changed.emit()
 
     def resume_task(self, task_id: str):
+        # 注意：threading.Lock 不可重入，_schedule() 内部会获锁，
+        # 因此先在锁内收集工作，再在锁外调用 _schedule（参考 AGENTS.md 踩坑记录）
+        # 信号也必须在锁外发射——QML slot 会同步调用 getQueueJson() → get_all_tasks()
+        # 再次获锁，锁内 emit 会死锁
+        need_schedule = False
+        to_emit = None
         with self._lock:
             qt = self._tasks.get(task_id)
             if not qt:
@@ -318,13 +335,22 @@ class DownloadManager(QObject):
                 event = self._paused_events.get(task_id)
                 if event:
                     event.set()
-                qt.status = TaskStatus.DOWNLOADING.value
-                self.task_status_changed.emit(task_id, qt.status)
+                    qt.status = TaskStatus.DOWNLOADING.value
+                    to_emit = (task_id, qt.status)
+                else:
+                    # PAUSED 但事件已丢失（异常清理过）→ 走重新调度路径
+                    qt.status = TaskStatus.WAITING.value
+                    to_emit = (task_id, qt.status)
+                    need_schedule = True
             elif qt.status == TaskStatus.INTERRUPTED.value:
                 # Thread is dead — schedule a fresh download
                 qt.status = TaskStatus.WAITING.value
-                self.task_status_changed.emit(task_id, qt.status)
-                self._schedule()
+                to_emit = (task_id, qt.status)
+                need_schedule = True
+        if to_emit:
+            self.task_status_changed.emit(*to_emit)
+        if need_schedule:
+            self._schedule()
 
     def cancel_task(self, task_id: str):
         qt = None
@@ -332,6 +358,11 @@ class DownloadManager(QObject):
             dt = self._download_tasks.get(task_id)
             if dt:
                 dt._cancelled = True
+            # 重要：必须 set() pause event 以唤醒可能正阻塞在 pause_event.wait()
+            # 的下载线程，否则线程会永远卡住（即使 _cancelled=True 也无法检测到）
+            event = self._paused_events.get(task_id)
+            if event:
+                event.set()
             qt = self._tasks.get(task_id)
             if qt:
                 qt.status = TaskStatus.CANCELLED.value
@@ -467,7 +498,11 @@ class DownloadManager(QObject):
     # ---- Internal ----
 
     def _launch_download(self, qt: QueueTask):
-        qt.progress = 0.0
+        # 注意：不重置 qt.progress！
+        # - 新任务：progress 本来就是 0.0
+        # - 重试任务：保留当前进度，新下载会通过 on_progress 更新（断点续传时
+        #   yt-dlp/requests 会从 .part 文件恢复，进度会从恢复点继续上报）
+        # 旧实现总是 qt.progress = 0.0 导致暂停后重试进度归 0，用户体验差
         qt.speed = ""
         qt.error = ""
 
@@ -479,10 +514,25 @@ class DownloadManager(QObject):
         self._download_tasks[qt.task_id] = dt
 
         def on_progress(t: DownloadTask):
-            qt.progress = t.progress
+            # downloader 内部 progress 是 0..100，统一归一化到 0..1
+            # （QML LaserProgressBar / _formatPct 均假设 0..1 范围，
+            #  不归一化会导致 progress > 0.01 就被 clamp 到 1.0 显示 100%）
+
+            # 当下载完成（t.status == "done"）时不立即上报 100% 进度。
+            # yt-dlp 的 "finished" hook 表示下载完成，但随后还有后处理
+            # （合并音视频），此时文件还未就绪。如果立即上报 100%，
+            # UI 会显示 "100% + 下载中" 持续数秒到数十秒，非常困惑。
+            # 让 on_done 统一处理最终状态和进度上报。
+            if t.status == "done":
+                return
+
+            p = t.progress
+            if p > 1.0:
+                p = p / 100.0
+            qt.progress = p
             qt.speed = t.speed
             qt.filename = t.filename
-            self.task_progress.emit(qt.task_id, t.progress, t.speed, t.filename)
+            self.task_progress.emit(qt.task_id, p, t.speed, t.filename)
 
         def on_done(t: DownloadTask):
             qt.filename = t.filename  # sync final filename
@@ -503,7 +553,10 @@ class DownloadManager(QObject):
                 qt.retry_count += 1
                 if qt.retry_count < qt.max_retries:
                     qt.status = TaskStatus.RETRYING.value
-                    qt.progress = 0.0
+                    # 注意：不重置 qt.progress = 0.0！
+                    # 保留当前进度，重试时断点续传会从 .part 文件恢复，
+                    # 新进度会通过 on_progress 上报。旧实现归 0 会导致
+                    # "暂停→重试→进度归0→卡住→突然100%" 的糟糕体验
                     self.task_status_changed.emit(qt.task_id, qt.status)
                     delay = _RETRY_INTERVALS[min(qt.retry_count - 1, len(_RETRY_INTERVALS) - 1)]
                     timer = threading.Timer(delay, self._schedule)

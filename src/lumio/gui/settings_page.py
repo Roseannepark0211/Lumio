@@ -1048,13 +1048,14 @@ class SettingsPage(QWidget):
     def _on_check_update(self):
         self._update_btn.setEnabled(False)
         self._update_result.setText(t("update_checking"))
-        from ..notification_manager import Notification, NotificationManager
+        from ..notification_manager import get_notification_manager
         from .. import __version__
         import threading
 
         def _check():
-            mgr = NotificationManager()
-            result = mgr.check_version()
+            # 修复双实例 bug：复用全局单例，不再 new NotificationManager()
+            mgr = get_notification_manager()
+            result = mgr.check_version_manual()
             self._update_btn.setEnabled(True)
             if result == "latest":
                 self._update_result.setText(f"✅ {t('update_latest')}")
@@ -1063,15 +1064,7 @@ class SettingsPage(QWidget):
                 ver = result.split(":", 1)[1]
                 self._update_result.setText(f"🆕 {t('update_found', ver=ver)}")
                 self._update_result.setStyleSheet("color: #FFB84D;")
-                # 同时写入通知
-                mgr.add_notification(Notification(
-                    category="update", type="update",
-                    title=f"发现新版本 v{ver}",
-                    message=f"当前版本 v{__version__}，最新版本 v{ver}",
-                    action="open_url:https://github.com/Roseannepark0211/Lumio/releases",
-                    action_text="前往下载",
-                    source_key=f"update_{ver}",
-                ))
+                # 通知已由 check_version_manual() 内部添加，无需重复
             else:
                 err = result.split(":", 1)[1] if ":" in result else result
                 self._update_result.setText(f"⚠ {t('update_error', err=err)}")

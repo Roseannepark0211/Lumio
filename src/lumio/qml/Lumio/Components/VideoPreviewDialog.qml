@@ -179,9 +179,76 @@ Dialog {
                     font.pixelSize: Theme.fsSmall
                 }
 
-                Item { Layout.fillWidth: true }
+                // 音量图标（点击静音/恢复）
+                Rectangle {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: 14
+                    color: _volIconMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+                    Icon {
+                        anchors.centerIn: parent
+                        name: _audioOut.volume <= 0 ? "i-volume-mute" : "i-volume"
+                        size: 16
+                        color: "#ffffff"
+                    }
+                    MouseArea {
+                        id: _volIconMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            // 点击图标：静音 / 恢复上次音量
+                            if (_audioOut.volume > 0) {
+                                _volSlider._lastVol = _audioOut.volume
+                                _audioOut.volume = 0
+                                _volSlider.value = 0
+                            } else {
+                                var v = _volSlider._lastVol > 0 ? _volSlider._lastVol : 0.8
+                                _audioOut.volume = v
+                                _volSlider.value = v
+                            }
+                        }
+                    }
+                }
 
-                // 关闭按钮
+                // 音量条
+                Slider {
+                    id: _volSlider
+                    Layout.preferredWidth: 90
+                    Layout.alignment: Qt.AlignVCenter
+                    from: 0
+                    to: 1
+                    value: _audioOut.volume
+                    // 同步：滑块改变 → 音量
+                    onMoved: _audioOut.volume = value
+                    property real _lastVol: 0.8  // 记住静音前的音量
+
+                    background: Rectangle {
+                        x: _volSlider.leftPadding
+                        y: _volSlider.topPadding + _volSlider.availableHeight / 2 - 2
+                        width: _volSlider.availableWidth
+                        height: 4
+                        radius: 2
+                        color: Qt.rgba(1, 1, 1, 0.2)
+                        Rectangle {
+                            width: _volSlider.visualPosition * parent.width
+                            height: parent.height
+                            radius: 2
+                            color: "#ffffff"
+                        }
+                    }
+                    handle: Rectangle {
+                        x: _volSlider.leftPadding + _volSlider.visualPosition * _volSlider.availableWidth - width / 2
+                        y: _volSlider.topPadding + _volSlider.availableHeight / 2 - height / 2
+                        width: 10; height: 10; radius: 5
+                        color: "#ffffff"
+                    }
+                }
+
+                Item { Layout.preferredWidth: 8 }
+
+                // 关闭按钮（X 图标，表示关闭预览）
                 Rectangle {
                     Layout.preferredWidth: 36
                     Layout.preferredHeight: 36
@@ -190,7 +257,7 @@ Dialog {
                     color: _closeMouse.containsMouse ? Qt.rgba(1, 0, 0, 0.2) : "transparent"
                     Icon {
                         anchors.centerIn: parent
-                        name: "i-clear"
+                        name: "i-close"
                         size: 18
                         color: "#ffffff"
                     }

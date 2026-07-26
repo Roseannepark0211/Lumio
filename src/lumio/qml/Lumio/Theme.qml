@@ -82,6 +82,24 @@ QtObject {
         }
     }
 
+    // 平台显示名辅助函数
+    // 国外平台用字母缩写（YT/IG/X/TG），国内平台用中文名（B站/抖音/快手/微博/小红书）
+    function platformLabel(name) {
+        switch (name) {
+            case "youtube":    return "YT"
+            case "instagram":  return "IG"
+            case "x":          return "X"
+            case "telegram":   return "TG"
+            case "bilibili":   return "B站"
+            case "douyin":     return "抖音"
+            case "kuaishou":   return "快手"
+            case "weibo":      return "微博"
+            case "xiaohongshu":
+            case "xhs":        return "小红书"
+            default:           return (name || "").toUpperCase()
+        }
+    }
+
     // ============================================================
     // Typography
     // ============================================================

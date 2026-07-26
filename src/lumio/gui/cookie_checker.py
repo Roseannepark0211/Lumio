@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import time
 from pathlib import Path
@@ -12,7 +12,12 @@ _WARNING_THRESHOLD = 7 * 24 * 3600
 
 
 def _check_cookie_expiry(domains: list[str], required_names: list[str]) -> str:
-    """Return one of: 'missing', 'expired', 'warning', 'valid'."""
+    """Return one of: 'missing', 'expired', 'warning', 'valid'.
+
+    修复：原版本用 `any(name in text for name in required_names)` 做全文文本搜索，
+    会在用户只导入 IG cookie（包含 sessionid）时让抖音（要求 sessionid）/小红书
+    （要求 sessionid 或 web_session）也误判为已导入。现在按 domain 过滤后再查 name。
+    """
     cookie_path = get_cookie_path()
     if cookie_path is None:
         return "missing"
@@ -22,33 +27,36 @@ def _check_cookie_expiry(domains: list[str], required_names: list[str]) -> str:
     except Exception:
         return "missing"
 
-    has_any = any(name in text for name in required_names)
-    if not has_any:
-        return "missing"
-
     now = time.time()
     soonest_expiry = float("inf")
+    matched_any = False
 
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split("\t")
-        if len(parts) >= 5:
-            domain = parts[0]
-            if not any(d in domain for d in domains):
-                continue
-            name = parts[5] if len(parts) > 5 else ""
-            if name not in required_names:
-                continue
-            try:
-                expiry = float(parts[4])
-                if expiry > 0:
-                    if expiry < now:
-                        return "expired"
-                    soonest_expiry = min(soonest_expiry, expiry)
-            except (ValueError, IndexError):
-                pass
+        if len(parts) < 6:
+            continue
+        domain = parts[0]
+        # 必须先匹配 domain，再判断 name —— 避免跨平台误判
+        if not any(d in domain for d in domains):
+            continue
+        name = parts[5]
+        if name not in required_names:
+            continue
+        matched_any = True
+        try:
+            expiry = float(parts[4])
+            if expiry > 0:
+                if expiry < now:
+                    return "expired"
+                soonest_expiry = min(soonest_expiry, expiry)
+        except (ValueError, IndexError):
+            pass
+
+    if not matched_any:
+        return "missing"
 
     if soonest_expiry < now + _WARNING_THRESHOLD:
         return "warning"

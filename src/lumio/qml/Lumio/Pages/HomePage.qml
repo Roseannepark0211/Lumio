@@ -41,6 +41,8 @@ Item {
     property int searchTotal: 0
     property var searchResults: []     // [{tweet_id, screen_name, name, content, video_url, video_cover}]
     property var selectedSearchItems: ({})  // {tweet_id: true}
+    // X-Sou 启用状态（受设置页开关控制，默认关闭——可能含 18+ 内容）
+    property bool xsouEnabled: false
 
     // ---------- 监听 controller 信号 ----------
     Connections {
@@ -91,6 +93,30 @@ Item {
             root.searchResults = []
             root.searchTotal = 0
             root.parseError = error_message
+        }
+        // 配置变更（如设置页切换 X-Sou 开关）→ 重新读取 enable_xsou
+        function onConfigChanged() {
+            _loadXsouEnabled()
+        }
+    }
+
+    Component.onCompleted: _loadXsouEnabled()
+
+    // 从 config 读取 enable_xsou，控制首页搜索按钮可见性
+    function _loadXsouEnabled() {
+        if (typeof controller === "undefined" || !controller) return
+        try {
+            var cfg = JSON.parse(controller.getConfigJson())
+            root.xsouEnabled = cfg.enable_xsou === true
+            // 关闭后清空残留的搜索结果，避免界面错位
+            if (!root.xsouEnabled) {
+                root.searchResults = []
+                root.searchTotal = 0
+                root.selectedSearchItems = ({})
+                root.isSearching = false
+            }
+        } catch (e) {
+            root.xsouEnabled = false
         }
     }
 
@@ -259,6 +285,8 @@ Item {
                             text: tr("search_btn")
                             variant: "default"
                             iconName: "i-search"
+                            // 仅当设置页启用 X-Sou 时显示（默认关闭，含 18+ 内容警告）
+                            visible: root.xsouEnabled
                             enabled: !root.isParsing && root.urlText.length > 0
                             onClicked: _runSearch(1)
                         }
@@ -268,8 +296,14 @@ Item {
                             variant: "default"
                             iconName: "i-paste"
                             onClicked: {
-                                var clip = Qt.application.clipboard
-                                if (clip && clip.text) root.urlText = clip.text
+                                // QClipboard 未将 text 暴露为 Q_PROPERTY，
+                                // QML 无法直接读取 Qt.application.clipboard.text，
+                                // 必须走 controller.getClipboardText() Slot。
+                                if (typeof controller === "undefined" || !controller) return
+                                var text = controller.getClipboardText()
+                                if (text && text.length > 0) {
+                                    root.urlText = text
+                                }
                             }
                         }
 
@@ -750,7 +784,8 @@ Item {
                 Layout.rightMargin: 48
                 Layout.preferredHeight: Math.min(540, 160 + root.searchResults.length * 90)
                 radius: Theme.rXL
-                visible: root.searchResults.length > 0 || root.isSearching
+                // 仅当 X-Sou 启用且有搜索结果/搜索中时显示
+                visible: root.xsouEnabled && (root.searchResults.length > 0 || root.isSearching)
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -815,9 +850,8 @@ Item {
                             delegate: Rectangle {
                                 width: ListView.view.width
                                 height: 80
-                                color: _isSearchSelected(modelData.tweet_id)
-                                       ? Theme.accentSoft
-                                       : (hover.hovered ? Theme.glassBg : "transparent")
+                                // 选中状态只通过左侧 checkbox 显示，整行不变色
+                                color: hover.hovered ? Theme.glassBg : "transparent"
                                 Behavior on color { ColorAnimation { duration: 120 } }
 
                                 RowLayout {
@@ -827,21 +861,26 @@ Item {
 
                                     // 选择框（修复清单问题 1：必须用 Layout.preferredWidth/Height
                                     // 让 RowLayout 给出非零尺寸，否则 MouseArea 0x0 无法点击）
+                                    // 用 Text "✔" 代替 Icon，避免 Icon 渲染/缓存导致状态不刷新
                                     Rectangle {
-                                        Layout.preferredWidth: 20
-                                        Layout.preferredHeight: 20
+                                        Layout.preferredWidth: 22
+                                        Layout.preferredHeight: 22
                                         Layout.alignment: Qt.AlignVCenter
-                                        radius: 4
+                                        radius: 5
                                         color: _isSearchSelected(modelData.tweet_id)
                                                ? Theme.accent : "transparent"
-                                        border.width: 1
+                                        border.width: 1.5
                                         border.color: _isSearchSelected(modelData.tweet_id)
                                                       ? Theme.accent : Theme.glassBorderHi
-                                        Icon {
+                                        Behavior on color { ColorAnimation { duration: 100 } }
+                                        Behavior on border.color { ColorAnimation { duration: 100 } }
+                                        Text {
                                             anchors.centerIn: parent
-                                            name: "i-check"
-                                            size: 12
+                                            text: "✔"
                                             color: "#ffffff"
+                                            font.family: Theme.fontMono
+                                            font.pixelSize: 13
+                                            font.weight: Font.Bold
                                             visible: _isSearchSelected(modelData.tweet_id)
                                         }
                                         MouseArea {
@@ -1240,15 +1279,19 @@ Item {
 
     function _toggleSearchSelect(item) {
         if (!item || !item.tweet_id) return
-        var sel = root.selectedSearchItems
-        if (!sel) { sel = ({}) }
-        if (sel[item.tweet_id]) {
-            delete sel[item.tweet_id]
-        } else {
-            sel[item.tweet_id] = true
+        var old = root.selectedSearchItems || ({})
+        // 必须创建新对象：QML var 属性对相同引用的对象不触发 change 信号，
+        // 直接 mutate 旧对象会导致 checkbox visible 绑定不刷新（点击无反应）。
+        var newSel = ({})
+        for (var k in old) {
+            newSel[k] = old[k]
         }
-        // 触发引用变更通知（QML var 属性需要重新赋值才刷新绑定）
-        root.selectedSearchItems = sel
+        if (newSel[item.tweet_id]) {
+            delete newSel[item.tweet_id]
+        } else {
+            newSel[item.tweet_id] = true
+        }
+        root.selectedSearchItems = newSel
     }
 
     function _enqueueSelectedSearch() {

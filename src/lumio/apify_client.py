@@ -14,6 +14,35 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 
+def _extract_dataset_id(run) -> str:
+    """从 actor.call() 返回值中提取 defaultDatasetId。
+
+    兼容两种 apify-client 版本：
+    - 旧版（<=2.5）：返回 dict，用 run["defaultDatasetId"]
+    - 新版（>=2.6）：返回 Run dataclass，用 run.default_dataset_id
+
+    错误信息 "'Run' object is not subscriptable" 说明用户装的是新版。
+    """
+    if run is None:
+        raise ValueError("Apify actor.call() returned None — run may have failed")
+    # 优先用属性访问（新版 Run dataclass）
+    ds = getattr(run, "default_dataset_id", None)
+    if ds:
+        return ds
+    # 回退到 dict 访问（旧版）
+    try:
+        ds = run["defaultDatasetId"]
+        if ds:
+            return ds
+    except (TypeError, KeyError):
+        pass
+    # 两者都失败，打印 run 对象帮助调试
+    raise ValueError(
+        f"Cannot extract defaultDatasetId from run object (type={type(run).__name__}). "
+        f"Run attributes: {dir(run) if not isinstance(run, dict) else list(run.keys())}"
+    )
+
+
 class ApifyIGClient:
     """Instagram data client backed by Apify Actor.
 
@@ -47,7 +76,8 @@ class ApifyIGClient:
             "resultsLimit": 1,
             "addParentData": False,
         })
-        items = list(self._client.dataset(run["defaultDatasetId"]).iterate_items())
+        dataset_id = _extract_dataset_id(run)
+        items = list(self._client.dataset(dataset_id).iterate_items())
         if not items:
             raise ValueError(f"Apify returned no data for {url}")
         return self._to_video_info(items[0])
@@ -60,7 +90,8 @@ class ApifyIGClient:
             "resultsLimit": 1,
             "addParentData": True,
         })
-        items = list(self._client.dataset(run["defaultDatasetId"]).iterate_items())
+        dataset_id = _extract_dataset_id(run)
+        items = list(self._client.dataset(dataset_id).iterate_items())
         if not items:
             raise ValueError(f"Apify returned no data for @{username}")
         item = items[0]
@@ -121,7 +152,8 @@ class ApifyIGClient:
 
         # Iterate dataset, collect items, report progress
         all_items = []
-        dataset = self._client.dataset(run["defaultDatasetId"])
+        dataset_id = _extract_dataset_id(run)
+        dataset = self._client.dataset(dataset_id)
         for idx, item in enumerate(dataset.iterate_items()):
             if cancel_event and cancel_event.is_set():
                 break

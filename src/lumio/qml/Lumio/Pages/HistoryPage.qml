@@ -25,9 +25,24 @@ Item {
     Connections {
         target: typeof controller !== "undefined" ? controller : null
         function onHistoryChanged() { _reload() }
+        // 文件缺失（被外部删除）→ 弹「是否删除本条记录」对话框
+        function onFileMissing(path, source) {
+            if (source !== "history") return
+            _fileMissingDialog._missingPath = path
+            _fileMissingDialog._missingRecordId = _findRecordIdByPath(path)
+            _fileMissingDialog.open()
+        }
     }
 
     Component.onCompleted: _reload()
+
+    // 按 file_path 反查 record_id
+    function _findRecordIdByPath(path) {
+        for (var i = 0; i < root.records.length; i++) {
+            if (root.records[i].file_path === path) return root.records[i].record_id
+        }
+        return ""
+    }
 
     function _reload() {
         if (typeof controller === "undefined" || !controller) return
@@ -243,7 +258,7 @@ Item {
 
                             Text {
                                 text: (modelData.author || "") + " · "
-                                      + (modelData.platform || "").toUpperCase() + " · "
+                                      + Theme.platformLabel(modelData.platform) + " · "
                                       + _formatSize(modelData.file_size) + " · "
                                       + _formatTime(modelData.download_time)
                                 color: Theme.textMute
@@ -265,12 +280,16 @@ Item {
                             Button {
                                 iconName: "i-play"; variant: "ghost"; iconSize: 16
                                 enabled: modelData.file_path && modelData.file_path.length > 0
-                                onClicked: { if (controller) controller.openFile(modelData.file_path) }
+                                onClicked: {
+                                    if (controller) controller.openFileFromSource(modelData.file_path, "history")
+                                }
                             }
                             Button {
                                 iconName: "i-folder"; variant: "ghost"; iconSize: 16
                                 enabled: modelData.file_path && modelData.file_path.length > 0
-                                onClicked: { if (controller) controller.openFolder(modelData.file_path) }
+                                onClicked: {
+                                    if (controller) controller.openFolderFromSource(modelData.file_path, "history")
+                                }
                             }
                             Button {
                                 iconName: "i-trash"; variant: "ghost"; iconSize: 16
@@ -337,6 +356,81 @@ Item {
                     onClicked: {
                         if (controller) controller.clearHistory()
                         _confirmDialog.visible = false
+                    }
+                }
+            }
+        }
+    }
+
+    // 文件缺失确认对话框（文件被外部删除后弹此）
+    Dialog {
+        id: _fileMissingDialog
+        visible: false
+        modal: true
+        anchors.centerIn: parent
+        width: 420
+
+        property string _missingPath: ""
+        property string _missingRecordId: ""
+
+        background: Rectangle {
+            radius: Theme.rLG
+            color: Theme.theme === "dark" ? Qt.rgba(20/255, 22/255, 38/255, 0.98)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.98)
+            border.width: 1
+            border.color: Theme.glassBorderHi
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.4)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 8
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text {
+                text: tr("file_missing_title")
+                color: Theme.danger
+                font.family: Theme.fontDisplay
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                Layout.fillWidth: true
+            }
+            Text {
+                text: tr("file_missing_msg")
+                color: Theme.textPrimary
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+            Text {
+                text: _fileMissingDialog._missingPath
+                color: Theme.textDim
+                font.family: Theme.fontMono
+                font.pixelSize: 10
+                wrapMode: Text.WrapAnywhere
+                Layout.fillWidth: true
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: tr("cancel"); variant: "ghost"
+                    onClicked: _fileMissingDialog.visible = false
+                }
+                Button {
+                    text: tr("file_missing_delete"); variant: "danger"
+                    enabled: _fileMissingDialog._missingRecordId.length > 0
+                    onClicked: {
+                        if (controller && _fileMissingDialog._missingRecordId.length > 0) {
+                            controller.deleteHistory(_fileMissingDialog._missingRecordId)
+                        }
+                        _fileMissingDialog.visible = false
                     }
                 }
             }

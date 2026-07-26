@@ -181,7 +181,7 @@ Item {
                                 spacing: 2
 
                                 Text {
-                                    text: (modelData.platform || "").toUpperCase()
+                                    text: Theme.platformLabel(modelData.platform)
                                     color: Theme.textPrimary
                                     font.family: Theme.fontBody
                                     font.pixelSize: Theme.fsBody

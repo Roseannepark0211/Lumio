@@ -29,9 +29,24 @@ Item {
     Connections {
         target: typeof controller !== "undefined" ? controller : null
         function onLibraryChanged() { _reload() }
+        // 文件缺失（被外部删除）→ 弹「是否删除本条记录」对话框
+        function onFileMissing(path, source) {
+            if (source !== "library") return
+            _fileMissingDialog._missingPath = path
+            _fileMissingDialog._missingItemId = _findItemIdByPath(path)
+            _fileMissingDialog.open()
+        }
     }
 
     Component.onCompleted: _reload()
+
+    // 按 file_path 反查 item_id（用于文件缺失时定位待删除的素材）
+    function _findItemIdByPath(path) {
+        for (var i = 0; i < root.items.length; i++) {
+            if (root.items[i].file_path === path) return root.items[i].id
+        }
+        return ""
+    }
 
     function _reload() {
         if (typeof controller === "undefined" || !controller) return
@@ -79,6 +94,26 @@ Item {
         return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB"
     }
 
+    // 同步更新 root.items 缓存中指定 item 的 is_favorite 字段。
+    // toggleFavorite 不发 libraryChanged 信号（避免全量 reload 闪烁），
+    // 但 root.items 是 _applyFilter 的数据源，如果不手动同步，
+    // 切换到「收藏夹」视图时过滤用的还是旧 is_favorite，新收藏的项不会出现。
+    function _updateItemFavoriteInCache(item_id, new_fav) {
+        for (var i = 0; i < root.items.length; i++) {
+            if (root.items[i].id === item_id) {
+                // 创建新对象触发 QML 属性变更通知
+                var newArr = root.items.slice()
+                newArr[i] = Object.assign({}, root.items[i], { is_favorite: new_fav })
+                root.items = newArr
+                // 如果当前在收藏夹视图且取消了收藏，立即重新过滤移除该项
+                if (root.filterFavorites && !new_fav) {
+                    _applyFilter()
+                }
+                return
+            }
+        }
+    }
+
     function _totalSize() {
         var s = 0
         for (var i = 0; i < root.items.length; i++) s += (root.items[i].file_size || 0)
@@ -94,8 +129,20 @@ Item {
     }
 
     // 显示「加入 Collection」菜单 — 以触发按钮为锚点定位
+    // 菜单内：已加入的 Collection 显示 ✓ 标记，再次点击则移除（切换模式）
     function _showCollectionMenu(item_id, btn) {
         _collectionMenu._itemId = item_id
+        // 拉取该项已加入的 Collection id 列表，用于显示 ✓ 标记
+        if (controller) {
+            try {
+                _collectionMenu._joinedIds = JSON.parse(
+                    controller.getItemCollectionsJson(item_id))
+            } catch (e) {
+                _collectionMenu._joinedIds = []
+            }
+        } else {
+            _collectionMenu._joinedIds = []
+        }
         if (btn) {
             // 以按钮右下角为弹出锚点，避免错位到左侧栏旁
             _collectionMenu.x = btn.mapToItem(root, 0, btn.height).x + (btn.width - _collectionMenu.width) / 2
@@ -403,6 +450,10 @@ Item {
                             // GlassCard clip 防止任何子元素溢出
                             clip: true
 
+                            // 本地收藏状态：点击后立即翻转，不等 libraryChanged 信号
+                            // （toggleFavorite 不再发信号，避免全量 reload 导致所有卡片闪烁）
+                            property bool isFav: modelData.is_favorite === true
+
                             // 卡片内容用 anchors 布局（非 ColumnLayout），确保固定尺寸
                             // 封面区锚定顶部+左右，操作栏锚定底部
                             Item {
@@ -453,24 +504,6 @@ Item {
                                                   || (modelData.thumbnail_url && modelData.thumbnail_url.length > 0))
                                     }
 
-                                    // 平台徽章（左上）
-                                    Rectangle {
-                                        anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 6
-                                        width: _platText.implicitWidth + 12
-                                        height: 18
-                                        radius: Theme.rSM
-                                        color: Qt.rgba(0, 0, 0, 0.6)
-                                        Text {
-                                            id: _platText
-                                            anchors.centerIn: parent
-                                            text: (modelData.platform || "").toUpperCase()
-                                            color: Theme.platformColor(modelData.platform)
-                                            font.family: Theme.fontMono
-                                            font.pixelSize: 9
-                                            font.weight: Font.DemiBold
-                                        }
-                                    }
-
                                     // 收藏按钮（右上）
                                     Rectangle {
                                         anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 6
@@ -480,11 +513,23 @@ Item {
                                             anchors.centerIn: parent
                                             name: "i-heart"
                                             size: 12
-                                            color: modelData.is_favorite ? Theme.danger : "#888888"
+                                            // 绑定到本地 isFav（点击立即翻转，不等信号）
+                                            color: isFav ? Theme.danger : "#888888"
                                         }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                            onClicked: { if (controller) controller.toggleFavorite(modelData.id) }
+                                            onClicked: {
+                                                if (controller) {
+                                                    // 立即翻转本地状态（UI 即时响应）
+                                                    isFav = !isFav
+                                                    // 调后端持久化（不再触发 libraryChanged 全量刷新）
+                                                    controller.toggleFavorite(modelData.id)
+                                                    // 同步更新 root.items 缓存中该项的 is_favorite，
+                                                    // 否则切换到「收藏夹」视图时 _applyFilter 用的还是旧数据，
+                                                    // 会导致新收藏的项不显示在收藏夹里。
+                                                    _updateItemFavoriteInCache(modelData.id, isFav)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -527,45 +572,69 @@ Item {
                                     maximumLineCount: 1
                                 }
 
-                                // 媒体类型徽章行：作者下方 +6
-                                Rectangle {
-                                    id: _typeBadge
+                                // 平台 + 媒体类型徽章行：作者下方 +6（两个并列，避免平台徽章挡封面）
+                                Row {
+                                    id: _badgeRow
                                     anchors.top: _authorText.bottom
                                     anchors.left: parent.left
                                     anchors.topMargin: 6
                                     anchors.leftMargin: 12
-                                    visible: (modelData.media_type || "").length > 0
-                                    width: _typeText.implicitWidth + 10
-                                    height: 16
-                                    radius: Theme.rXS
-                                    color: {
-                                        var t = modelData.media_type || ""
-                                        if (t === "video") return Qt.rgba(10/255, 132/255, 1, 0.18)
-                                        if (t === "image") return Qt.rgba(94/255, 230/255, 180/255, 0.18)
-                                        if (t === "audio") return Qt.rgba(230/255, 180/255, 60/255, 0.18)
-                                        return Qt.rgba(180/255, 100/255, 230/255, 0.18)
-                                    }
-                                    Text {
-                                        id: _typeText
-                                        anchors.centerIn: parent
-                                        text: {
-                                            var t = modelData.media_type || ""
-                                            var m = {"video": tr("fmt_video"),
-                                                     "image": tr("library_filter_image"),
-                                                     "audio": tr("fmt_audio"),
-                                                     "mixed": tr("media_mixed")}
-                                            return m[t] || t.toUpperCase()
+                                    spacing: 4
+
+                                    // 平台徽章
+                                    Rectangle {
+                                        visible: (modelData.platform || "").length > 0
+                                        width: visible ? (_platText.implicitWidth + 10) : 0
+                                        height: 16
+                                        radius: Theme.rXS
+                                        color: Qt.rgba(0, 0, 0, 0.4)
+                                        Text {
+                                            id: _platText
+                                            anchors.centerIn: parent
+                                            text: Theme.platformLabel(modelData.platform)
+                                            color: Theme.platformColor(modelData.platform)
+                                            font.family: Theme.fontMono
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
                                         }
+                                    }
+
+                                    // 媒体类型徽章
+                                    Rectangle {
+                                        id: _typeBadge
+                                        visible: (modelData.media_type || "").length > 0
+                                        width: visible ? (_typeText.implicitWidth + 10) : 0
+                                        height: 16
+                                        radius: Theme.rXS
                                         color: {
                                             var t = modelData.media_type || ""
-                                            if (t === "video") return Theme.accent
-                                            if (t === "image") return Theme.success
-                                            if (t === "audio") return Theme.warning
-                                            return Theme.accent2
+                                            if (t === "video") return Qt.rgba(10/255, 132/255, 1, 0.18)
+                                            if (t === "image") return Qt.rgba(94/255, 230/255, 180/255, 0.18)
+                                            if (t === "audio") return Qt.rgba(230/255, 180/255, 60/255, 0.18)
+                                            return Qt.rgba(180/255, 100/255, 230/255, 0.18)
                                         }
-                                        font.family: Theme.fontMono
-                                        font.pixelSize: 9
-                                        font.weight: Font.DemiBold
+                                        Text {
+                                            id: _typeText
+                                            anchors.centerIn: parent
+                                            text: {
+                                                var t = modelData.media_type || ""
+                                                var m = {"video": tr("fmt_video"),
+                                                         "image": tr("library_filter_image"),
+                                                         "audio": tr("fmt_audio"),
+                                                         "mixed": tr("media_mixed")}
+                                                return m[t] || t.toUpperCase()
+                                            }
+                                            color: {
+                                                var t = modelData.media_type || ""
+                                                if (t === "video") return Theme.accent
+                                                if (t === "image") return Theme.success
+                                                if (t === "audio") return Theme.warning
+                                                return Theme.accent2
+                                            }
+                                            font.family: Theme.fontMono
+                                            font.pixelSize: 9
+                                            font.weight: Font.DemiBold
+                                        }
                                     }
                                 }
 
@@ -584,22 +653,47 @@ Item {
                                         text: ""
                                         implicitWidth: 36
                                         implicitHeight: 28
-                                        onClicked: { if (controller) controller.openFile(modelData.file_path) }
+                                        // 传 source="library"：文件缺失时弹「是否删除本条记录」对话框
+                                        onClicked: {
+                                            if (controller) controller.openFileFromSource(modelData.file_path, "library")
+                                        }
                                     }
                                     Button {
                                         iconName: "i-folder"; variant: "ghost"; iconSize: 16
                                         text: ""
                                         implicitWidth: 36
                                         implicitHeight: 28
-                                        onClicked: { if (controller) controller.openFolder(modelData.file_path) }
+                                        onClicked: {
+                                            if (controller) controller.openFolderFromSource(modelData.file_path, "library")
+                                        }
                                     }
                                     Button {
                                         id: _addColBtn
-                                        iconName: "i-folder-add"; variant: "ghost"; iconSize: 16
+                                        // 当处于具体分类视图下且该项已属于当前分类时，
+                                        // 图标变为 ×，点击则从当前分类移除；
+                                        // 否则保持 + 图标，点击弹出「加入分类」菜单。
+                                        iconName: (root.activeCollectionId > 0
+                                                    && (modelData.collection_ids || [])
+                                                       .indexOf(root.activeCollectionId) >= 0)
+                                                  ? "i-close"
+                                                  : "i-folder-add"
+                                        variant: "ghost"; iconSize: 16
                                         text: ""
                                         implicitWidth: 36
                                         implicitHeight: 28
-                                        onClicked: _showCollectionMenu(modelData.id, _addColBtn)
+                                        onClicked: {
+                                            if (root.activeCollectionId > 0
+                                                && (modelData.collection_ids || [])
+                                                   .indexOf(root.activeCollectionId) >= 0) {
+                                                // 当前在分类视图下且属于该分类 → 从当前分类移除
+                                                if (controller) {
+                                                    controller.removeItemFromCollection(
+                                                        modelData.id, root.activeCollectionId)
+                                                }
+                                            } else {
+                                                _showCollectionMenu(modelData.id, _addColBtn)
+                                            }
+                                        }
                                     }
                                     Item { width: 4; height: 1 }
                                     Button {
@@ -669,10 +763,87 @@ Item {
         }
     }
 
+    // 文件缺失确认对话框（文件被外部删除后弹此）
+    Dialog {
+        id: _fileMissingDialog
+        visible: false
+        modal: true
+        anchors.centerIn: parent
+        width: 420
+
+        property string _missingPath: ""
+        property string _missingItemId: ""
+
+        background: Rectangle {
+            radius: Theme.rLG
+            color: Theme.theme === "dark" ? Qt.rgba(20/255, 22/255, 38/255, 0.98)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.98)
+            border.width: 1
+            border.color: Theme.glassBorderHi
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.4)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 8
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text {
+                text: tr("file_missing_title")
+                color: Theme.danger
+                font.family: Theme.fontDisplay
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                Layout.fillWidth: true
+            }
+            Text {
+                text: tr("file_missing_msg")
+                color: Theme.textPrimary
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+            Text {
+                text: _fileMissingDialog._missingPath
+                color: Theme.textDim
+                font.family: Theme.fontMono
+                font.pixelSize: 10
+                wrapMode: Text.WrapAnywhere
+                Layout.fillWidth: true
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: tr("cancel"); variant: "ghost"
+                    onClicked: _fileMissingDialog.visible = false
+                }
+                Button {
+                    text: tr("file_missing_delete"); variant: "danger"
+                    enabled: _fileMissingDialog._missingItemId.length > 0
+                    onClicked: {
+                        if (controller && _fileMissingDialog._missingItemId.length > 0) {
+                            controller.deleteLibraryItem(_fileMissingDialog._missingItemId)
+                        }
+                        _fileMissingDialog.visible = false
+                    }
+                }
+            }
+        }
+    }
+
     // 「加入 Collection」菜单 — 自定义深色毛玻璃样式
+    // 切换模式：已加入的显示 ✓，点击移除；未加入的点击添加
     Menu {
         id: _collectionMenu
         property string _itemId: ""
+        property var _joinedIds: []  // 该项已加入的 Collection id 列表
         // 固定宽度，确保 _showCollectionMenu 中 x 计算正确（避免 width=0 导致偏移）
         width: 220
 
@@ -702,8 +873,11 @@ Item {
             height: 34
             background: Rectangle {
                 radius: Theme.rXS
-                color: parent.hovered ? Theme.accentSoft : "transparent"
-                Behavior on color { ColorAnimation { duration: 100 } }
+                // 浅色模式下避免 glassBgHi 闪烁，用轻微暗化色
+                color: parent.hovered
+                       ? (Theme.theme === "dark" ? Theme.accentSoft : Qt.rgba(0, 0, 0, 0.04))
+                       : "transparent"
+                Behavior on color { ColorAnimation { duration: 150 } }
             }
             contentItem: Text {
                 leftPadding: 14
@@ -724,29 +898,64 @@ Item {
             }
         }
 
-        // 动态生成已有 Collection 列表
+        // 动态生成已有 Collection 列表（切换模式：✓ = 已加入，点击移除；无 ✓ = 未加入，点击添加）
         Instantiator {
             model: root.collections
             delegate: MenuItem {
+                id: _colItem
                 height: 34
+                // 判断该 Collection 是否已包含当前素材
+                property bool _isJoined: _collectionMenu._joinedIds.indexOf(modelData.id) >= 0
                 background: Rectangle {
                     radius: Theme.rXS
-                    color: parent.hovered ? Theme.glassBgHi : "transparent"
-                    Behavior on color { ColorAnimation { duration: 100 } }
+                    // 浅色模式下 glassBgHi 是 rgba(255,255,255,0.9) 几乎无对比度，
+                    // hover 时会导致闪烁。改用轻微暗化色，对比度明显且稳定。
+                    color: parent.hovered
+                           ? (Theme.theme === "dark" ? Theme.glassBgHi : Qt.rgba(0, 0, 0, 0.04))
+                           : "transparent"
+                    Behavior on color { ColorAnimation { duration: 150 } }
                 }
-                contentItem: Text {
-                    leftPadding: 14
-                    rightPadding: 14
-                    text: modelData.name + "  (" + modelData.count + ")"
-                    color: parent.hovered ? Theme.accent : Theme.textPrimary
-                    font.family: Theme.fontBody
-                    font.pixelSize: Theme.fsSmall
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
+                contentItem: Item {
+                    anchors.fill: parent
+                    // 用 Row + 显式 anchors.verticalCenter 布局
+                    Row {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+
+                        // ✓ 标记（已加入时显示）
+                        Text {
+                            text: "✓"
+                            color: Theme.success
+                            font.family: Theme.fontMono
+                            font.pixelSize: Theme.fsSmall
+                            font.weight: Font.Bold
+                            visible: _colItem._isJoined
+                            width: visible ? 14 : 0
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: modelData.name + "  (" + modelData.count + ")"
+                            color: _colItem.hovered ? Theme.accent : Theme.textPrimary
+                            font.family: Theme.fontBody
+                            font.pixelSize: Theme.fsSmall
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
                 }
                 onTriggered: {
                     if (controller && _collectionMenu._itemId.length > 0) {
-                        controller.addItemToCollection(_collectionMenu._itemId, modelData.id)
+                        // 切换：已加入 → 移除；未加入 → 添加
+                        if (_isJoined) {
+                            controller.removeItemFromCollection(_collectionMenu._itemId, modelData.id)
+                        } else {
+                            controller.addItemToCollection(_collectionMenu._itemId, modelData.id)
+                        }
                     }
                 }
             }

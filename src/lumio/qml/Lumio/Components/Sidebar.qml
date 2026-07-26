@@ -26,6 +26,35 @@ Item {
     signal pageRequested(string page)
     signal themeToggleRequested()
 
+    // ---------- 徽章计数（绑定 controller 信号实时刷新） ----------
+    // inbox: status='new' 数量；notifications: 未读数量
+    // 注意：属性名避免下划线前缀，QML 对 _xxxChanged 信号命名不一致
+    property int inboxUnread: 0
+    property int notifUnread: 0
+
+    // 启动 + 信号驱动刷新（避免轮询）
+    Component.onCompleted: _refreshBadges()
+    function _refreshBadges() {
+        if (typeof controller === "undefined" || !controller) return
+        try {
+            if (controller.unreadInbox)        root.inboxUnread = controller.unreadInbox()
+            if (controller.unreadNotifications) root.notifUnread = controller.unreadNotifications()
+        } catch (e) {
+            console.log("[Sidebar] refresh badges failed:", e)
+        }
+    }
+
+    Connections {
+        target: typeof controller !== "undefined" ? controller : null
+        // Inbox 任何变化（新增/状态更新/删除）→ 重新拉未读数
+        function onInboxChanged() { _refreshBadges() }
+        // 通知变化（新增/标记已读/清除）→ 直接用后端给的 unread_count
+        function onNotificationsChanged(unread_count) {
+            root.notifUnread = unread_count || 0
+            // 通知变化时也刷新一下 inbox（极少数场景：通知触发自动下载入队）
+        }
+    }
+
     // ---------- 背景层（半透明 + backdrop blur） ----------
     Rectangle {
         id: _bg
@@ -126,22 +155,60 @@ Item {
                         id: _navBg
                         anchors.fill: parent
                         radius: Theme.rMD
-                        color: root.activePage === modelData.key
-                               ? Theme.glassBgHi
-                               : (_mouse.containsMouse ? Theme.glassBg : "transparent")
-                        // 缩短动画时长：浅色模式下原 150ms 会让相邻项在 hover 切换时
-                        // fade-out 与 fade-in 时间重叠，视觉上呈现"同时闪烁"
-                        Behavior on color { ColorAnimation { duration: 60 } }
+                        color: "transparent"
 
-                        // 顶部高光
+                        // ============================================================
+                        // 双层背景策略（修复浅色模式切换页面时两个 bar 同时闪烁）
+                        // ------------------------------------------------------------
+                        // 历史问题：单层 Rectangle + Behavior on color 让 active
+                        //   切换也走 150ms ColorAnimation。切换页面时旧 active 项
+                        //   (glassBgHi→transparent) 和新 active 项
+                        //   (transparent→glassBgHi) 同时动画，浅色模式下
+                        //   glassBgHi=rgba(255,255,255,0.9) 与白底对比度低，
+                        //   过渡中间状态经过透明露出底色，视觉上"两个 bar 同时闪"。
+                        //
+                        // 修复：拆成两层
+                        //   - 底层 _activeBg：active 状态背景，visible 直接绑定 active，
+                        //     无 ColorAnimation → active 切换瞬时完成
+                        //   - 上层 _hoverBg：hover 状态背景，仅非 active 时显示，
+                        //     有 150ms ColorAnimation → hover 平滑过渡
+                        // ============================================================
+
+                        // 底层：active 背景（瞬时切换，无动画）
                         Rectangle {
+                            id: _activeBg
+                            anchors.fill: parent
+                            radius: Theme.rMD
+                            color: Theme.glassBgHi
                             visible: root.activePage === modelData.key
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.margins: 1
-                            height: 1
-                            color: Qt.rgba(1, 1, 1, 0.1)
+                            // 顶部高光
+                            Rectangle {
+                                visible: root.activePage === modelData.key
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.margins: 1
+                                height: 1
+                                color: Qt.rgba(1, 1, 1, 0.1)
+                            }
+                        }
+
+                        // 上层：hover 背景（仅非 active 时显示，有动画）
+                        Rectangle {
+                            id: _hoverBg
+                            anchors.fill: parent
+                            radius: Theme.rMD
+                            // hover 颜色按主题区分
+                            // 浅色：rgba(0,0,0,0.04) 轻微暗化（与白底有清晰对比）
+                            // 深色：glassBg 柔和亮化
+                            color: Theme.theme === "light"
+                                   ? Qt.rgba(0, 0, 0, 0.04)
+                                   : Theme.glassBg
+                            // active 时不显示 hover 层（让 active 背景独立呈现）
+                            visible: root.activePage !== modelData.key
+                                     && _mouse.containsMouse
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on visible { NumberAnimation { duration: 0 } }
                         }
                     }
 
@@ -186,6 +253,60 @@ Item {
                             font.weight: Font.Medium
                             anchors.verticalCenter: parent.verticalCenter
                             Behavior on color { ColorAnimation { duration: 60 } }
+                        }
+                    }
+
+                    // ============================================================
+                    // 红点徽章（仅 inbox / notifications 显示）
+                    // ------------------------------------------------------------
+                    // 视觉规则：
+                    //   - 1-9   → 圆形 (16px) 单数字
+                    //   - 10-99 → 胶囊 (变宽) 双数字
+                    //   - ≥100  → 胶囊 "99+"
+                    //   - 0     → 隐藏
+                    // 颜色：danger 红 + 白色 Mono 字
+                    // 位置：右侧 12px 内边距，垂直居中
+                    // ============================================================
+                    Item {
+                        id: _badge
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        // 当前项的未读数（直接表达式，便于绑定依赖追踪）
+                        property int _value: {
+                            if (modelData.key === "inbox")         return root.inboxUnread
+                            if (modelData.key === "notifications")  return root.notifUnread
+                            return 0
+                        }
+                        property string _text: _value >= 100 ? "99+" : String(_value)
+                        visible: _value > 0
+                        implicitWidth: _badgeRect.implicitWidth
+                        implicitHeight: _badgeRect.implicitHeight
+
+                        Rectangle {
+                            id: _badgeRect
+                            anchors.centerIn: parent
+                            implicitWidth: Math.max(16, _badgeText.implicitWidth + 14)
+                            implicitHeight: 16
+                            radius: 8   // height/2 → 完整胶囊
+                            color: Theme.danger
+                            border.width: 1
+                            border.color: Theme.theme === "light"
+                                          ? Qt.rgba(180/255, 30/255, 30/255, 0.6)
+                                          : Qt.rgba(255/255, 255/255, 255/255, 0.15)
+
+                            Text {
+                                id: _badgeText
+                                anchors.centerIn: parent
+                                text: _badge._text
+                                color: "#FFFFFF"
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
 
