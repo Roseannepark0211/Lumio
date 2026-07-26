@@ -1,5 +1,25 @@
 import { useEffect, useState } from "react";
 import { api, type HealthResponse, type QueueTask, type LibraryItem } from "./api";
+import { getPageSwitch } from "./config";
+import { HomePage } from "./pages/HomePage";
+
+/**
+ * 应用根组件。
+ *
+ * 根据 config.ts 中的页面级开关决定加载哪个页面：
+ *   - USE_REACT_HOME = true  → 加载 React HomePage
+ *   - USE_REACT_HOME = false → 加载 POC 验证页面（保留连通性检查）
+ *
+ * 后续迁移其他页面时同样按开关切换。
+ */
+export default function App() {
+  const useReactHome = getPageSwitch("USE_REACT_HOME");
+
+  if (useReactHome) {
+    return <HomePage />;
+  }
+  return <PocPage />;
+}
 
 /**
  * POC 验证页面：拉取 FastAPI 真实数据，验证 Electron 渲染进程 → FastAPI 链路。
@@ -7,7 +27,7 @@ import { api, type HealthResponse, type QueueTask, type LibraryItem } from "./ap
  * 这不是最终 UI，只是脚手架阶段的连通性验证。
  * 后续每个页面会按 design_preview/ 下的设计稿单独迁移。
  */
-export default function App() {
+function PocPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [queue, setQueue] = useState<QueueTask[]>([]);
   const [library, setLibrary] = useState<LibraryItem[]>([]);
