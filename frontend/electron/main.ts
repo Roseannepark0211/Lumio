@@ -143,31 +143,64 @@ function startFastApi(): Promise<void> {
       return;
     }
 
-    const projectRoot = path.resolve(__dirname, "..", "..");
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
-    const args = ["-m", "lumio.api_fastapi"];
+    // 打包模式：spawn 内嵌的 LumioAPI 可执行文件（PyInstaller 产物）
+    // 开发模式：spawn python -m lumio.api_fastapi（依赖系统 Python + 项目源码）
+    //
+    // PyInstaller 产物路径：
+    //   Windows: <app>/resources/python-backend/LumioAPI.exe
+    //   macOS:   <app>/Contents/Resources/python-backend/LumioAPI
+    //   Linux:   <app>/resources/python-backend/LumioAPI
+    // electron-builder extraResources 配置见 electron-builder.config.js
+    let exePath: string;
+    let cwdPath: string;
+    let env: NodeJS.ProcessEnv;
 
-    console.log(`[electron] starting FastAPI on port ${fastapiPort} (token: ${fastapiToken.slice(0, 8)}...)`);
-    console.log(`[electron] cwd: ${projectRoot}`);
-    console.log(`[electron] cmd: ${pythonCmd} ${args.join(" ")}`);
-    console.log(`[electron] PYTHONPATH: ${path.join(projectRoot, "src")}`);
-
-    fastapiProc = spawn(pythonCmd, args, {
-      cwd: projectRoot,
-      env: {
+    if (app.isPackaged) {
+      const resourcesPath = process.resourcesPath;
+      const exeName = process.platform === "win32" ? "LumioAPI.exe" : "LumioAPI";
+      exePath = path.join(resourcesPath, "python-backend", exeName);
+      cwdPath = path.dirname(exePath);
+      env = {
+        ...process.env,
+        LUMIO_FASTAPI_PORT: String(fastapiPort),
+        LUMIO_FASTAPI_TOKEN: fastapiToken,
+      };
+      console.log(`[electron] starting packaged FastAPI: ${exePath}`);
+    } else {
+      const projectRoot = path.resolve(__dirname, "..", "..");
+      const pythonCmd = process.platform === "win32" ? "python" : "python3";
+      exePath = pythonCmd;
+      cwdPath = projectRoot;
+      env = {
         ...process.env,
         PYTHONPATH: path.join(projectRoot, "src"),
         LUMIO_FASTAPI_PORT: String(fastapiPort),
         LUMIO_FASTAPI_TOKEN: fastapiToken,
-      },
+      };
+      // 用 args 字段传递 -m lumio.api_fastapi
+      (env as any)._devArgs = ["-m", "lumio.api_fastapi"];
+      console.log(`[electron] starting dev FastAPI: ${pythonCmd} -m lumio.api_fastapi`);
+      console.log(`[electron] cwd: ${projectRoot}`);
+      console.log(`[electron] PYTHONPATH: ${path.join(projectRoot, "src")}`);
+    }
+
+    const devArgs = (env as any)._devArgs as string[] | undefined;
+    delete (env as any)._devArgs;
+
+    fastapiProc = spawn(exePath, devArgs || [], {
+      cwd: cwdPath,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     fastapiProc.on("error", (err) => {
-      // spawn 本身失败（如 python 命令不存在）
-      console.error(`[electron] spawn python failed: ${err.message}`);
-      console.error(`[electron] PATH: ${process.env.PATH}`);
-      reject(new Error(`spawn python failed: ${err.message}`));
+      // spawn 本身失败（如 python 命令不存在 / LumioAPI.exe 缺失）
+      console.error(`[electron] spawn FastAPI failed: ${err.message}`);
+      console.error(`[electron] exe: ${exePath}`);
+      if (!app.isPackaged) {
+        console.error(`[electron] PATH: ${process.env.PATH}`);
+      }
+      reject(new Error(`spawn FastAPI failed: ${err.message}`));
     });
 
     const stdoutBuf: string[] = [];
