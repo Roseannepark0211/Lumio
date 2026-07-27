@@ -1,0 +1,289 @@
+/* ============================================================
+   LUMIO LOGO — Liquid Glass Glow
+   生产参数化 React 组件配套样式
+   ============================================================ */
+
+/* 品牌色 — 柔和蓝青色调，去除突兀的紫色 */
+.lg-logo {
+  --lg-accent: #0a84ff;
+  --lg-accent-2: #5ac8fa;
+  --lg-accent-3: #64d2ff;
+  --lg-accent-4: #a5e8ff;
+
+  --lg-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --lg-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --lg-ease-flow: cubic-bezier(0.45, 0, 0.55, 1);
+
+  position: relative;
+  display: inline-block;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+/* ---------- 尺寸 ---------- */
+.lg-logo--sm { font-size: 32px; }
+.lg-logo--md { font-size: 64px; }
+.lg-logo--lg { font-size: 96px; }
+.lg-logo--xl { font-size: 160px; }
+
+/* ---------- 内层容器（无 3D 透视） ---------- */
+.lg-logo__inner {
+  position: relative;
+  display: inline-block;
+}
+
+/* ---------- 呼吸动画（仅 drop-shadow 强度变化，无 transform） ---------- */
+.lg-logo--breathing .lg-logo__inner {
+  animation: lg-breathe 4.5s var(--lg-ease) infinite;
+}
+
+@keyframes lg-breathe {
+  0%, 100% {
+    filter:
+      drop-shadow(0 4px 16px rgba(10, 132, 255, 0.35))
+      drop-shadow(0 8px 32px rgba(100, 210, 255, 0.22));
+  }
+  50% {
+    filter:
+      drop-shadow(0 6px 24px rgba(10, 132, 255, 0.55))
+      drop-shadow(0 12px 48px rgba(100, 210, 255, 0.35));
+  }
+}
+
+/* ---------- 字母主体（默认变体：蓝青色调） ---------- */
+.lg-logo__body {
+  position: relative;
+  display: inline-block;
+  background:
+    radial-gradient(ellipse at 25% 30%, rgba(255,255,255,0.95) 0%, transparent 35%),
+    radial-gradient(ellipse at 75% 70%, var(--lg-accent-3) 0%, transparent 45%),
+    linear-gradient(180deg,
+      #ffffff 0%,
+      #e8f4ff 18%,
+      var(--lg-accent-4) 38%,
+      var(--lg-accent-2) 60%,
+      var(--lg-accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.5px rgba(255,255,255,0.2);
+}
+
+/* 顶部玻璃高光层 */
+.lg-logo__body::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.95) 0%,
+    rgba(255,255,255,0.4) 25%,
+    transparent 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  pointer-events: none;
+  filter: blur(0.3px);
+}
+
+/* ---------- 流动光带（默认开启） ---------- */
+.lg-logo--shimmer .lg-logo__body::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 30%,
+    rgba(255,255,255,0.95) 45%,
+    rgba(255,255,255,1) 50%,
+    rgba(255,255,255,0.95) 55%,
+    transparent 70%);
+  background-size: 250% 100%;
+  background-position: 200% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  pointer-events: none;
+  animation: lg-shimmer 7s var(--lg-ease-flow) infinite;
+  mix-blend-mode: screen;
+}
+
+@keyframes lg-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -150% 0; }
+}
+
+/* ---------- 立体侧面（保留但不使用 translateZ，避免 3D 晕眩） ---------- */
+.lg-logo__depth {
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  z-index: -1;
+  text-shadow:
+    0 1px 0 rgba(10, 132, 255, 0.3),
+    0 2px 0 rgba(10, 132, 255, 0.25),
+    0 3px 0 rgba(10, 132, 255, 0.2),
+    0 4px 0 rgba(10, 132, 255, 0.15);
+}
+
+/* ---------- 内部色球 ---------- */
+.lg-logo__orbs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.lg-logo__orbs::before,
+.lg-logo__orbs::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+  opacity: 0.5;
+}
+.lg-logo__orbs::before {
+  width: 22%;
+  height: 22%;
+  top: 35%;
+  left: 20%;
+  background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, transparent 70%);
+  animation: lg-orb-1 7s var(--lg-ease) infinite alternate;
+}
+.lg-logo__orbs::after {
+  width: 18%;
+  height: 18%;
+  bottom: 25%;
+  right: 28%;
+  background: radial-gradient(circle, var(--lg-accent-4) 0%, transparent 70%);
+  animation: lg-orb-2 9s var(--lg-ease) infinite alternate;
+}
+
+@keyframes lg-orb-1 {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(15px, -8px); }
+}
+@keyframes lg-orb-2 {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(-12px, 10px); }
+}
+
+/* ---------- 倒影 ---------- */
+.lg-logo__reflection {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 60%;
+  background: inherit;
+  transform: scaleY(-1);
+  opacity: 0.18;
+  filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 60%);
+          mask-image: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+/* ============================================================
+   色彩变体
+   ============================================================ */
+
+/* 变体 A：纯白冰晶 */
+.lg-logo--variant-ice .lg-logo__body {
+  background: linear-gradient(180deg,
+    #ffffff 0%,
+    #ffffff 40%,
+    rgba(255,255,255,0.7) 70%,
+    rgba(255,255,255,0.4) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 变体 B：彩虹流光（柔和蓝青流动） */
+.lg-logo--variant-hue .lg-logo__body {
+  background: linear-gradient(90deg,
+    var(--lg-accent) 0%,
+    var(--lg-accent-4) 25%,
+    var(--lg-accent-3) 50%,
+    var(--lg-accent-2) 75%,
+    var(--lg-accent) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: lg-hue-flow 5s linear infinite;
+}
+
+@keyframes lg-hue-flow {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* 变体 C：炽热青蓝 */
+.lg-logo--variant-cyan .lg-logo__body {
+  background: linear-gradient(180deg,
+    #ffffff 0%,
+    var(--lg-accent-4) 35%,
+    var(--lg-accent-2) 65%,
+    var(--lg-accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 变体 D：金属鎏金 */
+.lg-logo--variant-gold .lg-logo__body {
+  background: linear-gradient(180deg,
+    #fff9e8 0%,
+    #ffd60a 30%,
+    #ff9f0a 60%,
+    #ff453a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 变体 E：黑暗电浆（青色描边，无紫色） */
+.lg-logo--variant-plasma {
+  -webkit-text-stroke: 1px rgba(100, 210, 255, 0.7);
+}
+.lg-logo--variant-plasma .lg-logo__body {
+  background: linear-gradient(135deg, #1a2a3e 0%, #0a1a2e 50%, #0a0a14 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1px rgba(100, 210, 255, 0.7);
+  animation: lg-plasma 3s var(--lg-ease) infinite;
+}
+
+@keyframes lg-plasma {
+  0%, 100% {
+    -webkit-text-stroke-color: rgba(100, 210, 255, 0.7);
+    filter: drop-shadow(0 0 8px rgba(100, 210, 255, 0.7)) drop-shadow(0 0 16px rgba(10, 132, 255, 0.5));
+  }
+  50% {
+    -webkit-text-stroke-color: rgba(165, 232, 255, 0.9);
+    filter: drop-shadow(0 0 12px rgba(165, 232, 255, 0.9)) drop-shadow(0 0 24px rgba(10, 132, 255, 0.6));
+  }
+}
+
+/* 变体 F：极地雪光 */
+.lg-logo--variant-snow .lg-logo__body {
+  background: linear-gradient(180deg,
+    #ffffff 0%,
+    #d8eaff 40%,
+    #a8c7ff 80%,
+    #5e9eff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .lg-logo, .lg-logo *, .lg-logo *::before, .lg-logo *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

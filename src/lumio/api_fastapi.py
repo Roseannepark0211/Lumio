@@ -606,6 +606,16 @@ def create_app() -> FastAPI:
 
     class TokenAuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
+            # BaseHTTPMiddleware 对 WebSocket scope 处理有 bug：
+            # Starlette 0.36+ 在 ws.accept() 前会先经过 BaseHTTPMiddleware，
+            # 但 dispatch 拿到的 request 对 ws scope 不完整，
+            # 任何对 request.headers / request.url 的访问都可能触发异常，
+            # 异常被 Starlette 吞掉后 ws 被强制关闭 → 前端报
+            # "WebSocket is closed before the connection is established"
+            # 解决：WS 请求直接放行，不进入 HTTP 鉴权分支
+            # WS 鉴权改在 ws_events 内部用 query token 检查
+            if request.scope.get("type") == "websocket":
+                return await call_next(request)
             if expected_token and request.url.path.startswith("/api/"):
                 # /api/health 不鉴权（Electron 主进程轮询用）
                 # OPTIONS 预检请求不鉴权（浏览器自动发，不带 token；由 CORSMiddleware 处理）
@@ -1927,6 +1937,7 @@ def _video_info_to_dict(info) -> dict:
                 "size": it.size,
                 "quality": it.quality,
                 "filename": it.filename,
+                "live_photo": getattr(it, "live_photo", None),
             }
             for it in (info.items or [])
         ],

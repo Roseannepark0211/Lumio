@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lumio Logo Mark — 应用图标源文件（1024x1024）
+     用于：macOS/iOS 应用图标、Windows 图标源、大尺寸品牌展示
+     设计：圆角矩形玻璃容器 + 内部极光 + L 字母 3D 立体感
+     可用工具（如 sharp / Figma / https://realfavicongenerator.net）转为 PNG
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- ============ 主背景渐变：深空蓝 ============ -->
+    <linearGradient id="bg-base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0a14"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
+    </linearGradient>
+
+    <!-- ============ 极光色球 1：蓝色（左上） ============ -->
+    <radialGradient id="orb-blue" cx="25%" cy="30%" r="40%">
+      <stop offset="0%" stop-color="#0a84ff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0a84ff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 极光色球 2：靛色（右下） ============ -->
+    <radialGradient id="orb-indigo" cx="75%" cy="75%" r="40%">
+      <stop offset="0%" stop-color="#5e5ce6" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#5e5ce6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 极光色球 3：紫色（中下） ============ -->
+    <radialGradient id="orb-purple" cx="50%" cy="100%" r="35%">
+      <stop offset="0%" stop-color="#bf5af2" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#bf5af2" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 极光色球 4：青色（右上微光） ============ -->
+    <radialGradient id="orb-cyan" cx="80%" cy="20%" r="25%">
+      <stop offset="0%" stop-color="#64d2ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#64d2ff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 顶部玻璃高光 ============ -->
+    <linearGradient id="top-hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ============ L 字母渐变（垂直：白→冰蓝→蓝→紫） ============ -->
+    <linearGradient id="L-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="20%" stop-color="#e8f0ff"/>
+      <stop offset="45%" stop-color="#64d2ff"/>
+      <stop offset="65%" stop-color="#0a84ff"/>
+      <stop offset="85%" stop-color="#5e5ce6"/>
+      <stop offset="100%" stop-color="#bf5af2"/>
+    </linearGradient>
+
+    <!-- ============ L 顶部高光 ============ -->
+    <linearGradient id="L-hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="30%" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ============ L 立体侧面（投影） ============ -->
+    <filter id="L-depth" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="0.5" flood-color="#5e5ce6" flood-opacity="0.5"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="1" flood-color="#5e5ce6" flood-opacity="0.4"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="2" flood-color="#5e5ce6" flood-opacity="0.3"/>
+      <feDropShadow dx="0" dy="20" stdDeviation="4" flood-color="#5e5ce6" flood-opacity="0.2"/>
+      <feDropShadow dx="0" dy="40" stdDeviation="8" flood-color="#5e5ce6" flood-opacity="0.1"/>
+    </filter>
+
+    <!-- ============ 玻璃容器边框高光 ============ -->
+    <linearGradient id="border-hi" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- ============ 裁剪：圆角矩形 ============ -->
+    <clipPath id="clip-rounded">
+      <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224"/>
+    </clipPath>
+
+    <!-- ============ 内部柔光球模糊滤镜 ============ -->
+    <filter id="blur-20" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+    <filter id="blur-15" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="15"/>
+    </filter>
+  </defs>
+
+  <!-- ============ 主体 ============ -->
+  <g clip-path="url(#clip-rounded)">
+
+    <!-- 深色背景基底 -->
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#bg-base)"/>
+
+    <!-- 极光色球层（4 个，营造氛围） -->
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#orb-cyan)"/>
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#orb-blue)"/>
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#orb-indigo)"/>
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#orb-purple)"/>
+
+    <!-- 顶部玻璃高光（模拟玻璃边缘反光） -->
+    <rect x="0" y="0" width="1024" height="500" fill="url(#top-hi)"/>
+
+    <!-- L 字母（含立体投影） -->
+    <g filter="url(#L-depth)">
+      <!-- L 几何笔画：垂直长矩形 + 水平短矩形 -->
+      <!-- 垂直部分 -->
+      <path d="M 360 280 L 460 280 L 460 720 L 720 720 L 720 820 L 360 820 Z"
+            fill="url(#L-body)"/>
+      <!-- 顶部高光叠加 -->
+      <path d="M 360 280 L 460 280 L 460 720 L 720 720 L 720 820 L 360 820 Z"
+            fill="url(#L-hi)"/>
+    </g>
+
+    <!-- 内部柔光球（增加玻璃感） -->
+    <circle cx="380" cy="320" r="60" fill="#ffffff" opacity="0.25" filter="url(#blur-20)"/>
+    <circle cx="680" cy="780" r="50" fill="#64d2ff" opacity="0.3" filter="url(#blur-15)"/>
+
+  </g>
+
+  <!-- ============ 玻璃容器边框 ============ -->
+  <rect x="1" y="1" width="1022" height="1022" rx="223" ry="223"
+        fill="none" stroke="url(#border-hi)" stroke-width="1.5"/>
+  <!-- 顶部 1px 高光线 -->
+  <path d="M 80 80 Q 100 60 130 50 L 894 50 Q 924 60 944 80"
+        stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.5" fill="none"/>
+</svg>

@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld("lumio", {
     cancelClose: () => ipcRenderer.send("tray:close-dialog", "cancel"),
     minimizeToTray: () => ipcRenderer.send("tray:close-dialog", "minimize"),
     quitApp: () => ipcRenderer.send("tray:close-dialog", "quit"),
+    // 前端 render() 后报告菜单实际高度，主进程据此调整 BrowserWindow 高度
+    reportHeight: (height: number) => ipcRenderer.send("tray:report-height", height),
   },
   /** 监听托盘菜单导航事件（主进程 → 渲染进程） */
   onNavigate: (callback: (page: string) => void) => {

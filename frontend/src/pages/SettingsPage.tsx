@@ -66,6 +66,13 @@ const CONFLICT_POLICY_VALUES = [
   { value: "ask", labelKey: "conflict_ask" },
 ];
 
+// 关闭窗口行为（与 config.close_behavior 对应）
+const CLOSE_BEHAVIOR_VALUES = [
+  { value: "ask", labelKey: "close_behavior_ask" },
+  { value: "minimize", labelKey: "close_behavior_minimize" },
+  { value: "quit", labelKey: "close_behavior_quit" },
+];
+
 // 自动清理模式
 const AUTO_CLEAN_MODE_VALUES = [
   { value: "off", labelKey: "auto_clean_off" },
@@ -103,6 +110,10 @@ export function SettingsPage() {
   );
   const conflictPolicies = useMemo(
     () => CONFLICT_POLICY_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+  const closeBehaviors = useMemo(
+    () => CLOSE_BEHAVIOR_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
     [tr]
   );
   const autoCleanModes = useMemo(
@@ -1065,6 +1076,14 @@ export function SettingsPage() {
               value={theme}
               options={themes}
               onChange={(v) => onSetTheme(v)}
+            />
+          </Row>
+
+          <Row label={tr("close_behavior")}>
+            <Select
+              value={(config.close_behavior as string) || "ask"}
+              options={closeBehaviors}
+              onChange={(v) => saveConfig("close_behavior", v)}
             />
           </Row>
 

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lumio Favicon — 简洁版 L 玻璃方块，用于浏览器标签页（32x32 显示） -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <!-- 容器渐变：蓝→紫，模拟玻璃质感 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a84ff"/>
+      <stop offset="50%" stop-color="#5e5ce6"/>
+      <stop offset="100%" stop-color="#bf5af2"/>
+    </linearGradient>
+    <!-- 顶部高光 -->
+    <linearGradient id="hi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- L 字母渐变 -->
+    <linearGradient id="L" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e8f0ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角矩形玻璃容器 -->
+  <rect x="2" y="2" width="28" height="28" rx="7" ry="7" fill="url(#bg)"/>
+  <!-- 顶部高光 -->
+  <rect x="2" y="2" width="28" height="14" rx="7" ry="7" fill="url(#hi)"/>
+  <!-- 边框微高光 -->
+  <rect x="2" y="2" width="28" height="28" rx="7" ry="7" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+
+  <!-- L 字母（几何笔画，居中） -->
+  <path d="M 12 9 L 12 23 L 21 23 L 21 20.5 L 14.8 20.5 L 14.8 9 Z" fill="url(#L)"/>
+</svg>

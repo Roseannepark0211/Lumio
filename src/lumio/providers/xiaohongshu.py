@@ -13,7 +13,7 @@ import re
 import html as _html
 from typing import Optional
 
-from .base import BaseProvider, MediaInfo, MediaItem, MediaType, Platform
+from .base import BaseProvider, LivePhoto, MediaInfo, MediaItem, MediaType, Platform
 from .network.client import NetworkClient
 from .network.headers import platform_headers
 from .registry import register
@@ -158,17 +158,39 @@ def _extract_media_items_from_note(note: dict) -> list[MediaItem]:
         if is_livephoto:
             lp_stream = img.get("stream") or {}
             lp_url, lp_h = _pick_best_video(lp_stream)
+            # 图片原图 URL（实况图也包含图片部分）
+            lp_img_url = _pick_best_image_url(img)
             if lp_url and lp_url not in seen_urls:
                 seen_urls.add(lp_url)
                 videos.append(MediaItem(
                     url=lp_url,
                     is_video=True,
                     index=len(videos),
-                    media_type=MediaType.VIDEO,
+                    media_type=MediaType.LIVE_PHOTO,
                     height=lp_h,
                     quality=f"{lp_h}P" if lp_h else "",
                     extension="mp4",
+                    live_photo=LivePhoto(
+                        image=lp_img_url or "",
+                        video=lp_url,
+                        cover=lp_img_url or "",
+                    ),
                 ))
+            # 实况图的图片部分也作为独立项加入（跳过重复）
+            if lp_img_url and lp_img_url not in seen_urls:
+                seen_urls.add(lp_img_url)
+                images.append(MediaItem(
+                    url=lp_img_url,
+                    is_video=False,
+                    index=len(images),
+                    media_type=MediaType.LIVE_PHOTO,
+                    live_photo=LivePhoto(
+                        image=lp_img_url,
+                        video=lp_url or "",
+                        cover=lp_img_url,
+                    ),
+                ))
+            continue
         # 图片原图
         img_url = _pick_best_image_url(img)
         if img_url and img_url not in seen_urls:

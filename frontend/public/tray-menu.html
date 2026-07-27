@@ -64,15 +64,22 @@ html, body {
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 12px;          /* 13px → 12px 同比例缩小 */
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+  /* 不用 body padding：padding 会让 transparent 窗口出现可见的暗色边框，
+     而且会让内容宽度 < 窗口宽度，需要主进程同步调窗口尺寸才能配合。
+     改用 .tray-menu 自身 width:100% 占满窗口，box-shadow 改为内嵌（无外扩），
+     避免阴影被窗口边界裁剪成直角。 */
 }
 
 .tray-menu {
-  width: 280px;
-  max-height: 480px;
+  /* width 100% 占满 BrowserWindow 宽度，避免 padding 导致右侧被裁剪 */
+  width: 100%;
+  /* 不设 height: 100%，让内容自然撑开高度，配合 report-height IPC 让窗口高度 = 内容高度，
+     这样菜单底部自然贴合任务栏，无"异常空白间距"问题 */
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg);
@@ -80,10 +87,13 @@ html, body {
   -webkit-backdrop-filter: blur(40px) saturate(180%);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
+  /* 不用外扩 box-shadow（会被窗口边界裁成直角）也不用 filter: drop-shadow（会产生一圈
+     可见背景阴影），改用 inset 内嵌高光 + 极小外扩：
+     - inset 顶部 1px 高光模拟玻璃边缘
+     - 外扩仅 0 1px 2px 极弱阴影，刚好在窗口边界内，不会被裁 */
   box-shadow:
     0 1px 0 var(--inset-hi) inset,
-    0 30px 80px -20px rgba(0,0,0,0.7),
-    0 8px 24px -8px rgba(0,0,0,0.5);
+    0 2px 6px rgba(0,0,0,0.3);
   animation: menuIn 0.16s var(--ease-out);
 }
 .tray-menu::-webkit-scrollbar { width: 4px; }
@@ -102,8 +112,8 @@ html, body {
 .tray-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 14px 12px;
+  gap: 8px;
+  padding: 10px 10px 8px;      /* 14px → 10px 同比例缩小 */
   border-bottom: 1px solid var(--sep);
   position: relative;
 }
@@ -118,16 +128,18 @@ html, body {
 .tray-logo {
   width: 32px; height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 14px;
-  color: white;
-  letter-spacing: -0.5px;
+  flex-shrink: 0;
+  /* 玻璃容器阴影 */
   box-shadow: 0 4px 12px -2px rgba(10, 132, 255, 0.5),
               0 1px 0 rgba(255,255,255,0.3) inset;
-  flex-shrink: 0;
+  overflow: hidden;
+}
+.tray-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .tray-title-block {
   display: flex;
@@ -202,13 +214,13 @@ html, body {
 .tray-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 10px;                /* 12px → 10px 同比例缩小 */
+  padding: 6px 10px;        /* 8px 12px → 6px 10px 同比例缩小 */
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 0.15s var(--ease), color 0.15s var(--ease);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;          /* 13px → 12px 同比例缩小 */
   font-weight: 500;
   position: relative;
 }
@@ -273,7 +285,7 @@ html, body {
   color: var(--text-dim);
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  padding: 8px 14px 4px;
+  padding: 6px 12px 3px;       /* 8px 14px 4px → 6px 12px 3px 同比例缩小 */
   line-height: 1;
 }
 
@@ -333,9 +345,9 @@ html, body {
 
 /* 空状态 */
 .tray-empty {
-  padding: 12px 14px;
+  padding: 10px 12px;
   text-align: center;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-dim);
 }
 </style>
@@ -445,27 +457,22 @@ html, body {
   // —— 渲染 ——
   function render() {
     const root = document.getElementById("menu");
-    const active = state.tasks.filter(isActive);
     const downloading = state.tasks.filter(isDownloading);
-    const pausedAll = state.tasks.length > 0 && state.tasks.every(t =>
-      isPaused(t.status) || t.status === "完成" || t.status === "done" || t.status === "失败" || t.status === "failed"
-    );
 
-    let statusBadge;
-    if (downloading.length > 0) {
-      statusBadge = '<div class="tray-status active"><span class="dot"></span>' +
-        t("tray_downloading") + " " + downloading.length + '</div>';
-    } else if (pausedAll && state.tasks.some(t => isPaused(t.status))) {
-      statusBadge = '<div class="tray-status paused"><span class="dot"></span>' + t("tray_paused") + '</div>';
-    } else {
-      statusBadge = '<div class="tray-status idle"><span class="dot"></span>' + t("tray_idle") + '</div>';
-    }
+    // 状态徽章简化为 busy/idle 二态（按用户要求去掉数字）
+    // - downloading 队列非空 → 忙碌中（active）
+    // - 否则 → 空闲（idle）
+    // X-Sou 搜索预览不走 queue，天然不参与判断
+    const isBusy = downloading.length > 0;
+    const statusBadge = isBusy
+      ? '<div class="tray-status active"><span class="dot"></span>' + t("tray_busy") + '</div>'
+      : '<div class="tray-status idle"><span class="dot"></span>' + t("tray_idle") + '</div>';
 
     let html = '';
 
     // Header
     html += '<div class="tray-header">';
-    html += '  <div class="tray-logo">L</div>';
+    html += '  <div class="tray-logo"><img src="favicon.svg" alt="Lumio" /></div>';
     html += '  <div class="tray-title-block">';
     html += '    <div class="tray-title">Lumio</div>';
     html += '    <div class="tray-subtitle">v' + (state.version || "4.2.0") + '</div>';
@@ -478,23 +485,7 @@ html, body {
     // 显示主窗口（primary）
     html += item("primary", ICONS.window, t("tray_show_window"), "", "showWindow");
 
-    // 下载进度卡片（downloading 时显示，最多 3 个）
-    if (downloading.length > 0) {
-      html += '<div class="tray-active-card">';
-      downloading.slice(0, 3).forEach(task => {
-        const pct = Math.round((task.progress || 0) * 100);
-        const name = task.title || task.url || "unknown";
-        html += '<div class="tray-active-row">';
-        html += '  <span class="led ' + ledClass(task.platform) + '"></span>';
-        html += '  <span class="tray-active-name">' + esc(name) + '</span>';
-        html += '  <span class="tray-active-pct">' + pct + '%</span>';
-        html += '</div>';
-        html += '<div class="tray-active-bar"><div class="tray-active-bar-fill" style="width:' + pct + '%"></div></div>';
-      });
-      html += '</div>';
-    }
-
-    // 暂停所有下载（仅 downloading 时）
+    // 暂停所有下载（仅 busy 时显示）
     if (downloading.length > 0) {
       html += item("", ICONS.pause, t("tray_pause_all"), "", "pauseAll");
     }
@@ -527,6 +518,16 @@ html, body {
     html += '</div>';
 
     root.innerHTML = html;
+
+    // render 后报告实际内容高度给主进程，主进程据此调整 BrowserWindow 高度
+    // 解决：内容 300px 但窗口初始 400px，菜单底部 100px 透明区域看起来像"空白间距"
+    // 调整窗口高度 = 内容高度后，菜单底部贴合任务栏
+    requestAnimationFrame(() => {
+      const menu = document.getElementById("menu");
+      if (menu && TRAY.reportHeight) {
+        TRAY.reportHeight(menu.offsetHeight);
+      }
+    });
 
     // 绑定点击
     root.querySelectorAll("[data-act]").forEach(el => {
@@ -589,29 +590,43 @@ html, body {
   let wsRetry = 0;
   function connectWS() {
     const wsBase = BASE.replace(/^http/, "ws");
+    const wsUrl = wsBase + "/ws/events";
+    console.log("[tray] WS connecting:", wsUrl);
     try {
-      ws = new WebSocket(wsBase + "/ws/events");
+      ws = new WebSocket(wsUrl);
     } catch (e) {
+      console.warn("[tray] WS construction failed:", e.message);
       setTimeout(connectWS, 2000);
       return;
     }
+    ws.onopen = () => {
+      wsRetry = 0;
+      console.log("[tray] WS connected");
+    };
     ws.onmessage = (e) => {
       try {
         const evt = JSON.parse(e.data);
+        // 调试日志：收到事件时打印 type，便于排查"状态变化监测不到"
+        console.log("[tray] WS event:", evt.type, evt.data);
         handleEvent(evt);
-      } catch {}
+      } catch (err) {
+        console.warn("[tray] WS parse failed:", err.message);
+      }
     };
-    ws.onopen = () => { wsRetry = 0; };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      console.log("[tray] WS closed:", e.code, e.reason);
       wsRetry++;
       if (wsRetry <= 5) setTimeout(connectWS, Math.min(2000 * wsRetry, 10000));
     };
-    ws.onerror = () => {};
+    ws.onerror = (e) => {
+      console.warn("[tray] WS error:", e.message || e.type);
+    };
   }
 
   function handleEvent(evt) {
     if (!evt || !evt.type) return;
     switch (evt.type) {
+      case "task_added":         // 任务加入队列（之前漏处理，徽章不会从 idle→busy）
       case "task_progress":
       case "task_started":
       case "task_finished":
@@ -633,6 +648,10 @@ html, body {
         break;
     }
   }
+
+  // —— 兜底轮询：每 5 秒拉一次 /api/queue，防止 WS 断连或事件遗漏导致徽章不刷新 ——
+  // 优先级低于 WS：WS 实时推送 + 5s 兜底轮询，双保险
+  setInterval(() => { refreshQueue(); }, 5000);
 
   let queueTimer = null;
   function refreshQueue() {

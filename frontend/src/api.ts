@@ -318,6 +318,13 @@ export interface CheckUpdateResult {
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
 
+/** Live Photo 双文件结构 */
+export interface LivePhotoData {
+  image?: string;
+  video?: string;
+  cover?: string;
+}
+
 /** 单个媒体项（多图/多视频帖的子项） */
 export interface MediaItem {
   url: string;
@@ -329,6 +336,8 @@ export interface MediaItem {
   size: number;
   quality: string;
   filename: string;
+  /** Live Photo 双文件（小红书/微博实况图，含视频流） */
+  live_photo?: LivePhotoData | null;
 }
 
 /** 可选格式（YouTube 等多档位） */

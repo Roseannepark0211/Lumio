@@ -11,6 +11,7 @@ import { InboxPage } from "./pages/InboxPage";
 import { StatsPage } from "./pages/StatsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { Logo3DGlow } from "./components/Logo3DGlow";
 
 // 全局 Toast 上下文 — 任何页面都能触发 toast
 const ToastContext = React.createContext<(msg: string) => void>(() => {});
@@ -228,11 +229,9 @@ function PocPage() {
 
   return (
     <div className="h-full overflow-auto p-8">
-      <header className="mb-8 animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Lumio <span className="text-accent">Electron POC</span>
-        </h1>
-        <p className="mt-1 text-sm text-text-muted">
+      <header className="mb-8 animate-fade-in flex flex-col items-start gap-3">
+        <Logo3DGlow size="lg" variant="default" />
+        <p className="text-sm text-text-muted">
           FastAPI 链路验证 · 后端版本 v{health.version}
         </p>
       </header>

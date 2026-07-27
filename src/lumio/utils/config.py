@@ -19,6 +19,9 @@ DEFAULTS = {
     "file_conflict_policy": "rename",
     "auto_download_inbox": False,
     "enable_xsou": False,  # X-Sou 搜索默认关闭（可能浏览到 18+ 内容，需用户显式启用）
+    # 关闭主窗口时的行为：ask(每次询问) / minimize(总是最小化到托盘) / quit(总是退出程序)
+    # 由 Electron main.ts 的 close 事件读取；用户在 close-dialog 勾选「记住选择」时写入
+    "close_behavior": "ask",
     "api_port": 38900,
     "telegram_bot_token": "",
     "telegram_enabled": False,

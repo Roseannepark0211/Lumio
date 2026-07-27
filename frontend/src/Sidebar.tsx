@@ -3,8 +3,6 @@ import { api, subscribeEvents, type AppEvent } from "./api";
 import { useI18n } from "./i18n";
 import { useTheme } from "./theme";
 import { normStatus } from "./utils/downloads";
-// Vite 会把 icon.png 打包到 dist/assets/，import 拿到最终 URL
-import iconUrl from "../build/icon.png";
 
 /**
  * 左侧固定导航栏 — AGENTS.md 规定：
@@ -171,15 +169,6 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
 
   return (
     <aside className="sidebar-glass flex h-full w-[64px] shrink-0 flex-col items-center border-r border-text/10">
-      {/* Logo 图标（应用图标，无文字） */}
-      <div className="flex h-14 shrink-0 items-center justify-center">
-        <img
-          src={iconUrl}
-          alt="Lumio"
-          className="h-7 w-7 shrink-0 rounded-lg object-contain"
-        />
-      </div>
-
       {/* 导航项列表 — 仅图标，hover 显示 title tooltip */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {visibleItems.map((item) => {

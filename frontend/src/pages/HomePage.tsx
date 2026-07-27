@@ -33,6 +33,7 @@ import { PreviewArea } from "./home/PreviewArea";
 import { XSouSearchPanel } from "./home/XSouSearchPanel";
 import { VideoPreviewDialog } from "./home/VideoPreviewDialog";
 import { PreviewProgressDialog } from "./home/PreviewProgressDialog";
+import { Logo3DGlow } from "../components/Logo3DGlow";
 
 // 8 个平台徽章配置（与老版本 QML HomePage.qml 对齐）
 const PLATFORM_PILLS: { plat: string; labelKey: string; defaultLabel: string; color: string }[] = [
@@ -57,6 +58,16 @@ export function HomePage() {
   // —— 解析结果状态 ——
   const [previewInfo, setPreviewInfo] = useState<VideoInfo | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const parseErrorTimer = useRef<number | null>(null);
+  /** 显示解析错误，3s 后自动消失 */
+  const showParseError = useCallback((msg: string) => {
+    if (parseErrorTimer.current) window.clearTimeout(parseErrorTimer.current);
+    setParseError(msg);
+    parseErrorTimer.current = window.setTimeout(() => {
+      setParseError(null);
+      parseErrorTimer.current = null;
+    }, 3000);
+  }, []);
   const [selectedItemIndex, setSelectedItemIndex] = useState(-1);
   const [addedItemIndices, setAddedItemIndices] = useState<Record<number, boolean>>({});
   const [sortedItems, setSortedItems] = useState<SortedMediaItem[]>([]);
@@ -155,14 +166,14 @@ export function HomePage() {
             setSelectedItemIndex(sorted[0].orig_idx);
           }
         } else {
-          setParseError("解析结果无效");
+          showParseError("解析结果无效");
         }
         break;
       }
       case "parse_failed": {
         setIsParsing(false);
         setPreviewInfo(null);
-        setParseError((e.data as { error?: string })?.error || "解析失败");
+        showParseError((e.data as { error?: string })?.error || "解析失败");
         break;
       }
       case "search_completed": {
@@ -245,13 +256,18 @@ export function HomePage() {
     setCustomName("");
     setSelectedFormatId("");
     setSelectedFormatType("");
+    // 清空搜索结果，避免解析新 URL 时残留 X-Sou 结果
+    setSearchResults([]);
+    setSearchTotal(0);
+    setSearchPage(0);
+    setSelectedSearchItems({});
     try {
       await api.parseUrl(url);
     } catch (e) {
       setIsParsing(false);
-      setParseError(tr("parse_failed") + `: ${e}`);
+      showParseError(tr("parse_failed") + `: ${e}`);
     }
-  }, [urlText, isParsing, tr]);
+  }, [urlText, isParsing, tr, showParseError]);
 
   // —— 粘贴 ——
   const pasteFromClipboard = useCallback(async () => {
@@ -408,208 +424,199 @@ export function HomePage() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      {/* ============================================================ */}
-      {/* HERO 区 — 复刻老版本 QML HomePage.qml 顶部（标签+大标题+副标题+平台徽章） */}
-      {/* ============================================================ */}
-      <section className="mb-6 flex flex-col items-center pt-4 animate-slide-up">
-        {/* Hero tag — 小胶囊标签 */}
-        <div
-          className="mb-4 inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1"
-          style={{
-            backgroundColor: "rgba(10, 132, 255, 0.12)",
-            borderColor: "rgba(10, 132, 255, 0.35)",
-          }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: "#0a84ff" }}
-          />
-          <span
-            className="font-mono text-[10px] font-semibold tracking-wide"
-            style={{ color: "#0a84ff" }}
-          >
-            {tr("neural_capture")}
-          </span>
-        </div>
+      {/* 内容容器：max-w-3xl 居中聚焦视觉中心 */}
+      <div className="mx-auto max-w-3xl">
+        {/* ============================================================ */}
+        {/* HERO 区 — LUMIO 3D 字标（Liquid Glass Glow） */}
+        {/* ============================================================ */}
+        <section className="mb-6 flex flex-col items-center pt-4 animate-slide-up">
+          <Logo3DGlow size="lg" variant="default" />
 
-        {/* Hero title — 两行大标题 */}
-        <h1 className="text-center text-4xl font-extrabold tracking-tight text-text">
-          <span className="block">{tr("hero_line1")}</span>
-          <span className="block text-text font-extrabold">
-            {tr("hero_line2")}
-          </span>
-        </h1>
-
-        {/* Subtitle */}
-        <p className="mt-3.5 text-center text-sm text-text-muted">
-          {tr("hero_sub")}
-        </p>
-
-        {/* Platform pills — 8 个平台徽章 */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {PLATFORM_PILLS.map((p) => {
-            const label = p.labelKey ? tr(p.labelKey) : p.defaultLabel;
-            return (
-              <span
-                key={p.plat}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-text-muted transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-text"
-              >
+          {/* Platform pills — 8 个平台徽章 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {PLATFORM_PILLS.map((p) => {
+              const label = p.labelKey ? tr(p.labelKey) : p.defaultLabel;
+              return (
                 <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: p.color }}
-                />
-                {label}
-              </span>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* URL 输入卡片 */}
-      <div className="glass-card mb-4 p-5 animate-slide-up">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-text">{tr("url_input")}</h2>
-          <div className="flex gap-1.5">
-            <button
-              onClick={pasteFromClipboard}
-              className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-            >
-              {tr("paste")}
-            </button>
-            <button
-              onClick={clearInput}
-              disabled={!urlText}
-              className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
-            >
-              {tr("reset")}
-            </button>
-          </div>
-        </div>
-        <textarea
-          value={urlText}
-          onChange={(e) => setUrlText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              parseUrl();
-            }
-          }}
-          placeholder={tr("url_placeholder")}
-          rows={3}
-          className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
-        />
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-xs text-text-muted">
-            {isParsing ? tr("parsing") : "Ctrl+Enter"}
-          </span>
-          <button
-            onClick={parseUrl}
-            disabled={!urlText.trim() || isParsing}
-            className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isParsing ? tr("parsing") : tr("parse")}
-          </button>
-        </div>
-      </div>
-
-      {/* 解析错误 */}
-      {parseError && (
-        <div className="glass-card mb-4 border-danger/30 p-4 animate-slide-up">
-          <div className="flex items-center gap-2 text-sm text-danger">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            {parseError}
-          </div>
-        </div>
-      )}
-
-      {/* Media Items 横向列表（多项帖） */}
-      {previewInfo && sortedItems.length > 1 && (
-        <MediaItemsList
-          items={sortedItems}
-          selectedItemIndex={selectedItemIndex}
-          addedItemIndices={addedItemIndices}
-          onSelect={setSelectedItemIndex}
-          onEnqueue={enqueueSingleItem}
-        />
-      )}
-
-      {/* 预览区 */}
-      {previewInfo && (
-        <>
-          <PreviewArea
-            previewInfo={previewInfo}
-            selectedItemIndex={selectedItemIndex}
-            sortedItems={sortedItems}
-          />
-
-          {/* 格式选择 + 文件名 + 入队 */}
-          <div className="glass-card mb-4 p-4 animate-slide-up">
-            <div className="mb-3 flex items-center gap-3">
-              <input
-                type="text"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder={tr("leave_empty")}
-                className="flex-1 rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 placeholder:text-text-muted/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
-              />
-              {previewInfo.formats.length > 1 && (
-                <select
-                  value={selectedFormatId}
-                  onChange={(e) => {
-                    const f = previewInfo.formats.find((x) => x.format_id === e.target.value);
-                    if (f) {
-                      setSelectedFormatId(f.format_id);
-                      setSelectedFormatType(f.type);
-                    }
-                  }}
-                  className="rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
+                  key={p.plat}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-text-muted transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-text"
                 >
-                  {previewInfo.formats.map((f) => (
-                    <option key={f.format_id} value={f.format_id} className="bg-bg-surface text-text">
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              )}
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: p.color }}
+                  />
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* URL 输入卡片（含 X-Sou 搜索功能整合） */}
+        <div className="glass-card mb-4 p-5 animate-slide-up">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-text">{tr("url_input")}</h2>
+            <div className="flex gap-1.5">
               <button
-                onClick={enqueue}
-                className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow"
+                onClick={pasteFromClipboard}
+                className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text"
               >
-                {tr("add_to_queue")}
+                {tr("paste")}
+              </button>
+              <button
+                onClick={clearInput}
+                disabled={!urlText}
+                className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
+              >
+                {tr("reset")}
               </button>
             </div>
           </div>
-        </>
-      )}
+          <textarea
+            value={urlText}
+            onChange={(e) => setUrlText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                parseUrl();
+              }
+            }}
+            placeholder={
+              xsouEnabled
+                ? tr("url_or_search_placeholder")
+                : tr("url_placeholder")
+            }
+            rows={3}
+            className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
+          />
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-xs text-text-muted">
+              {isParsing
+                ? tr("parsing")
+                : isSearching
+                ? tr("search_loading")
+                : "Ctrl+Enter"}
+            </span>
+            <div className="flex gap-2">
+              {/* 搜索按钮（仅 X-Sou 开关开启时显示） */}
+              {xsouEnabled && (
+                <button
+                  onClick={() => runSearch(urlText.trim(), 1)}
+                  disabled={!urlText.trim() || isSearching}
+                  className="rounded-xl bg-white/5 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isSearching ? tr("search_loading") : tr("search")}
+                </button>
+              )}
+              <button
+                onClick={parseUrl}
+                disabled={!urlText.trim() || isParsing}
+                className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {isParsing ? tr("parsing") : tr("parse")}
+              </button>
+            </div>
+          </div>
 
-      {/* X-Sou 搜索面板（开关由 config 控制） */}
-      {xsouEnabled && (
-        <XSouSearchPanel
-          isSearching={isSearching}
-          searchResults={searchResults}
-          searchTotal={searchTotal}
-          searchPage={searchPage}
-          searchLimit={searchLimit}
-          selectedItems={selectedSearchItems}
-          onSearch={(q, p) => runSearch(q, p)}
-          onSelectItem={toggleSearchItem}
-          onClearSelection={() => setSelectedSearchItems({})}
-          onBatchEnqueue={batchEnqueueSearch}
-          onPreview={previewXVideo}
-          onClose={() => {
-            // 清空搜索结果与状态，保留搜索框输入
-            setSearchResults([]);
-            setSearchTotal(0);
-            setSearchPage(0);
-            setSelectedSearchItems({});
-            setIsSearching(false);
-          }}
-        />
-      )}
+          {/* X-Sou 搜索结果（嵌入卡片内部） */}
+          {xsouEnabled && (
+            <XSouSearchPanel
+              searchResults={searchResults}
+              searchTotal={searchTotal}
+              searchPage={searchPage}
+              searchLimit={searchLimit}
+              selectedItems={selectedSearchItems}
+              isSearching={isSearching}
+              onSelectItem={toggleSearchItem}
+              onClearSelection={() => setSelectedSearchItems({})}
+              onBatchEnqueue={batchEnqueueSearch}
+              onPreview={previewXVideo}
+              onPageChange={(p) => runSearch(urlText.trim(), p)}
+              onClose={() => {
+                setSearchResults([]);
+                setSearchTotal(0);
+                setSearchPage(0);
+                setSelectedSearchItems({});
+                setIsSearching(false);
+              }}
+            />
+          )}
+        </div>
+
+        {/* 解析错误 */}
+        {parseError && (
+          <div className="glass-card mb-4 border-danger/30 p-4 animate-slide-up">
+            <div className="flex items-center gap-2 text-sm text-danger">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              {parseError}
+            </div>
+          </div>
+        )}
+
+        {/* Media Items 横向列表（多项帖） */}
+        {previewInfo && sortedItems.length > 1 && (
+          <MediaItemsList
+            items={sortedItems}
+            selectedItemIndex={selectedItemIndex}
+            addedItemIndices={addedItemIndices}
+            onSelect={setSelectedItemIndex}
+            onEnqueue={enqueueSingleItem}
+          />
+        )}
+
+        {/* 预览区 */}
+        {previewInfo && (
+          <>
+            <PreviewArea
+              previewInfo={previewInfo}
+              selectedItemIndex={selectedItemIndex}
+              sortedItems={sortedItems}
+            />
+
+            {/* 格式选择 + 文件名 + 入队 */}
+            <div className="glass-card mb-4 p-4 animate-slide-up">
+              <div className="mb-3 flex items-center gap-3">
+                <input
+                  type="text"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder={tr("leave_empty")}
+                  className="flex-1 rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 placeholder:text-text-muted/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
+                />
+                {previewInfo.formats.length > 1 && (
+                  <select
+                    value={selectedFormatId}
+                    onChange={(e) => {
+                      const f = previewInfo.formats.find((x) => x.format_id === e.target.value);
+                      if (f) {
+                        setSelectedFormatId(f.format_id);
+                        setSelectedFormatType(f.type);
+                      }
+                    }}
+                    className="rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
+                  >
+                    {previewInfo.formats.map((f) => (
+                      <option key={f.format_id} value={f.format_id} className="bg-bg-surface text-text">
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={enqueue}
+                  className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow"
+                >
+                  {tr("add_to_queue")}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* X-Sou 视频预览下载进度对话框 */}
       <PreviewProgressDialog

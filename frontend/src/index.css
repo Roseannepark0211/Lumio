@@ -4,12 +4,12 @@
 
 @layer base {
   :root {
-    /* 浅色主题（默认 :root） */
+    /* 浅色主题（默认 :root）— Apple Liquid Glass 蓝色调 */
     --color-bg: 245 245 247;          /* #f5f5f7 */
     --color-bg-surface: 255 255 255;  /* #ffffff */
     --color-bg-elevated: 240 240 243; /* #f0f0f3 */
-    --color-accent: 122 92 230;       /* #7a5ce6 - 浅色背景上略深一些 */
-    --color-accent-glow: 167 139 250; /* #a78bfa */
+    --color-accent: 10 132 255;       /* #0a84ff - Apple System Blue */
+    --color-accent-glow: 100 210 255; /* #64d2ff */
     --color-danger: 220 38 38;        /* #dc2626 */
     --color-success: 16 185 129;      /* #10b981 */
     --color-warning: 217 119 6;       /* #d97706 */
@@ -24,12 +24,12 @@
   }
 
   .dark {
-    /* 深色主题（在 <html class="dark"> 上生效） */
+    /* 深色主题（在 <html class="dark"> 上生效）— Apple Liquid Glass 蓝色调 */
     --color-bg: 10 10 15;             /* #0a0a0f */
     --color-bg-surface: 19 19 26;     /* #13131a */
     --color-bg-elevated: 28 28 38;    /* #1c1c26 */
-    --color-accent: 167 139 250;      /* #a78bfa */
-    --color-accent-glow: 196 181 253; /* #c4b5fd */
+    --color-accent: 10 132 255;       /* #0a84ff - Apple System Blue */
+    --color-accent-glow: 100 210 255; /* #64d2ff */
     --color-danger: 239 68 68;        /* #ef4444 */
     --color-success: 16 185 129;      /* #10b981 */
     --color-warning: 245 158 11;      /* #f59e0b */
@@ -183,6 +183,29 @@
     backdrop-filter: blur(30px) saturate(150%);
     -webkit-backdrop-filter: blur(30px) saturate(150%);
   }
+
+  /* 媒体项横向滚动容器 — 优化滚动条 + 触摸滑动 */
+  .media-items-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  .media-items-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .media-items-scroll::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+  .media-items-scroll::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-text) / 0.15);
+    border-radius: 3px;
+  }
+  .media-items-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-text) / 0.3);
+  }
+  .media-items-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 /* LaserProgressBar 激光粒子拖尾动画 */
@@ -213,8 +236,8 @@
   border-radius: inherit;
   padding: 2px;
   background: linear-gradient(
-    var(--flow-color, rgba(122, 92, 230, 0.8)),
-    var(--flow-color, rgba(122, 92, 230, 0.8))
+    var(--flow-color, rgba(10, 132, 255, 0.8)),
+    var(--flow-color, rgba(10, 132, 255, 0.8))
   );
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
@@ -223,9 +246,9 @@
           mask-composite: exclude;
   /* 双层发光：外层柔光晕染 + 内层紧贴边框，加强 LED 灯带质感 */
   box-shadow:
-    0 0 20px 2px var(--flow-color, rgba(122, 92, 230, 0.7)),
-    0 0 8px 0 var(--flow-color, rgba(122, 92, 230, 0.9)),
-    inset 0 0 12px 0 var(--flow-color, rgba(122, 92, 230, 0.5));
+    0 0 20px 2px var(--flow-color, rgba(10, 132, 255, 0.7)),
+    0 0 8px 0 var(--flow-color, rgba(10, 132, 255, 0.9)),
+    inset 0 0 12px 0 var(--flow-color, rgba(10, 132, 255, 0.5));
   animation: flow-breathe 3s ease-in-out infinite;
   pointer-events: none;
   transition: background 0.6s ease, box-shadow 0.6s ease;
@@ -244,15 +267,18 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--flow-color, rgba(167, 139, 250, 1));
+  background: var(--flow-color, rgba(10, 132, 255, 1));
   /* 大光晕 + 紧贴核心，形成彗星拖尾感 */
   box-shadow:
-    0 0 12px 3px var(--flow-color, rgba(167, 139, 250, 0.8)),
+    0 0 12px 3px var(--flow-color, rgba(10, 132, 255, 0.8)),
     0 0 4px 1px #fff;
   offset-path: rect(0 0 100% 100% round 12px);
   offset-rotate: 0deg;
   animation: particle-run 8s linear infinite;
   pointer-events: none;
+  /* GPU 合成层，避免动画触发父容器重绘 */
+  will-change: offset-distance;
+  transform: translateZ(0);
 }
 
 /* prefers-reduced-motion 时关闭所有动画，保留静态灯带 */

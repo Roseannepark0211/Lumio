@@ -122,6 +122,7 @@ function pickUnusedPort(): number {
 
 /** 同步检查端口是否被占用（用 netstat）。 */
 function isPortInUse(port: number): boolean {
+  // 简单策略：用 netstat 检测端口
   try {
     const out = execSync(`netstat -ano -p tcp | findstr ":${port} "`, {
       windowsHide: true,
@@ -130,6 +131,32 @@ function isPortInUse(port: number): boolean {
     return out.trim().length > 0;
   } catch {
     return false;
+  }
+}
+
+/** 同步读取 config.close_behavior（用于 close 事件分支判断）。
+ *  - "ask"      → 每次询问（默认）
+ *  - "minimize" → 总是最小化到托盘
+ *  - "quit"     → 总是退出
+ *
+ *  直接用 fs 读 ~/.lumio/config.json 而非走 FastAPI：
+ *  close 事件是同步的，不能 await；config.py 内存缓存与磁盘文件同步由 save_config 保证。
+ *
+ *  Node.js 不识别 Python 的 'utf-8-sig' 编码，手动剥离 BOM 头 (\uFEFF)。
+ */
+function readCloseBehavior(): string {
+  try {
+    const home = process.env.USERPROFILE || process.env.HOME;
+    if (!home) return "ask";
+    const cfgPath = path.join(home, ".lumio", "config.json");
+    if (!fs.existsSync(cfgPath)) return "ask";
+    let raw = fs.readFileSync(cfgPath, { encoding: "utf-8" });
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1); // strip BOM
+    const cfg = JSON.parse(raw);
+    const v = cfg.close_behavior;
+    return v === "minimize" || v === "quit" ? v : "ask";
+  } catch {
+    return "ask";
   }
 }
 
@@ -361,15 +388,30 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
 
-  // 关闭窗口 → 弹出关闭确认（最小化到托盘 / 退出 / 取消）
+  // 关闭窗口 → 按 config.close_behavior 分支：
+  //   - "ask"      → 弹三选确认窗（取消/退出/最小化到托盘）
+  //   - "minimize" → 直接最小化到托盘（不弹窗）
+  //   - "quit"     → 直接退出程序（不弹窗）
   // isQuitting=true 时（用户从托盘菜单选"退出"）直接放行
+  // 用户在 close-dialog 勾选「记住选择」时写入 close_behavior，从此不再弹窗
+  // SettingsPage 通用设置也能改这个值
   mainWindow.on("close", (e) => {
     if (isQuitting) return;
     e.preventDefault();
+    const behavior = readCloseBehavior();
+    if (behavior === "minimize") {
+      mainWindow?.hide();
+      return;
+    }
+    if (behavior === "quit") {
+      isQuitting = true;
+      stopFastApi().finally(() => app.quit());
+      return;
+    }
+    // "ask" 或读取失败 → 弹窗
     if (trayManager) {
       trayManager.showCloseDialog();
     } else {
-      // 无托盘时直接隐藏（兜底）
       mainWindow?.hide();
     }
   });
