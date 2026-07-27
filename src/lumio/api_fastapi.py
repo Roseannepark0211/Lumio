@@ -1447,20 +1447,33 @@ def create_app() -> FastAPI:
             return {"ok": False, "error": str(e)}
 
     @app.get("/api/thumb-proxy")
-    async def thumb_proxy(url: str = Query(...)) -> Response:
+    async def thumb_proxy(
+        url: str = Query(...),
+        w: int = Query(0, ge=0, le=1024),
+        h: int = Query(0, ge=0, le=1024),
+        request: Request = None,
+    ) -> Response:
         """代理远程缩略图下载，附加 Referer/Cookie（与 ThumbnailProvider 等价）。
-        返回原始图片字节，前端用 <img src="/api/thumb-proxy?url=..."> 直接渲染。
+
+        新增：
+        - 服务端本地缓存（~/.lumio/cache/thumb_proxy/，7 天 TTL）
+        - ETag + If-None-Match 条件请求（远程 304 + 浏览器 304 双层）
+        - w/h 参数：用 PIL 缩放到指定尺寸，节省带宽与内存
         """
         import requests as _requests
         try:
             from .utils.thumb_proxy import fetch_thumbnail_bytes
-            content, content_type = fetch_thumbnail_bytes(url, timeout=15)
-            # 设置长缓存（7 天）：缩略图 URL 通常带版本 hash，URL 不变则内容不变
-            # 浏览器缓存命中后不再请求后端，切换页面/滚动都不会重新加载
+            content, content_type, etag = fetch_thumbnail_bytes(url, timeout=15, target_w=w, target_h=h)
             headers_out = {
                 "Cache-Control": "public, max-age=604800, immutable",
                 "Content-Type": content_type,
             }
+            if etag:
+                headers_out["ETag"] = etag
+                # 浏览器发 If-None-Match 且匹配 → 返回 304
+                inm = request.headers.get("if-none-match") if request else None
+                if inm and etag in inm:
+                    return Response(status_code=304, headers=headers_out)
             return Response(content=content, headers=headers_out)
         except _requests.HTTPError as e:
             # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查

@@ -54,7 +54,7 @@ export function MediaItemsList({ items, selectedItemIndex, addedItemIndices, onS
               {/* 缩略图 / 视频占位 */}
               {!s.item.is_video && s.item.url ? (
                 <img
-                  src={thumbProxyUrl(s.item.url)}
+                  src={thumbProxyUrl(s.item.url, 160, 160)}
                   alt=""
                   className="h-full w-full object-cover"
                   loading="lazy"

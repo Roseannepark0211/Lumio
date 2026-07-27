@@ -113,8 +113,21 @@ export function HistoryPage() {
   useEffect(() => {
     const unsub = subscribeEvents((e: AppEvent) => {
       switch (e.type) {
+        case "history_record_added": {
+          // 增量 append：后端携带完整 HistoryRecord 字典
+          const newRec = e.data as HistoryRecord | null;
+          if (newRec && newRec.id) {
+            setRecords((prev) => {
+              if (prev.some((x) => x.id === newRec.id)) return prev;
+              return [newRec, ...prev];
+            });
+          } else {
+            reload();
+          }
+          break;
+        }
         case "history_changed":
-        case "history_record_added":
+          // 删除/清空 → 全量刷新
           reload();
           break;
 
@@ -405,7 +418,7 @@ function RecordCard({
       <div className="relative h-[62px] w-[62px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/30">
         {hasThumb ? (
           <img
-            src={thumbProxyUrl(record.thumbnail_url)}
+            src={thumbProxyUrl(record.thumbnail_url, 128, 128)}
             alt=""
             className="h-full w-full object-cover"
             onError={(e) => {

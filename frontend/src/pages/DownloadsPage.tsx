@@ -86,13 +86,68 @@ export function DownloadsPage() {
   useEffect(() => {
     const unsub = subscribeEvents((e: AppEvent) => {
       switch (e.type) {
-        // 整列刷新事件
+        // 全量刷新：队列整体变化（start_all / pause_all / cancel_all / cleanup 等）
         case "queue_changed":
-        case "task_status_changed":
-        case "task_added":
-        case "task_finished":
           reloadQueue();
           break;
+
+        // 增量 append：新任务加入队列
+        case "task_added": {
+          const newTask = e.data as QueueTask | null;
+          if (newTask && newTask.task_id) {
+            setTasks((prev) => {
+              if (prev.some((t) => t.task_id === newTask.task_id)) return prev;
+              return [...prev, newTask];
+            });
+          } else {
+            reloadQueue();
+          }
+          break;
+        }
+
+        // 增量 patch：任务状态变更（暂停/继续/重试/恢复/中断）
+        case "task_status_changed": {
+          const p = e.data as { task_id?: string; status?: string } | null;
+          if (!p?.task_id || !p.status) {
+            reloadQueue();
+            break;
+          }
+          const tid = p.task_id;
+          const newStatus = p.status;
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.task_id === tid ? { ...t, status: newStatus } : t
+            )
+          );
+          break;
+        }
+
+        // 增量 patch：任务完成（带 success/error）
+        case "task_finished": {
+          const p = e.data as
+            | { task_id?: string; success?: boolean; error?: string }
+            | null;
+          if (!p?.task_id) {
+            reloadQueue();
+            break;
+          }
+          const tid = p.task_id;
+          const success = !!p.success;
+          const err = p.error || "";
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.task_id === tid
+                ? {
+                    ...t,
+                    status: success ? "done" : "error",
+                    progress: success ? 1 : t.progress,
+                    error: err,
+                  }
+                : t
+            )
+          );
+          break;
+        }
 
         // 局部更新事件（避免整列重渲染，对应 QML 的 setProperty 优化）
         case "task_progress": {

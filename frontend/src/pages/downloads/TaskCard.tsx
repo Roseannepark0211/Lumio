@@ -78,7 +78,7 @@ function TaskCardImpl({
       <div className="relative h-[62px] w-[62px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/30">
         {hasThumb ? (
           <img
-            src={thumbProxyUrl(task.thumbnail_url)}
+            src={thumbProxyUrl(task.thumbnail_url, 128, 128)}
             alt=""
             className="h-full w-full object-cover"
             onError={(e) => {

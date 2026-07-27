@@ -117,7 +117,7 @@ export function XSouSearchPanel({
                 <div className="flex-shrink-0 overflow-hidden rounded-md" style={{ width: 80, height: 80 }}>
                   {r.video_cover ? (
                     <img
-                      src={thumbProxyUrl(r.video_cover)}
+                      src={thumbProxyUrl(r.video_cover, 160, 160)}
                       alt=""
                       className="h-full w-full object-cover"
                       loading="lazy"

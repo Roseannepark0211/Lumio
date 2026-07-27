@@ -1305,33 +1305,82 @@ function SpinBox({
   value: number;
   onChange: (v: number) => void;
 }) {
+  // [−] [可编辑数字] [+] 三段式
+  // - ± 按钮单击步进 step
+  // - 中间 input 可键盘输入数字，失焦/回车时校验范围并提交
+  // - 隐藏浏览器自带 spinner（appearance: none）
+  const [text, setText] = useState(String(value));
+
+  // 外部 value 变化时同步 text（如配置被其他地方修改）
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const v = parseInt(raw, 10);
+      if (isNaN(v)) {
+        setText(String(value));
+        return;
+      }
+      const clamped = Math.max(min, Math.min(max, v));
+      if (clamped !== value) {
+        onChange(clamped);
+      } else {
+        setText(String(clamped));
+      }
+    },
+    [min, max, onChange, value]
+  );
+
   return (
-    <div className="flex w-32 items-center gap-1 rounded-lg border border-text/15 bg-bg-surface shadow-sm transition-colors hover:border-text/25">
+    <div className="flex h-8 w-fit items-center overflow-hidden rounded-lg border border-text/15 bg-bg-surface shadow-sm transition-colors hover:border-text/25 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/40">
       <button
         onClick={() => onChange(Math.max(min, value - step))}
         disabled={value <= min}
-        className="px-2 py-1 text-text-muted hover:text-text disabled:opacity-30"
+        className="btn-press flex h-8 w-8 items-center justify-center text-text-muted hover:bg-text/[0.06] hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
+        title="-"
+        aria-label="decrease"
       >
-        −
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="3" y1="8" x2="13" y2="8" />
+        </svg>
       </button>
       <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
+        type="text"
+        inputMode="numeric"
+        value={text}
         onChange={(e) => {
-          const v = parseInt(e.target.value, 10);
-          if (!isNaN(v) && v >= min && v <= max) onChange(v);
+          // 只允许数字（含空字符串，便于清空后重输）
+          const raw = e.target.value.replace(/[^\d]/g, "");
+          setText(raw);
         }}
-        className="w-full bg-transparent text-center text-sm text-text focus:outline-none"
+        onBlur={() => commit(text)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            onChange(Math.min(max, value + step));
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            onChange(Math.max(min, value - step));
+          }
+        }}
+        className="h-8 w-12 border-x border-text/10 bg-bg-elevated/40 px-1 text-center font-mono text-[13px] font-semibold tabular-nums text-text focus:outline-none"
+        aria-label="value"
       />
       <button
         onClick={() => onChange(Math.min(max, value + step))}
         disabled={value >= max}
-        className="px-2 py-1 text-text-muted hover:text-text disabled:opacity-30"
+        className="btn-press flex h-8 w-8 items-center justify-center text-text-muted hover:bg-text/[0.06] hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
+        title="+"
+        aria-label="increase"
       >
-        +
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="8" y1="3" x2="8" y2="13" />
+          <line x1="3" y1="8" x2="13" y2="8" />
+        </svg>
       </button>
     </div>
   );

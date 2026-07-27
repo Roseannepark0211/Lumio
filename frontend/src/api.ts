@@ -49,11 +49,14 @@ export function lumioFileUrl(p: string): string {
 
 /** 把远程图片 URL 包装成 /api/thumb-proxy?url=...&token=... 形式。
  *  浏览器原生 <img src> 不带 X-Lumio-Token header，必须用 query token 兜底。
+ *  w/h > 0 时让后端用 PIL 缩放，节省带宽（适用于小卡片缩略图）。
  */
-export function thumbProxyUrl(remoteUrl: string): string {
+export function thumbProxyUrl(remoteUrl: string, w = 0, h = 0): string {
   if (!remoteUrl) return "";
   const q = new URLSearchParams();
   q.set("url", remoteUrl);
+  if (w > 0) q.set("w", String(w));
+  if (h > 0) q.set("h", String(h));
   if (TOKEN) q.set("token", TOKEN);
   return `${BASE}/api/thumb-proxy?${q.toString()}`;
 }

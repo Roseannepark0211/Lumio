@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef, memo } from "react";
+import { FixedSizeGrid } from "react-window";
 import {
   api,
   subscribeEvents,
@@ -203,8 +204,23 @@ export function LibraryPage() {
   useEffect(() => {
     const unsub = subscribeEvents((e: AppEvent) => {
       switch (e.type) {
+        case "library_record_added": {
+          // 增量 append：后端携带完整 LibraryItem 字典
+          const newItem = e.data as LibraryItem | null;
+          if (newItem && newItem.id) {
+            // 去重（避免同 id 重复 append）
+            setItems((prev) => {
+              if (prev.some((x) => x.id === newItem.id)) return prev;
+              return [newItem, ...prev];
+            });
+          } else {
+            // data 不完整 → 回退全量
+            reload();
+          }
+          break;
+        }
         case "library_changed":
-        case "library_record_added":
+          // 删除/批量操作/Collection 变更 → 全量刷新
           reload();
           break;
 
@@ -583,43 +599,17 @@ export function LibraryPage() {
           </div>
         )}
 
-        {/* 媒体网格 — 3 列固定布局 */}
+        {/* 媒体网格 — 虚拟列表（react-window FixedSizeGrid） */}
         {filtered.length > 0 && (
-          <div
-            className="min-h-0 flex-1 overflow-y-auto"
-            style={{
-              // 提升为合成层，滚动时独立于背景层重绘
-              willChange: "scroll-position",
-              // 滚动到边界不冒泡到父级，避免触发整体 layout
-              overscrollBehavior: "contain",
-              // 触摸设备惯性滚动
-              WebkitOverflowScrolling: "touch",
-            }}
-          >
-            <div
-              className="grid grid-cols-3 gap-6 p-1"
-              style={{
-                // 让浏览器跳过不可见卡片的渲染工作（大幅提升滚动性能）
-                // paint + size 让 contain 更完整
-                contain: "layout style paint",
-              }}
-            >
-              {filtered.map((it) => (
-                <LibraryCard
-                  key={it.id}
-                  item={it}
-                  activeCollectionId={activeCollectionId}
-                  onToggleFavorite={onToggleFavorite}
-                  onDelete={onDeleteItem}
-                  onOpenFile={onOpenFile}
-                  onOpenFolder={onOpenFolder}
-                  onShowCollectionMenu={onShowCollectionMenu}
-                />
-              ))}
-            </div>
-            {/* 底部 spacer */}
-            <div className="h-12" />
-          </div>
+          <VirtualizedLibraryGrid
+            items={filtered}
+            activeCollectionId={activeCollectionId}
+            onToggleFavorite={onToggleFavorite}
+            onDelete={onDeleteItem}
+            onOpenFile={onOpenFile}
+            onOpenFolder={onOpenFolder}
+            onShowCollectionMenu={onShowCollectionMenu}
+          />
         )}
       </main>
 
@@ -804,10 +794,11 @@ function LibraryCardInner({
   // 本地缩略图优先（thumbnail_path 是本地路径），否则用远程 URL 走 thumb-proxy
   const localThumb = item.thumbnail_path || "";
   const remoteThumb = item.thumbnail_url || "";
+  // 封面区高度 150px，传 200x200 留余量；后端 PIL 缩放后带宽降 50-100 倍
   const thumbSrc = localThumb
     ? lumioFileUrl(localThumb)
     : remoteThumb
-    ? thumbProxyUrl(remoteThumb)
+    ? thumbProxyUrl(remoteThumb, 200, 200)
     : "";
 
   const typeBadge = typeBadgeClass(item.media_type, tr);
@@ -816,14 +807,7 @@ function LibraryCardInner({
     (item.collection_ids || []).includes(activeCollectionId);
 
   return (
-    <div
-      className="library-card flex h-[260px] flex-col overflow-hidden"
-      style={{
-        // 卡片不在视口内时跳过渲染（contain-intrinsic-size 给占位高度防滚动条抖动）
-        contentVisibility: "auto",
-        containIntrinsicSize: "260px",
-      }}
-    >
+    <div className="library-card flex h-[260px] flex-col overflow-hidden">
       {/* 封面区 */}
       <div className="relative mx-2.5 mt-2.5 h-[150px] overflow-hidden rounded-lg bg-black/30">
         {thumbSrc ? (
@@ -1028,6 +1012,126 @@ function CollectionMenu({
         )}
       </div>
     </>
+  );
+}
+
+// ============================================================
+// 虚拟列表网格 — react-window FixedSizeGrid
+// ============================================================
+
+// 卡片高度 260px + 行间距 24px = 284px 行高
+const ROW_HEIGHT = 284;
+// 列间距 24px，左右内边距 4px*2
+const COL_GAP = 24;
+const PAD_X = 4;
+// 卡片最小宽度 240px（小于此值会挤压操作按钮）
+const MIN_CARD_WIDTH = 240;
+
+type VirtualGridProps = {
+  items: LibraryItem[];
+  activeCollectionId: number;
+  onToggleFavorite: (itemId: string) => void;
+  onDelete: (itemId: string) => void;
+  onOpenFile: (path: string) => void;
+  onOpenFolder: (path: string) => void;
+  onShowCollectionMenu: (
+    itemId: string,
+    anchor: { x: number; y: number }
+  ) => void;
+};
+
+function VirtualizedLibraryGrid({
+  items,
+  activeCollectionId,
+  onToggleFavorite,
+  onDelete,
+  onOpenFile,
+  onOpenFolder,
+  onShowCollectionMenu,
+}: VirtualGridProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(800);
+  const [height, setHeight] = useState(600);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+
+  // 测量容器宽高，响应窗口 resize
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w > 0) setWidth(w);
+      if (h > 0) setHeight(h);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 计算列数：每列至少 MIN_CARD_WIDTH，最多排满
+  const colCount = Math.max(1, Math.floor((width - COL_GAP) / (MIN_CARD_WIDTH + COL_GAP)));
+  const cardWidth = Math.floor((width - COL_GAP * (colCount + 1) - PAD_X * 2) / colCount);
+  const rowCount = Math.ceil(items.length / colCount);
+
+  // Cell 渲染函数
+  const Cell = useCallback(
+    ({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
+      const idx = rowIndex * colCount + columnIndex;
+      if (idx >= items.length) return null;
+      const it = items[idx];
+      return (
+        <div
+          style={{
+            ...style,
+            // 内边距让卡片之间有 gap
+            left: Number(style.left || 0) + PAD_X,
+            top: style.top,
+            width: Number(style.width || 0) - COL_GAP,
+            height: Number(style.height || 0) - COL_GAP / 2,
+          }}
+        >
+          <LibraryCard
+            item={it}
+            activeCollectionId={activeCollectionId}
+            onToggleFavorite={onToggleFavorite}
+            onDelete={onDelete}
+            onOpenFile={onOpenFile}
+            onOpenFolder={onOpenFolder}
+            onShowCollectionMenu={onShowCollectionMenu}
+          />
+        </div>
+      );
+    },
+    [items, colCount, activeCollectionId, onToggleFavorite, onDelete, onOpenFile, onOpenFolder, onShowCollectionMenu]
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      className="min-h-0 flex-1 overflow-hidden"
+      style={{
+        // 触摸设备惯性滚动
+        WebkitOverflowScrolling: "touch",
+      }}
+    >
+      <FixedSizeGrid
+        ref={gridRef as any}
+        columnCount={colCount}
+        columnWidth={cardWidth + COL_GAP}
+        height={height}
+        rowCount={rowCount}
+        rowHeight={ROW_HEIGHT}
+        width={width}
+        style={{
+          overflowX: "hidden",
+          overflowY: "auto",
+        }}
+      >
+        {Cell}
+      </FixedSizeGrid>
+    </div>
   );
 }
 
