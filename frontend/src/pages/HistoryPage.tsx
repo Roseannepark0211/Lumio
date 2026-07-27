@@ -400,7 +400,7 @@ function RecordCard({
   const hasFile = !!record.file_path && record.file_path.length > 0;
 
   return (
-    <div className="glass-card flex items-center gap-3.5 p-3.5">
+    <div className="library-card flex items-center gap-3.5 p-3.5">
       {/* Thumbnail / platform icon */}
       <div className="relative h-[62px] w-[62px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/30">
         {hasThumb ? (
@@ -409,7 +409,10 @@ function RecordCard({
             alt=""
             className="h-full w-full object-cover"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
+              const img = e.currentTarget as HTMLImageElement;
+              img.onerror = null;
+              img.src = "";
+              img.style.display = "none";
             }}
           />
         ) : (

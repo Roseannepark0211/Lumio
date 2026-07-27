@@ -174,7 +174,7 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
               key={item.key}
               onClick={() => onNavigate(item.key)}
               title={item.label}
-              className={`group relative flex h-10 w-10 items-center justify-center rounded-lg transition-all ${
+              className={`btn-press group relative flex h-10 w-10 items-center justify-center rounded-lg ${
                 isActive
                   ? "bg-text/10 text-text"
                   : "text-text-muted hover:bg-text/[0.06] hover:text-text"
@@ -244,7 +244,7 @@ function ThemeToggle() {
     <button
       onClick={() => toggleTheme()}
       title={isDark ? tr("theme_light") : tr("theme_dark")}
-      className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-text/[0.06] hover:text-text"
+      className="btn-press flex h-10 w-10 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-text/[0.06] hover:text-text"
     >
       {isDark ? <SunIcon /> : <MoonIcon />}
     </button>

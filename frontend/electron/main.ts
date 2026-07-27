@@ -467,11 +467,17 @@ app.whenReady().then(async () => {
         },
       });
 
+      // 图片缩略图不变 → 长缓存（二次进入 LibraryPage 零 I/O）
+      // 视频/其他 → no-cache（用户可能在外部修改，且 <video> Range 请求需要新鲜状态）
+      const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
+      const isImage = imageExts.includes(ext);
       const headers: Record<string, string> = {
         "Content-Type": mime,
         "Accept-Ranges": "bytes",
         "Content-Length": String(contentLength),
-        "Cache-Control": "no-cache",
+        "Cache-Control": isImage
+          ? "public, max-age=604800, immutable"
+          : "no-cache",
       };
       if (isPartial) {
         headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`;

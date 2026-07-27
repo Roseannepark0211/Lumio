@@ -606,7 +606,7 @@ function InboxCard({
   const badge = statusBadgeClass(item.status);
 
   return (
-    <div className="glass-card flex items-center gap-3.5 p-3.5">
+    <div className="library-card flex items-center gap-3.5 p-3.5">
       {/* 选择框（仅 selectMode 显示） */}
       {selectMode && (
         <button
@@ -632,7 +632,10 @@ function InboxCard({
             decoding="async"
             className="h-full w-full object-cover"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
+              const img = e.currentTarget as HTMLImageElement;
+              img.onerror = null;
+              img.src = "";
+              img.style.display = "none";
             }}
           />
         ) : (

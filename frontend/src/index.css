@@ -57,12 +57,18 @@
 
   body {
     font-family: theme("fontFamily.sans");
-    /* Liquid Glass 背景：径向光晕 + 基础底色，深浅色各一套 */
+    /* Liquid Glass 背景：多层柔和光晕 + 基础底色，深浅色各一套
+       层次：主光（左上 accent）+ 副光（右下 danger 暖色）+ 中间点缀（success 冷色）
+       避免单调，但保持克制不喧宾夺主 */
     background:
-      radial-gradient(at 20% 0%, rgb(var(--color-accent) / 0.15) 0px, transparent 50%),
-      radial-gradient(at 80% 100%, rgb(var(--color-danger) / 0.08) 0px, transparent 50%),
+      radial-gradient(60% 50% at 18% 8%, rgb(var(--color-accent) / 0.18) 0%, transparent 60%),
+      radial-gradient(55% 45% at 82% 92%, rgb(var(--color-danger) / 0.10) 0%, transparent 60%),
+      radial-gradient(40% 35% at 65% 35%, rgb(var(--color-success) / 0.06) 0%, transparent 55%),
+      radial-gradient(45% 40% at 30% 75%, rgb(var(--color-accent-glow) / 0.08) 0%, transparent 55%),
       rgb(var(--color-bg));
     background-attachment: fixed;
+    /* 让背景不参与滚动重绘，独立合成层 */
+    will-change: transform;
   }
 
   ::-webkit-scrollbar {
@@ -82,7 +88,8 @@
 }
 
 @layer components {
-  /* Liquid Glass 卡片 — 透明度用 rgb 通道引用，跨主题自动适配 */
+  /* Liquid Glass 卡片 — 透明度用 rgb 通道引用，跨主题自动适配
+     优化：减轻 box-shadow 避免大面积合成层重绘；深浅模式用 text 通道而非黑色 */
   .glass-card {
     @apply relative rounded-2xl border;
     border-color: rgb(var(--color-text) / 0.1);
@@ -90,8 +97,8 @@
     backdrop-filter: blur(40px) saturate(180%);
     -webkit-backdrop-filter: blur(40px) saturate(180%);
     box-shadow:
-      0 30px 60px -15px rgb(0 0 0 / 0.5),
-      0 8px 16px -4px rgb(0 0 0 / 0.3),
+      0 12px 32px -12px rgb(0 0 0 / 0.35),
+      0 4px 8px -2px rgb(0 0 0 / 0.2),
       inset 0 1px 0 0 rgb(var(--color-text) / 0.08);
   }
 
@@ -106,6 +113,42 @@
       transparent 50%
     );
     pointer-events: none;
+  }
+
+  /* 轻量卡片 — 用于滚动列表项（Library/History/Inbox/Downloads 任务卡）
+     不用 backdrop-filter，避免大量卡片同时模糊导致 GPU 卡顿
+     仍保留玻璃质感的边框 + 微透明背景 + 顶部高光 */
+  .library-card {
+    @apply relative rounded-2xl border;
+    border-color: rgb(var(--color-text) / 0.08);
+    background: rgb(var(--color-bg-surface) / 0.55);
+    box-shadow:
+      0 4px 12px -6px rgb(0 0 0 / 0.25),
+      inset 0 1px 0 0 rgb(var(--color-text) / 0.06);
+    transition:
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.18s ease,
+      box-shadow 0.18s ease;
+  }
+
+  .library-card:hover {
+    border-color: rgb(var(--color-accent) / 0.35);
+    box-shadow:
+      0 8px 20px -8px rgb(var(--color-accent) / 0.25),
+      0 2px 6px -2px rgb(0 0 0 / 0.2),
+      inset 0 1px 0 0 rgb(var(--color-text) / 0.08);
+    transform: translateY(-2px);
+  }
+
+  /* 通用交互按钮微动效 */
+  .btn-press {
+    transition:
+      transform 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .btn-press:active {
+    transform: scale(0.96);
   }
 
   /* Pill 状态徽章 */

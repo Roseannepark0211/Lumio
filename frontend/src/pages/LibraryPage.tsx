@@ -585,13 +585,23 @@ export function LibraryPage() {
 
         {/* 媒体网格 — 3 列固定布局 */}
         {filtered.length > 0 && (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            style={{
+              // 提升为合成层，滚动时独立于背景层重绘
+              willChange: "scroll-position",
+              // 滚动到边界不冒泡到父级，避免触发整体 layout
+              overscrollBehavior: "contain",
+              // 触摸设备惯性滚动
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
             <div
               className="grid grid-cols-3 gap-6 p-1"
               style={{
                 // 让浏览器跳过不可见卡片的渲染工作（大幅提升滚动性能）
-                // contain-intrinsic-size 防止滚动条跳动
-                contain: "layout style",
+                // paint + size 让 contain 更完整
+                contain: "layout style paint",
               }}
             >
               {filtered.map((it) => (
@@ -807,7 +817,7 @@ function LibraryCardInner({
 
   return (
     <div
-      className="glass-card flex h-[260px] flex-col overflow-hidden"
+      className="library-card flex h-[260px] flex-col overflow-hidden"
       style={{
         // 卡片不在视口内时跳过渲染（contain-intrinsic-size 给占位高度防滚动条抖动）
         contentVisibility: "auto",
@@ -824,7 +834,11 @@ function LibraryCardInner({
             decoding="async"
             className="h-full w-full object-cover"
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
+              // 清空 src 避免下次挂载重新请求失败 URL
+              const img = e.currentTarget as HTMLImageElement;
+              img.onerror = null;
+              img.src = "";
+              img.style.display = "none";
             }}
           />
         ) : (

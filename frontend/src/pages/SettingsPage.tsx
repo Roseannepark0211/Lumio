@@ -1281,7 +1281,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`min-w-[7rem] rounded-lg border border-text/15 bg-bg-surface px-2.5 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40 ${className}`}
+      className={`w-fit min-w-[5rem] rounded-lg border border-text/15 bg-bg-surface px-2.5 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40 ${className}`}
     >
       {options.map((o) => (
         <option key={o.value} value={o.value} className="bg-bg-surface text-text">

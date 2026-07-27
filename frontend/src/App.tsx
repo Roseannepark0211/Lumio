@@ -96,7 +96,7 @@ export default function App() {
         {/* 全局 Toast 渲染 — 固定在屏幕底部居中 */}
         {toastMsg && (
           <div className="pointer-events-none fixed bottom-8 left-1/2 z-[100] -translate-x-1/2 animate-slide-up">
-            <div className="glass-card max-w-md rounded-xl border border-white/10 bg-zinc-900/95 px-4 py-2.5 text-sm text-text shadow-2xl">
+            <div className="glass-card max-w-md rounded-xl px-4 py-2.5 text-sm text-text">
               {toastMsg}
             </div>
           </div>
