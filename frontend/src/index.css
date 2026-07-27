@@ -103,6 +103,13 @@
     color: theme("colors.danger");
     border: 1px solid rgba(239, 68, 68, 0.3);
   }
+
+  /* Sidebar 玻璃面板 — 与 glass-card 协调但更克制（背景更暗） */
+  .sidebar-glass {
+    background: rgba(10, 10, 15, 0.7);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
+  }
 }
 
 /* LaserProgressBar 激光粒子拖尾动画 */
