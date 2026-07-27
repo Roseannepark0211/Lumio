@@ -58,14 +58,10 @@ export class TrayManager {
   private closeWin: BrowserWindow | null = null;
   private deps: TrayManagerDeps;
   private tooltipTimer: NodeJS.Timeout | null = null;
-  /** 首次打开菜单时等 HTML 加载 + render 完成后再 show，
-   *  避免 400px 高的窗口立即显示而内容只有 300px → 底部 100px 空白 */
-  private menuPendingShow: boolean = false;
-  /** 首次打开时右键位置的 bounds，等 reportHeight 触发 show 时用 */
-  private pendingBounds?: Electron.Rectangle;
-  /** 菜单锚点（首次打开时记录，后续 reportHeight 触发重新定位时复用，
-   *  避免鼠标移动后 cursor 实时位置变化导致菜单跳动）。
-   *  - anchor.x: 首次点击的水平位置（菜单水平居中对齐此点）
+  /** showMenu 调用后 200ms 内忽略 blur 事件，避免 show/focus 触发的瞬时 blur 立即关闭菜单 */
+  private suppressBlurUntil: number = 0;
+  /** 菜单锚点（每次 showMenu 时记录，positionMenu 复用避免菜单跟随鼠标跳动）。
+   *  - anchor.x: 点击的水平位置（菜单水平居中对齐此点）
    *  - anchor.y: 任务栏顶部 Y（菜单底部对齐此点，贴任务栏弹出）
    *  - anchor.taskbarSide: 任务栏位置（bottom/top/left/right） */
   private menuAnchor: { x: number; y: number; taskbarSide: "bottom" | "top" | "left" | "right" } | null = null;
@@ -148,31 +144,30 @@ export class TrayManager {
   /** 显示托盘菜单弹窗。
    *  bounds 参数：右键点击的位置（Electron right-click 事件第二参数）。
    *  不传则用托盘图标位置（macOS 左键点击场景）。
-   *  水平定位以鼠标 x 为中心，菜单跟随鼠标位置而非托盘图标中心。
    *
-   *  关键时序设计：
-   *  - 首次打开：先创建窗口（不显示）→ 等 HTML 加载完 + render 完成 →
-   *    前端调 reportHeight IPC 报告实际内容高度 → 主进程 setSize 调整窗口高度 →
-   *    positionMenu 用实际窗口高度贴合任务栏 → show 显示
-   *  - 这样用户看到的菜单窗口高度 = 内容高度，底部直接贴合任务栏，无空白间距
-   *  - 二次打开（窗口已加载过）：直接 positionMenu + show
+   *  关键时序设计（修复闪烁问题）：
+   *  - 首次打开：创建窗口 → 等 ready-to-show 信号（首次绘制完成）→ show
+   *    避免 transparent 窗口先显示空白再填充内容的"内容闪现"
+   *    ready-to-show 比 HTML 完全加载快（50-100ms），用户感觉"立即响应"
+   *  - 窗口已可见：只重新定位，不重复 show（避免 Windows 窗口管理器激活动画闪烁）
+   *  - 窗口已存在但隐藏：show() 一次即可，不调 focus()（show 已激活窗口，focus 是冗余二次激活）
+   *  - reportHeight 触发后用 setBounds 一步到位调整尺寸+位置，避免 setSize+setPosition 两次重绘
    */
   private showMenu(bounds?: Electron.Rectangle): void {
-    // 每次打开（含二次打开）都重新计算锚点：
-    // - 水平锚点 = 鼠标当前 x（菜单水平居中对齐此点）
-    // - 垂直锚点 = 任务栏顶部 Y（菜单底部对齐此点，贴任务栏弹出）
-    //
-    // 关键：垂直锚点用 workArea 底部（任务栏顶部）而非 cursor.y。
-    // 用户从隐藏图标展开面板点击时 cursor.y 在面板里（比任务栏顶部高 ~40-80px），
-    // 如果菜单底部贴 cursor.y 会让菜单底部悬空在任务栏上方，菜单和任务栏之间出现空白。
-    // 用 workArea 底部作锚点保证菜单始终贴任务栏顶部弹出，符合 Windows 系统原生菜单行为。
     this.menuAnchor = this.computeMenuAnchor();
 
+    // 窗口已可见：只重新定位到最新鼠标位置，不重复 show（避免闪烁）
+    if (this.menuWin && this.menuWin.isVisible()) {
+      this.positionMenu(bounds);
+      return;
+    }
+
     if (!this.menuWin) {
+      // 首次打开：创建窗口，等 ready-to-show 信号才 show
       this.menuWin = new BrowserWindow({
         width: MENU_WIDTH,
-        height: MENU_MAX_HEIGHT,
-        show: false,           // 关键：不在创建时显示，等 reportHeight 后再显示
+        height: 280,
+        show: false,              // 关键：等 ready-to-show 信号
         frame: false,
         resizable: false,
         maximizable: false,
@@ -180,9 +175,6 @@ export class TrayManager {
         fullscreenable: false,
         skipTaskbar: true,
         transparent: true,
-        // 显式声明透明背景色：默认 #00000000（ARGB）。
-        // 不写 backgroundColor 时，某些 Windows 版本会用系统主题色填充 transparent 窗口，
-        // 看起来像菜单周围有一圈暗色"阴影背景"。
         backgroundColor: "#00000000",
         alwaysOnTop: true,
         focusable: true,
@@ -190,22 +182,29 @@ export class TrayManager {
           preload: path.join(__dirname, "preload.js"),
           contextIsolation: true,
           nodeIntegration: false,
-          // 关键：托盘菜单 hide() 后默认会被节流到 10fps，
-          // setTimeout 被 throttled 到 1000ms+，WS onmessage 虽触发但
-          // refreshQueue 里的防抖 setTimeout 会被延迟执行，
-          // 导致下载状态变化监测不到。关闭后台节流保持实时性。
           backgroundThrottling: false,
         },
       });
 
-      // 点击外部关闭
+      // ready-to-show = 首次绘制完成，比 HTML 完全加载快
+      // 此时 show 不会出现"先空白再内容"的闪烁
+      this.menuWin.once("ready-to-show", () => {
+        if (!this.menuWin || this.menuWin.isDestroyed()) return;
+        this.positionMenu(bounds);
+        this.suppressBlurUntil = Date.now() + 200;
+        this.menuWin.show();
+        // 不调 focus() — show() 已激活窗口，focus 是冗余的二次激活事件，
+        // 会触发 Windows 窗口管理器的额外动画导致闪烁
+      });
+
+      // blur 关闭：延迟 200ms + suppressBlurUntil 防抖
       this.menuWin.on("blur", () => {
-        // 延迟关闭：避免点击菜单项时先 blur 导致点击失效
         setTimeout(() => {
-          if (this.menuWin && !this.menuWin.isDestroyed()) {
+          if (this.menuWin && !this.menuWin.isDestroyed() &&
+              Date.now() > this.suppressBlurUntil) {
             this.menuWin.hide();
           }
-        }, 120);
+        }, 200);
       });
 
       // Esc 关闭
@@ -213,30 +212,23 @@ export class TrayManager {
         if (input.key === "Escape") this.hideMenu();
       });
 
-      // 标记：首次打开需要等 HTML 加载完 + render 完成后才显示
-      // reportHeight IPC 触发后会调 setVisibilityReady(true) → positionMenu + show
-      this.menuPendingShow = true;
-      this.pendingBounds = bounds;
       this.loadTrayHtml(this.menuWin, "tray-menu.html");
 
-      // 兜底：如果 HTML 加载失败或 reportHeight 没触发，
-      // 2 秒后强制显示（避免右键点了完全没反应）
+      // 兜底：如果 ready-to-show 1 秒没触发（异常情况），强制显示
       setTimeout(() => {
-        if (this.menuWin && !this.menuWin.isDestroyed() &&
-            this.menuPendingShow && !this.menuWin.isVisible()) {
-          this.menuPendingShow = false;
+        if (this.menuWin && !this.menuWin.isDestroyed() && !this.menuWin.isVisible()) {
           this.positionMenu(bounds);
+          this.suppressBlurUntil = Date.now() + 200;
           this.menuWin.show();
-          this.menuWin.focus();
         }
-      }, 2000);
+      }, 1000);
       return;
     }
 
-    // 窗口已存在：定位 + 显示
+    // 窗口已存在但隐藏：定位 + show（不调 focus，避免闪烁）
     this.positionMenu(bounds);
+    this.suppressBlurUntil = Date.now() + 200;
     this.menuWin.show();
-    this.menuWin.focus();
   }
 
   /** 隐藏托盘菜单弹窗 */
@@ -311,21 +303,18 @@ export class TrayManager {
 
   /** 定位菜单弹窗（基于已记录的锚点 this.menuAnchor）。
    *
-   *  重要：使用首次 showMenu 时记录的锚点，不实时取 cursor。
-   *  原因：reportHeight 触发 setSize 后会再次调 positionMenu 重新对齐，
-   *  如果用实时 cursor，鼠标可能已移动到别处，菜单会"跳"到新位置。
+   *  优化：用 setBounds 一步到位设置位置 + 尺寸，避免 setSize + setPosition
+   *  两次重绘导致的视觉跳动。
    *
-   *  winBounds.height 是当前窗口实际高度（首次打开时刚 setSize 过，
-   *  二次打开时是上次 setSize 后的高度）。
-   *  - 底部任务栏：y = anchorY - winBounds.height（菜单底部对齐任务栏顶部）
-   *  - 顶部任务栏：y = anchorY（菜单顶部对齐任务栏底部）
-   *  - 左/右侧任务栏：水平贴 workArea 边，垂直对齐 cursor.y（anchorY = cursor.y）
+   *  opts.height 可指定新高度（reportHeight 触发时用），不指定则用当前高度。
    */
-  private positionMenu(_bounds?: Electron.Rectangle): void {
+  private positionMenu(_bounds?: Electron.Rectangle, opts?: { height?: number }): void {
     if (!this.menuWin || !this.tray) return;
     if (!this.menuAnchor) return;
 
-    const winBounds = this.menuWin.getBounds();
+    const curBounds = this.menuWin.getBounds();
+    const width = MENU_WIDTH;
+    const height = opts?.height ?? curBounds.height;
     const display = screen.getDisplayNearestPoint({ x: this.menuAnchor.x, y: this.menuAnchor.y });
     const { workArea } = display;
 
@@ -335,35 +324,33 @@ export class TrayManager {
     let y: number;
 
     if (taskbarSide === "bottom") {
-      // 底部任务栏：菜单底部对齐任务栏顶部，水平居中对齐点击位置
-      x = anchorX - winBounds.width / 2;
-      y = anchorY - winBounds.height;
+      x = anchorX - width / 2;
+      y = anchorY - height;
     } else if (taskbarSide === "top") {
-      // 顶部任务栏：菜单顶部对齐任务栏底部，水平居中对齐点击位置
-      x = anchorX - winBounds.width / 2;
+      x = anchorX - width / 2;
       y = anchorY;
     } else if (taskbarSide === "left") {
-      // 左侧任务栏：水平左边界贴合 workArea 左，垂直居中对齐点击 y
       x = workArea.x;
-      y = anchorY - winBounds.height / 2;
+      y = anchorY - height / 2;
     } else {
-      // 右侧任务栏：水平右边界贴合 workArea 右，垂直居中对齐点击 y
-      x = workArea.x + workArea.width - winBounds.width;
-      y = anchorY - winBounds.height / 2;
+      x = workArea.x + workArea.width - width;
+      y = anchorY - height / 2;
     }
 
-    // 水平方向不超出 workArea 边界（与屏幕边缘留 8px 余量）
-    x = Math.max(workArea.x + 8, Math.min(x, workArea.x + workArea.width - winBounds.width - 8));
+    x = Math.max(workArea.x + 8, Math.min(x, workArea.x + workArea.width - width - 8));
 
-    // 垂直方向：菜单必须完整可见，不能超出 workArea 顶部/底部
-    if (y < workArea.y) {
-      y = workArea.y;
-    }
-    if (y + winBounds.height > workArea.y + workArea.height) {
-      y = workArea.y + workArea.height - winBounds.height;
+    if (y < workArea.y) y = workArea.y;
+    if (y + height > workArea.y + workArea.height) {
+      y = workArea.y + workArea.height - height;
     }
 
-    this.menuWin.setPosition(Math.round(x), Math.round(y));
+    // setBounds 一步到位：避免 setSize + setPosition 两次重绘
+    this.menuWin.setBounds({
+      x: Math.round(x),
+      y: Math.round(y),
+      width,
+      height,
+    });
   }
 
   /** 显示关闭确认弹窗 */
@@ -439,22 +426,12 @@ export class TrayManager {
     });
 
     // 前端 render() 后报告菜单实际内容高度
-    // 关键时序：首次打开时窗口还未显示（showMenu 设了 menuPendingShow=true），
-    // 收到 reportHeight 后才 setSize 调整高度 + positionMenu + show
-    // 这样用户看到的菜单窗口高度 = 内容实际高度，底部直接贴合任务栏，无空白间距
+    // 用 setBounds 一步到位调整位置 + 尺寸，避免 setSize + setPosition 两次重绘
     ipcMain.on("tray:report-height", (_evt, menuHeight: number) => {
       if (!this.menuWin || this.menuWin.isDestroyed()) return;
       if (!Number.isFinite(menuHeight) || menuHeight <= 0) return;
       const winHeight = Math.max(120, Math.min(MENU_MAX_HEIGHT, Math.round(menuHeight)));
-      this.menuWin.setSize(MENU_WIDTH, winHeight);
-      // 用实际窗口高度重新定位（垂直贴合任务栏）
-      this.positionMenu(this.pendingBounds);
-      // 首次打开：现在窗口高度对了，可以显示
-      if (this.menuPendingShow) {
-        this.menuPendingShow = false;
-        this.menuWin.show();
-        this.menuWin.focus();
-      }
+      this.positionMenu(undefined, { height: winHeight });
     });
   }
 

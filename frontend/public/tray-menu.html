@@ -103,10 +103,6 @@ html, body {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0)    scale(1);    }
 }
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
 
 /* ---------- Header ---------- */
 .tray-header {
@@ -162,46 +158,6 @@ html, body {
   color: var(--text-dim);
   letter-spacing: 0.5px;
   line-height: 1;
-}
-.tray-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: var(--r-pill);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  border: 1px solid;
-  flex-shrink: 0;
-}
-.tray-status .dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.tray-status.active {
-  color: var(--success);
-  background: rgba(48, 209, 88, 0.12);
-  border-color: rgba(48, 209, 88, 0.3);
-}
-.tray-status.active .dot {
-  box-shadow: 0 0 6px currentColor;
-  animation: pulse 2s var(--ease) infinite;
-}
-.tray-status.idle {
-  color: var(--text-mute);
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.1);
-}
-:root.light .tray-status.idle {
-  background: rgba(0,0,0,0.03);
-  border-color: rgba(0,0,0,0.08);
-}
-.tray-status.paused {
-  color: var(--warning);
-  background: rgba(255, 214, 10, 0.12);
-  border-color: rgba(255, 214, 10, 0.3);
 }
 
 /* ---------- 菜单项 ---------- */
@@ -449,35 +405,21 @@ html, body {
     const s = (status || "").toLowerCase();
     return s === "下载中" || s === "downloading";
   }
-  function isPaused(status) {
-    const s = (status || "").toLowerCase();
-    return s === "暂停中" || s === "paused";
-  }
 
   // —— 渲染 ——
   function render() {
     const root = document.getElementById("menu");
     const downloading = state.tasks.filter(isDownloading);
 
-    // 状态徽章简化为 busy/idle 二态（按用户要求去掉数字）
-    // - downloading 队列非空 → 忙碌中（active）
-    // - 否则 → 空闲（idle）
-    // X-Sou 搜索预览不走 queue，天然不参与判断
-    const isBusy = downloading.length > 0;
-    const statusBadge = isBusy
-      ? '<div class="tray-status active"><span class="dot"></span>' + t("tray_busy") + '</div>'
-      : '<div class="tray-status idle"><span class="dot"></span>' + t("tray_idle") + '</div>';
-
     let html = '';
 
-    // Header
+    // Header（移除状态徽章 — tooltip 已显示忙碌状态，菜单内不再重复）
     html += '<div class="tray-header">';
     html += '  <div class="tray-logo"><img src="favicon.svg" alt="Lumio" /></div>';
     html += '  <div class="tray-title-block">';
     html += '    <div class="tray-title">Lumio</div>';
     html += '    <div class="tray-subtitle">v' + (state.version || "4.2.0") + '</div>';
     html += '  </div>';
-    html += '  ' + statusBadge;
     html += '</div>';
 
     html += '<div class="tray-list">';
