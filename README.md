@@ -2,7 +2,27 @@
 
 内容采集与素材管理桌面工具 — 通过分享链接下载 YouTube、Instagram、X (Twitter) 及国内主流平台（B站/抖音/快手/微博/小红书）的图片/视频，自动入库管理。
 
-![主界面](docs/images/素材库.png)
+![主页](docs/images/主页.png)
+
+## 架构
+
+Lumio 采用 **Electron + React 前端 / Python FastAPI 后端** 双进程架构：
+
+```
+┌─────────────────────────────┐     HTTP/WS      ┌──────────────────────────┐
+│  Electron + React 前端       │  ←───────────→   │  Python FastAPI 后端     │
+│  (frontend/)                │                  │  (src/lumio/api_fastapi) │
+│  - Vite + TypeScript        │                  │  - 包装现有 manager      │
+│  - Tailwind CSS             │                  │  - WebSocket 推送进度    │
+│  - Liquid Glass 设计稿      │                  │  - yt-dlp / instaloader  │
+└─────────────────────────────┘                  └──────────────────────────┘
+                                                         ↓
+                                                  现有 Python 业务
+                                                  Provider 系统 / SQLAlchemy /
+                                                  Flask / Telegram Bot
+```
+
+启动时 Electron 主进程 spawn FastAPI 子进程（随机端口 + token），通过 HTTP/WS 通信；退出时优雅关闭后端，避免端口残留。
 
 ## 功能
 
@@ -39,12 +59,12 @@
 
 - **Inbox 收件箱**：接收浏览器扩展采集的 URL，等待用户下载；支持格式选择（单个）/最高画质（批量）
 - **通知系统**：环境/依赖/版本通知 + 分类筛选 + 永久通知（IG 风险提示、VPN/代理、媒体播放器推荐、Telegram Bot、Apify Token）
-- **系统托盘**：关闭窗口最小化到托盘，保持后台运行
+- **系统托盘**：Liquid Glass 风格自定义菜单弹窗，关闭窗口最小化到托盘保持后台运行
 - **本地 API 服务**：Flask 接收浏览器扩展采集内容（127.0.0.1:38900）
 - **Telegram Bot 服务**：轮询 Bot API，接收用户发送的链接/媒体，自动写入 Inbox；支持本地 Bot API Server 突破 20MB 限制
 - **Apify IG 代理**：通过 Apify Actor 代理提取 Instagram 数据，避免账号风控
 - **缓存管理**：统一管理 4 个缓存目录（inbox_media/thumbs/provider_cache/preview），支持手动/定时清理
-- **凭证管理**：设置页 Cookie/API 凭证分组可折叠（QToolButton），避免凭证过多布局混乱
+- **凭证管理**：设置页 Cookie/API 凭证分组可折叠，避免凭证过多布局混乱
 
 ### 界面
 
@@ -53,27 +73,65 @@
 - Sidebar 红点徽章（1-9 圆点 / 10-99 胶囊 / ≥100 显示 99+）
 - Light / Dark 主题切换
 - 中/英双语界面
+- Liquid Glass 设计风格（毛玻璃 + 柔和色彩 + 大圆角，克制而非装饰堆砌）
 
 ## 安装
 
-### 方式一：下载 .exe（推荐，无需 Python 环境）
+### 方式一：下载安装包（推荐，无需任何开发环境）
 
-从 [Releases](../../releases) 页面下载对应系统的安装包，解压后直接运行。
+从 [Releases](../../releases) 页面下载对应系统的安装包（Windows NSIS / macOS DMG / Linux AppImage），双击安装即可。
 
-### 方式二：pip 安装
+安装包内已包含 Electron 前端 + PyInstaller 打包的 Python 后端，无需额外配置 Python / Node.js 环境。
+
+### 方式二：开发者模式运行（前端 + 后端分离）
+
+适用于开发调试，可独立修改前端或后端代码。
+
+**前置要求**：Python 3.10+ / Node.js 18+ / npm
 
 ```powershell
-# 需要 Python 3.10+
-pip install .
-lumio
+# 1. 安装 Python 后端依赖
+pip install -e .
+
+# 2. 安装前端依赖
+cd frontend
+npm install
+
+# 3. 启动开发模式（同时拉起 Vite + Electron + FastAPI 子进程）
+npm run dev:electron
 ```
 
-### 方式三：开发者模式
+`dev:electron` 会自动：
+- 编译 Electron 主进程 TypeScript（`electron/` → `dist-electron/`）
+- 启动 Vite Dev Server（http://localhost:5173）
+- 启动 Electron 主进程，主进程 spawn FastAPI 子进程（随机端口 + token）
+- Electron 窗口加载 `VITE_DEV_SERVER_URL`，热重载生效
+
+### 方式三：仅运行 Python 后端（API 模式）
+
+适用于不需要前端 UI、只想调用 API 的场景：
 
 ```powershell
 pip install -e .
-python -m lumio.main
+lumio-api              # 启动 FastAPI 服务（默认 127.0.0.1:8000）
 ```
+
+## 打包构建
+
+构建完整安装包（PyInstaller + electron-builder）：
+
+```powershell
+# 前置：先 pip install -e . 和 cd frontend && npm install
+cd frontend
+npm run build:all      # = build:backend + build + build:electron + electron-builder
+```
+
+输出在 `frontend/release/` 目录下。
+
+- `build:backend` — PyInstaller 把 `src/lumio/` 打包成 `LumioAPI.exe`（含 Python runtime）复制到 `frontend/python-backend/`
+- `build` — TypeScript 编译 + Vite 构建前端到 `dist/`
+- `build:electron` — 编译 `electron/` TypeScript 到 `dist-electron/`
+- `electron-builder` — 把 `dist/` + `dist-electron/` + `python-backend/` 打包成系统安装包
 
 ## 运行测试
 
@@ -84,9 +142,9 @@ PYTHONPATH=src python -m pytest tests/ -v --ignore=tests/test_integration.py
 
 ## 截图
 
-| 使用界面 | 预览功能 | 设置界面 |
-|---------|---------|---------|
-| ![使用界面](docs/images/使用界面.png) | ![预览功能](docs/images/预览功能.png) | ![设置界面](docs/images/设置界面.png) |
+| 主页 | 素材库 |
+|------|--------|
+| ![主页](docs/images/主页.png) | ![素材库](docs/images/素材库.png) |
 
 ## 浏览器扩展
 
@@ -100,7 +158,9 @@ Chrome/Edge 共用（Manifest V3）：
 
 ## 技术栈
 
-Python 3.10+ / PySide6 / QML (QtQuick) / yt-dlp / instaloader / imageio-ffmpeg / requests / SQLAlchemy / Pillow / Flask / python-telegram-bot / apify-client / V4 Provider 系统
+**前端**：Electron 31 / React 18 / TypeScript / Vite / Tailwind CSS / Zustand / react-window（虚拟列表）
+
+**后端**：Python 3.10+ / FastAPI / yt-dlp / instaloader / imageio-ffmpeg / requests / SQLAlchemy / Pillow / Flask / python-telegram-bot / apify-client / V4 Provider 系统
 
 ## 许可证
 
