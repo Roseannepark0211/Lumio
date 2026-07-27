@@ -46,13 +46,24 @@ class LibraryManager(QObject):
             session.close()
 
     def backfill_thumbnails(self):
-        """Generate thumbnails for all items missing one. Call from GUI thread."""
+        """Generate thumbnails for all items missing one. Call from GUI thread.
+
+        同时检查 local_thumbnail_path 已记录但文件已被删除的情况（如缓存被清理），
+        这种情况也要重新生成，避免前端 lumio-file:// 404。
+        """
+        import os
         session = self._session()
         try:
             items = session.query(LibraryItem).filter(
                 (LibraryItem.local_thumbnail_path == "")
                 | (LibraryItem.local_thumbnail_path.is_(None))
             ).all()
+            # 额外检查：local_thumbnail_path 有值但文件不存在的也要重建
+            all_items = session.query(LibraryItem).all()
+            for it in all_items:
+                p = it.local_thumbnail_path or ""
+                if p and not os.path.exists(p):
+                    items.append(it)
             if not items:
                 return
             session.expunge_all()

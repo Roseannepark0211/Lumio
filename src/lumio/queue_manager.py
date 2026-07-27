@@ -167,6 +167,7 @@ class DownloadManager(QObject):
     batch_progress = Signal(int, int, int)           # completed, failed, total
     history_record_added = Signal(object)            # HistoryRecord
     library_record_added = Signal(object)            # LibraryItem
+    library_thumbnail_ready = Signal(str, str)       # item_id, local_thumbnail_path
     conflict_ask = Signal(str)                       # file_path, respond via conflict_resolved
 
     def __init__(self, history_manager: HistoryManager | None = None, parent=None):
@@ -678,6 +679,8 @@ class DownloadManager(QObject):
     def _on_thumbnail_ready(self, item_id: str, local_path: str):
         if self._library_manager:
             self._library_manager.set_local_thumbnail(item_id, local_path)
+            # 通知前端：本地缩略图已生成，可切换到 lumioFileUrl 原图（比 thumbnail_url 缩放版清晰）
+            self.library_thumbnail_ready.emit(item_id, local_path)
 
     def _schedule(self, only_task_id: str | None = None):
         """调度 waiting/retrying 任务启动下载。

@@ -123,6 +123,8 @@ export function DownloadsPage() {
         }
 
         // 增量 patch：任务完成（带 success/error）
+        // 注意：task_status_changed 事件已携带正确中文 status（"已完成"/"失败"），
+        // 这里不覆盖 status，只更新 progress/error，避免 status 被改成 "done" 导致 UI 不识别
         case "task_finished": {
           const p = e.data as
             | { task_id?: string; success?: boolean; error?: string }
@@ -139,7 +141,6 @@ export function DownloadsPage() {
               t.task_id === tid
                 ? {
                     ...t,
-                    status: success ? "done" : "error",
                     progress: success ? 1 : t.progress,
                     error: err,
                   }

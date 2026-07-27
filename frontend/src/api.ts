@@ -50,13 +50,16 @@ export function lumioFileUrl(p: string): string {
 /** 把远程图片 URL 包装成 /api/thumb-proxy?url=...&token=... 形式。
  *  浏览器原生 <img src> 不带 X-Lumio-Token header，必须用 query token 兜底。
  *  w/h > 0 时让后端用 PIL 缩放，节省带宽（适用于小卡片缩略图）。
+ *  persist=true 时后端写入 .bin+.meta 缓存（仅用于已下载完成的素材库/历史封面），
+ *  其他场景（Home 预览/搜索结果/收件箱）传 false 避免缓存膨胀。
  */
-export function thumbProxyUrl(remoteUrl: string, w = 0, h = 0): string {
+export function thumbProxyUrl(remoteUrl: string, w = 0, h = 0, persist = false): string {
   if (!remoteUrl) return "";
   const q = new URLSearchParams();
   q.set("url", remoteUrl);
   if (w > 0) q.set("w", String(w));
   if (h > 0) q.set("h", String(h));
+  if (persist) q.set("persist", "1");
   if (TOKEN) q.set("token", TOKEN);
   return `${BASE}/api/thumb-proxy?${q.toString()}`;
 }
@@ -582,6 +585,18 @@ export const api = {
   /** 打开文件所在目录。source 同上。 */
   openFolder: (path: string, source: string = "") =>
     post<{ ok: boolean; error?: string }>("/api/open-folder", { path, source }),
+  /** 解析预览主文件路径（mixed/目录型素材扫描文件夹找主视频/图片）。 */
+  resolvePreviewTarget: (filePath: string, mediaType: string = "") =>
+    post<{ path: string; media_type: string }>("/api/library/preview-target", {
+      file_path: filePath,
+      media_type: mediaType,
+    }),
+  /** 列出文件夹内所有可预览媒体（按 video → image → audio 排序），用于上下项切换。 */
+  listPreviewItems: (filePath: string) =>
+    post<{ items: Array<{ path: string; media_type: string }> }>("/api/library/preview-items", {
+      file_path: filePath,
+      media_type: "",
+    }),
   /** 在系统默认浏览器中打开外部 URL（InboxPage 的"打开原网页"按钮） */
   openExternalUrl: (url: string) =>
     post<{ ok: boolean; error?: string }>("/api/open-external-url", { url }),
@@ -679,6 +694,7 @@ export type EventType =
   | "batch_progress"
   | "history_record_added"
   | "library_record_added"
+  | "library_thumbnail_ready"
   | "conflict_ask"
   | "notification_changed"
   | "theme_changed"

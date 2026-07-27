@@ -435,7 +435,7 @@ export function HomePage() {
         {/* Hero title — 两行大标题 */}
         <h1 className="text-center text-4xl font-extrabold tracking-tight text-text">
           <span className="block">{tr("hero_line1")}</span>
-          <span className="block bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">
+          <span className="block text-text font-extrabold">
             {tr("hero_line2")}
           </span>
         </h1>

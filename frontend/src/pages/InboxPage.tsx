@@ -626,7 +626,7 @@ function InboxCard({
       <div className="relative h-[62px] w-[62px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/30">
         {hasThumb ? (
           <img
-            src={thumbProxyUrl(item.thumbnail_url, 128, 128)}
+            src={thumbProxyUrl(item.thumbnail_url, 200, 200)}
             alt=""
             loading="lazy"
             decoding="async"

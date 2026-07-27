@@ -46,6 +46,7 @@ _CACHE_DIRS = {
     "provider_cache": _APP_DIR / "provider_cache",
     "preview": _APP_DIR / "cache" / "preview",
     "inbox_media": _APP_DIR / "inbox_media",  # 智能清理（见 clean_inbox_media）
+    "thumb_proxy": _APP_DIR / "cache" / "thumb_proxy",  # 远程缩略图代理缓存
 }
 
 # 安全扩展名白名单（只清理这些文件类型，避免误删）
@@ -53,7 +54,9 @@ _SAFE_EXTS = {
     ".jpg", ".jpeg", ".png", ".webp", ".gif",  # 图片
     ".mp4", ".webm", ".mov", ".avi", ".mkv",   # 视频
     ".mp3", ".m4a", ".aac", ".wav",             # 音频
-    ".json",                                    # Provider/preview 元数据
+    ".json",                                    # Provider/preview/thumb_proxy 元数据
+    ".bin",                                     # thumb_proxy 原始图片字节
+    ".meta",                                    # thumb_proxy 元数据
     ".tmp",                                     # 临时文件
 }
 

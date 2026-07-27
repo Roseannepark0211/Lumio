@@ -196,3 +196,67 @@
     opacity: 0;
   }
 }
+
+/* PreviewArea 灯带边框：整圈柔光围绕素材，颜色从素材主色动态提取。
+   - 不旋转（容器随素材尺寸变化，旋转会显得突兀）
+   - 颜色由 JS 提取主色后注入 CSS 变量 --flow-color
+   - 双层 box-shadow（内+外）模拟 LED 灯带发光
+   - 缓慢呼吸动画让光带"活"起来 */
+@keyframes flow-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
+.flow-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    var(--flow-color, rgba(122, 92, 230, 0.8)),
+    var(--flow-color, rgba(122, 92, 230, 0.8))
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  /* 双层发光：外层柔光晕染 + 内层紧贴边框，加强 LED 灯带质感 */
+  box-shadow:
+    0 0 20px 2px var(--flow-color, rgba(122, 92, 230, 0.7)),
+    0 0 8px 0 var(--flow-color, rgba(122, 92, 230, 0.9)),
+    inset 0 0 12px 0 var(--flow-color, rgba(122, 92, 230, 0.5));
+  animation: flow-breathe 3s ease-in-out infinite;
+  pointer-events: none;
+  transition: background 0.6s ease, box-shadow 0.6s ease;
+}
+
+/* 粒子沿容器边框绕行：offset-path 让粒子沿圆角矩形路径运动
+   - rect() 定义矩形路径，round 匹配容器圆角
+   - 多个粒子用不同 animation-delay 均匀分布
+   - 粒子带 box-shadow 拖尾发光 */
+@keyframes particle-run {
+  to { offset-distance: 100%; }
+}
+
+.flow-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--flow-color, rgba(167, 139, 250, 1));
+  /* 大光晕 + 紧贴核心，形成彗星拖尾感 */
+  box-shadow:
+    0 0 12px 3px var(--flow-color, rgba(167, 139, 250, 0.8)),
+    0 0 4px 1px #fff;
+  offset-path: rect(0 0 100% 100% round 12px);
+  offset-rotate: 0deg;
+  animation: particle-run 8s linear infinite;
+  pointer-events: none;
+}
+
+/* prefers-reduced-motion 时关闭所有动画，保留静态灯带 */
+@media (prefers-reduced-motion: reduce) {
+  .flow-border { animation: none; }
+  .flow-particle { animation: none; display: none; }
+}

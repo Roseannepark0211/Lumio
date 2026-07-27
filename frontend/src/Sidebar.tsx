@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from "react";
 import { api, subscribeEvents, type AppEvent } from "./api";
 import { useI18n } from "./i18n";
 import { useTheme } from "./theme";
+import { normStatus } from "./utils/downloads";
+// Vite 会把 icon.png 打包到 dist/assets/，import 拿到最终 URL
+import iconUrl from "../build/icon.png";
 
 /**
  * 左侧固定导航栏 — AGENTS.md 规定：
@@ -70,9 +73,17 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
   const refreshDownloads = useCallback(async () => {
     try {
       const q = await api.getQueue();
-      const active = q.filter((t) =>
-        ["downloading", "queued", "retrying", "paused"].includes(t.status)
-      ).length;
+      // 后端 status 是中文（"下载中"/"等待中"/"重试中"/"暂停中"），需 normStatus 归一化
+      const active = q.filter((t) => {
+        const s = normStatus(t.status);
+        return (
+          s === "downloading" ||
+          s === "waiting" ||
+          s === "retrying" ||
+          s === "paused" ||
+          s === "interrupted"
+        );
+      }).length;
       setActiveDownloads(active);
     } catch {
       /* ignore */
@@ -160,9 +171,13 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
 
   return (
     <aside className="sidebar-glass flex h-full w-[64px] shrink-0 flex-col items-center border-r border-text/10">
-      {/* Logo 图标（仅图标方块，无文字） */}
+      {/* Logo 图标（应用图标，无文字） */}
       <div className="flex h-14 shrink-0 items-center justify-center">
-        <div className="h-7 w-7 shrink-0 rounded-lg bg-gradient-to-br from-accent to-accent-glow shadow-lg shadow-accent/30" />
+        <img
+          src={iconUrl}
+          alt="Lumio"
+          className="h-7 w-7 shrink-0 rounded-lg object-contain"
+        />
       </div>
 
       {/* 导航项列表 — 仅图标，hover 显示 title tooltip */}
@@ -185,8 +200,8 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
                 <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent" />
               )}
               <span className="shrink-0">{item.icon}</span>
-              {/* 徽章 — 绝对定位到右上角 */}
-              {item.badge && item.badge > 0 && (
+              {/* 徽章 — 绝对定位到右上角（仅 count > 0 才渲染，避免显示 [0]） */}
+              {typeof item.badge === "number" && item.badge > 0 && (
                 <span className="absolute right-1 top-1">
                   <Badge count={item.badge} />
                 </span>

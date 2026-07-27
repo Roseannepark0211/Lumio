@@ -7,7 +7,7 @@ from .utils.signal import QThread, Signal
 
 from .utils.config import get_thumbs_dir
 
-_THUMB_SIZE = 200
+_THUMB_SIZE = 600
 
 
 def generate_thumbnail(
@@ -36,6 +36,13 @@ def generate_thumbnail(
     p = Path(file_path) if file_path else None
 
     try:
+        # 优先使用平台官方封面 URL（抖音/B站/YouTube 等提供的封面）
+        # 之前把 thumbnail_url 放在 fallback 位置会导致视频封面被本地 ffmpeg
+        # 截帧覆盖（截第 1 秒），与平台封面不一致。改为先尝试 URL，失败再回退本地。
+        if thumbnail_url:
+            result = _download_and_resize(thumbnail_url, out_path)
+            if result:
+                return result
         if media_type == "image" and p:
             # 单项下载：p 是文件 → 直接缩放
             # 多图帖全部下载：p 是目录 → 取第一张图作为封面
@@ -55,9 +62,6 @@ def generate_thumbnail(
                         return _extract_video_frame(first, out_path)
                     if first.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}:
                         return _resize_image(first, out_path)
-        # Fallback: download remote thumbnail URL
-        if thumbnail_url:
-            return _download_and_resize(thumbnail_url, out_path)
     except Exception:
         pass
     return None

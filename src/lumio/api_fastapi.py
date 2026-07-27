@@ -132,6 +132,12 @@ class OpenFileRequest(BaseModel):
     source: str = ""  # "library" / "history" / ""
 
 
+class PreviewTargetRequest(BaseModel):
+    """请求预览主文件路径（对 mixed/目录型素材扫描文件夹找主视频/图片）。"""
+    file_path: str
+    media_type: str = ""
+
+
 class OpenExternalUrlRequest(BaseModel):
     url: str
 
@@ -444,6 +450,89 @@ def _first_openable_media(folder: str) -> str | None:
         return None
 
 
+# 视频优先 → 图片 → 音频，用于 mixed 类型预览
+_PREVIEW_VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv"}
+_PREVIEW_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+_PREVIEW_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"}
+
+
+def _resolve_preview_target(file_path: str, media_type: str) -> tuple[str, str]:
+    """对 mixed / 目录型素材，扫描文件夹返回 (主文件路径, 单一类型)。
+
+    优先级：视频 > 图片 > 音频。若 file_path 是文件直接返回。
+    返回的 media_type 为单一类型（video/image/audio），不再有 mixed。
+    """
+    if not file_path:
+        return "", ""
+    p = Path(file_path)
+    if p.is_file():
+        ext = p.suffix.lower()
+        if ext in _PREVIEW_VIDEO_EXTS:
+            return str(p), "video"
+        if ext in _PREVIEW_IMAGE_EXTS:
+            return str(p), "image"
+        if ext in _PREVIEW_AUDIO_EXTS:
+            return str(p), "audio"
+        return str(p), media_type
+    if p.is_dir():
+        try:
+            files = sorted(f for f in p.iterdir() if f.is_file())
+        except OSError:
+            return "", ""
+        # 优先视频
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_VIDEO_EXTS:
+                return str(f), "video"
+        # 其次图片
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_IMAGE_EXTS:
+                return str(f), "image"
+        # 最后音频
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_AUDIO_EXTS:
+                return str(f), "audio"
+        return "", ""
+    return "", ""
+
+
+def _list_preview_items(file_path: str) -> list[dict]:
+    """列出文件夹内所有可预览媒体文件，按 video → image → audio 排序。
+
+    用于 MediaPreviewDialog 上下项切换。返回 [{"path": "...", "media_type": "video"}]。
+    单文件返回 [{"path": file_path, "media_type": 推断类型}]。
+    """
+    if not file_path:
+        return []
+    p = Path(file_path)
+    if p.is_file():
+        ext = p.suffix.lower()
+        if ext in _PREVIEW_VIDEO_EXTS:
+            return [{"path": str(p), "media_type": "video"}]
+        if ext in _PREVIEW_IMAGE_EXTS:
+            return [{"path": str(p), "media_type": "image"}]
+        if ext in _PREVIEW_AUDIO_EXTS:
+            return [{"path": str(p), "media_type": "audio"}]
+        return []
+    if p.is_dir():
+        try:
+            files = sorted(f for f in p.iterdir() if f.is_file())
+        except OSError:
+            return []
+        items: list[dict] = []
+        # 先视频，再图片，最后音频（与 _resolve_preview_target 优先级一致）
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_VIDEO_EXTS:
+                items.append({"path": str(f), "media_type": "video"})
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_IMAGE_EXTS:
+                items.append({"path": str(f), "media_type": "image"})
+        for f in files:
+            if f.suffix.lower() in _PREVIEW_AUDIO_EXTS:
+                items.append({"path": str(f), "media_type": "audio"})
+        return items
+    return []
+
+
 def _open_path(path: str, source: str = "") -> tuple[bool, str]:
     """打开文件 / 目录，返回 (success, error_msg)。
     source: "library" / "history" / "" — 缺失时通过 EventBus 推 file_missing 事件。
@@ -557,6 +646,20 @@ def create_app() -> FastAPI:
         # 绑定 Qt Signal → EventBus
         _wire_signals(ctx["app_ctx"], ctx["bus"])
         logger.info("Lumio FastAPI started")
+        # 后台启动缩略图补生成（local_thumbnail_path 缺失或文件被清理时）
+        try:
+            def _bg_backfill():
+                import threading
+                def _run():
+                    try:
+                        _ctx().library_manager.backfill_thumbnails()
+                    except Exception as e:
+                        logger.warning("backfill_thumbnails failed: %s", e)
+                t = threading.Thread(target=_run, daemon=True, name="backfill-thumbs")
+                t.start()
+            _bg_backfill()
+        except Exception:
+            pass
 
     @app.on_event("shutdown")
     def _shutdown() -> None:
@@ -1436,6 +1539,27 @@ def create_app() -> FastAPI:
             _bus().publish("file_missing", {"path": req.path, "source": req.source})
         return {"ok": ok, "error": err if not ok else ""}
 
+    @app.post("/api/library/preview-target")
+    async def library_preview_target(req: PreviewTargetRequest) -> dict:
+        """对 mixed / 目录型素材，扫描文件夹返回主视频/图片路径 + 单一 media_type。
+
+        前端 MediaPreviewDialog 在打开前调用此端点解析真实播放目标：
+          - file_path 是文件 → 直接返回 (path, 单一类型)
+          - file_path 是目录（mixed）→ 扫描目录返回第一个视频/图片/音频
+        """
+        path, mt = _resolve_preview_target(req.file_path, req.media_type)
+        return {"path": path, "media_type": mt}
+
+    @app.post("/api/library/preview-items")
+    async def library_preview_items(req: PreviewTargetRequest) -> dict:
+        """列出文件夹内所有可预览媒体（按 video → image → audio 排序）。
+
+        前端 MediaPreviewDialog 用此列表实现上下项切换。
+        单文件返回 [{path, media_type}]。
+        """
+        items = _list_preview_items(req.file_path)
+        return {"items": items}
+
     @app.post("/api/open-external-url")
     async def open_external_url(req: OpenExternalUrlRequest) -> dict:
         if not req.url:
@@ -1451,6 +1575,7 @@ def create_app() -> FastAPI:
         url: str = Query(...),
         w: int = Query(0, ge=0, le=1024),
         h: int = Query(0, ge=0, le=1024),
+        persist: int = Query(0, ge=0, le=1),
         request: Request = None,
     ) -> Response:
         """代理远程缩略图下载，附加 Referer/Cookie（与 ThumbnailProvider 等价）。
@@ -1459,11 +1584,24 @@ def create_app() -> FastAPI:
         - 服务端本地缓存（~/.lumio/cache/thumb_proxy/，7 天 TTL）
         - ETag + If-None-Match 条件请求（远程 304 + 浏览器 304 双层）
         - w/h 参数：用 PIL 缩放到指定尺寸，节省带宽与内存
+        - persist=1：写 .bin+.meta 磁盘缓存（仅用于素材库/历史等已下载完成的封面）
+          persist=0（默认）：仅内存缓存，避免 Home 预览/搜索结果等临时场景导致磁盘膨胀
+        - 失败时返回 1x1 透明 GIF（200）而非 raise HTTPException：
+          Starlette BaseHTTPMiddleware + HTTPException 组合下 CORSMiddleware
+          不会在异常响应上加 CORS header，会导致浏览器控制台报 CORS 错误。
+          改为永远返回 200 让前端 fetch 不阻塞、不报错。
         """
         import requests as _requests
+        # 1x1 透明 GIF（最小有效图片，前端 <img>/canvas 都能处理）
+        _TRANSPARENT_GIF = bytes.fromhex(
+            "4749463839610100010080000000000000ffffff21f9040100000000"
+            "2c00000000010001000002024401003b"
+        )
         try:
             from .utils.thumb_proxy import fetch_thumbnail_bytes
-            content, content_type, etag = fetch_thumbnail_bytes(url, timeout=15, target_w=w, target_h=h)
+            content, content_type, etag = fetch_thumbnail_bytes(
+                url, timeout=15, target_w=w, target_h=h, persist=bool(persist)
+            )
             headers_out = {
                 "Cache-Control": "public, max-age=604800, immutable",
                 "Content-Type": content_type,
@@ -1476,11 +1614,23 @@ def create_app() -> FastAPI:
                     return Response(status_code=304, headers=headers_out)
             return Response(content=content, headers=headers_out)
         except _requests.HTTPError as e:
-            # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
+            # 远程 CDN 返回 4xx/5xx — 返回透明 GIF 而非 raise，避免 CORS header 缺失
             status = e.response.status_code if e.response is not None else 0
-            raise HTTPException(502, f"thumb fetch failed (upstream {status}): {e}")
+            import sys
+            print(f"[thumb-proxy] HTTPError url={url} status={status}", file=sys.stderr)
+            return Response(
+                content=_TRANSPARENT_GIF,
+                media_type="image/gif",
+                headers={"Cache-Control": "no-store"},
+            )
         except Exception as e:
-            raise HTTPException(502, f"thumb fetch failed: {e}")
+            import sys
+            print(f"[thumb-proxy] error url={url} err={type(e).__name__}: {e}", file=sys.stderr)
+            return Response(
+                content=_TRANSPARENT_GIF,
+                media_type="image/gif",
+                headers={"Cache-Control": "no-store"},
+            )
 
     @app.post("/api/toast")
     async def toast(req: ToastRequest) -> dict:
@@ -1635,6 +1785,11 @@ def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
     m.library_record_added.connect(
         _wrap("library_record_added",
               lambda it: _library_item_to_dict(it, app_ctx.library_manager)),
+        Qt.DirectConnection,
+    )
+    m.library_thumbnail_ready.connect(
+        _wrap("library_thumbnail_ready",
+              lambda item_id, local_path: {"item_id": item_id, "thumbnail_path": local_path}),
         Qt.DirectConnection,
     )
     m.conflict_ask.connect(

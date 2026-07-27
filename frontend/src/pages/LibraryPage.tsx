@@ -29,6 +29,7 @@ import {
   type LibraryCollection,
 } from "../api";
 import { useI18n } from "../i18n";
+import { MediaPreviewDialog } from "../components/MediaPreviewDialog";
 
 // ============================================================
 // 常量
@@ -165,6 +166,8 @@ export function LibraryPage() {
     path: string;
     itemId: string;
   } | null>(null);
+  // 内部预览对话框（播放图标 ▶ 点击打开，替代系统默认应用）
+  const [previewItem, setPreviewItem] = useState<LibraryItem | null>(null);
 
   // —— 「加入 Collection」菜单 ——
   // 以卡片上的 + 按钮为锚点弹出
@@ -223,6 +226,22 @@ export function LibraryPage() {
           // 删除/批量操作/Collection 变更 → 全量刷新
           reload();
           break;
+
+        case "library_thumbnail_ready": {
+          // 后端异步生成完本地缩略图 → 局部 patch 单条 item 的 thumbnail_path
+          // 让卡片从 thumbnail_url 缩放版切换到 lumioFileUrl 原图（更清晰）
+          const p = e.data as { item_id?: string; thumbnail_path?: string } | null;
+          if (p?.item_id && p.thumbnail_path) {
+            setItems((prev) =>
+              prev.map((it) =>
+                it.id === p.item_id
+                  ? { ...it, thumbnail_path: p.thumbnail_path! }
+                  : it
+              )
+            );
+          }
+          break;
+        }
 
         case "file_missing": {
           // 文件被外部删除 → 弹「是否删除本条记录」对话框
@@ -314,12 +333,9 @@ export function LibraryPage() {
     }
   }, []);
 
-  const onOpenFile = useCallback(async (path: string) => {
-    try {
-      await api.openFile(path, "library");
-    } catch (e) {
-      console.warn("open file failed:", e);
-    }
+  // 内部预览：直接打开 MediaPreviewDialog，不调系统播放器
+  const onPreview = useCallback((item: LibraryItem) => {
+    setPreviewItem(item);
   }, []);
 
   const onOpenFolder = useCallback(async (path: string) => {
@@ -606,9 +622,9 @@ export function LibraryPage() {
             activeCollectionId={activeCollectionId}
             onToggleFavorite={onToggleFavorite}
             onDelete={onDeleteItem}
-            onOpenFile={onOpenFile}
             onOpenFolder={onOpenFolder}
             onShowCollectionMenu={onShowCollectionMenu}
+            onPreview={onPreview}
           />
         )}
       </main>
@@ -711,6 +727,14 @@ export function LibraryPage() {
           onClose={() => setCollectionMenu(null)}
         />
       )}
+
+      {/* 内部预览对话框（播放图标 ▶ 点击打开） */}
+      {previewItem && (
+        <MediaPreviewDialog
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
+        />
+      )}
     </div>
   );
 }
@@ -772,12 +796,12 @@ interface LibraryCardProps {
   activeCollectionId: number;
   onToggleFavorite: (itemId: string) => void;
   onDelete: (itemId: string) => void;
-  onOpenFile: (path: string) => void;
   onOpenFolder: (path: string) => void;
   onShowCollectionMenu: (
     itemId: string,
     anchor: { x: number; y: number }
   ) => void;
+  onPreview: (item: LibraryItem) => void;
 }
 
 function LibraryCardInner({
@@ -785,21 +809,37 @@ function LibraryCardInner({
   activeCollectionId,
   onToggleFavorite,
   onDelete,
-  onOpenFile,
   onOpenFolder,
   onShowCollectionMenu,
+  onPreview,
 }: LibraryCardProps) {
   const { tr } = useI18n();
 
   // 本地缩略图优先（thumbnail_path 是本地路径），否则用远程 URL 走 thumb-proxy
   const localThumb = item.thumbnail_path || "";
   const remoteThumb = item.thumbnail_url || "";
-  // 封面区高度 150px，传 200x200 留余量；后端 PIL 缩放后带宽降 50-100 倍
-  const thumbSrc = localThumb
+
+  // 三级回退：本地缩略图 → 远程缩略图（thumb-proxy）→ 占位图标
+  // localFailed 标记本地缩略图加载失败（如 backfill 未完成/文件被清理），自动回退到远程
+  const [localFailed, setLocalFailed] = useState(false);
+  useEffect(() => {
+    setLocalFailed(false);
+  }, [localThumb]);
+
+  // 当前生效的 src：本地优先，本地失败时回退到远程，远程也空则占位
+  const thumbSrc = localThumb && !localFailed
     ? lumioFileUrl(localThumb)
     : remoteThumb
-    ? thumbProxyUrl(remoteThumb, 200, 200)
+    ? thumbProxyUrl(remoteThumb, 600, 600, true)  // persist=true：素材库已下载完成，生成 .bin+.meta 缓存
     : "";
+
+  // 远程缩略图也失败时切到占位图标
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  useEffect(() => {
+    setRemoteFailed(false);
+  }, [thumbSrc]);
+
+  const showPlaceholder = !thumbSrc || remoteFailed;
 
   const typeBadge = typeBadgeClass(item.media_type, tr);
   const isInActiveCollection =
@@ -810,19 +850,21 @@ function LibraryCardInner({
     <div className="library-card flex h-[260px] flex-col overflow-hidden">
       {/* 封面区 */}
       <div className="relative mx-2.5 mt-2.5 h-[150px] overflow-hidden rounded-lg bg-black/30">
-        {thumbSrc ? (
+        {!showPlaceholder ? (
           <img
+            key={thumbSrc}
             src={thumbSrc}
             alt=""
             loading="lazy"
             decoding="async"
             className="h-full w-full object-cover"
-            onError={(e) => {
-              // 清空 src 避免下次挂载重新请求失败 URL
-              const img = e.currentTarget as HTMLImageElement;
-              img.onerror = null;
-              img.src = "";
-              img.style.display = "none";
+            onError={() => {
+              // 本地缩略图失败 → 回退到远程；远程也失败 → 占位图标
+              if (localThumb && !localFailed) {
+                setLocalFailed(true);
+              } else {
+                setRemoteFailed(true);
+              }
             }}
           />
         ) : (
@@ -883,10 +925,10 @@ function LibraryCardInner({
       {/* 操作栏（锚定底部） */}
       <div className="flex items-center gap-0.5 px-2 pb-2">
         <button
-          onClick={() => onOpenFile(item.file_path)}
+          onClick={() => onPreview(item)}
           disabled={!item.file_path}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
-          title={tr("library_open_file")}
+          title={tr("library_preview")}
         >
           ▶
         </button>
@@ -1032,12 +1074,12 @@ type VirtualGridProps = {
   activeCollectionId: number;
   onToggleFavorite: (itemId: string) => void;
   onDelete: (itemId: string) => void;
-  onOpenFile: (path: string) => void;
   onOpenFolder: (path: string) => void;
   onShowCollectionMenu: (
     itemId: string,
     anchor: { x: number; y: number }
   ) => void;
+  onPreview: (item: LibraryItem) => void;
 };
 
 function VirtualizedLibraryGrid({
@@ -1045,14 +1087,21 @@ function VirtualizedLibraryGrid({
   activeCollectionId,
   onToggleFavorite,
   onDelete,
-  onOpenFile,
   onOpenFolder,
   onShowCollectionMenu,
+  onPreview,
 }: VirtualGridProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(800);
   const [height, setHeight] = useState(600);
   const gridRef = useRef<HTMLDivElement | null>(null);
+
+  // 用 ref 持有最新 items，让 renderItem 不依赖 items 数组引用变化
+  // 避免 toggleFavorite 等乐观更新触发整个虚拟列表重渲染（导致所有可见卡片闪烁）
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const activeCollectionIdRef = useRef(activeCollectionId);
+  activeCollectionIdRef.current = activeCollectionId;
 
   // 测量容器宽高，响应窗口 resize
   useEffect(() => {
@@ -1076,11 +1125,15 @@ function VirtualizedLibraryGrid({
   const rowCount = Math.ceil(items.length / colCount);
 
   // Cell 渲染函数
+  // 注意：用 itemsRef.current / activeCollectionIdRef.current 读取最新值，
+  // 不把 items/activeCollectionId 放入 deps，避免乐观更新触发所有可见卡片重渲染
   const Cell = useCallback(
     ({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
+      const curItems = itemsRef.current;
+      const curActiveCol = activeCollectionIdRef.current;
       const idx = rowIndex * colCount + columnIndex;
-      if (idx >= items.length) return null;
-      const it = items[idx];
+      if (idx >= curItems.length) return null;
+      const it = curItems[idx];
       return (
         <div
           style={{
@@ -1094,17 +1147,17 @@ function VirtualizedLibraryGrid({
         >
           <LibraryCard
             item={it}
-            activeCollectionId={activeCollectionId}
+            activeCollectionId={curActiveCol}
             onToggleFavorite={onToggleFavorite}
             onDelete={onDelete}
-            onOpenFile={onOpenFile}
             onOpenFolder={onOpenFolder}
             onShowCollectionMenu={onShowCollectionMenu}
+            onPreview={onPreview}
           />
         </div>
       );
     },
-    [items, colCount, activeCollectionId, onToggleFavorite, onDelete, onOpenFile, onOpenFolder, onShowCollectionMenu]
+    [colCount, onToggleFavorite, onDelete, onOpenFolder, onShowCollectionMenu, onPreview]
   );
 
   return (

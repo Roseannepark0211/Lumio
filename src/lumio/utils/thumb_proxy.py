@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -36,10 +37,24 @@ _NEEDS_REFERER_DOMAINS = (
     "sinaimg.cn",
     "twimg.com",
     "x.com",
+    "xhscdn.com",   # 小红书 CDN
+    "xiaohongshu.com",
 )
+
+# 需要特殊 User-Agent 的域名（部分 CDN 屏蔽默认 UA）
+_SPECIAL_UA_DOMAINS = {
+    "xhscdn.com": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "xiaohongshu.com": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
 
 # 缓存有效期 7 天
 _CACHE_TTL = 7 * 24 * 3600
+
+# 非持久化请求的内存缓存（persist=False 时使用，避免重复下载但不写磁盘）
+# 进程级缓存，重启清空。LRU 上限 100 条避免内存膨胀。
+_MEM_CACHE_MAX = 100
+_mem_cache: dict[str, tuple[bytes, str, float]] = {}  # url -> (content, content_type, fetched_at)
+_mem_cache_lock = threading.Lock()
 
 
 def _referer_for(url: str) -> str:
@@ -52,7 +67,17 @@ def _referer_for(url: str) -> str:
                 return "https://weibo.com/"
             if "twimg" in d or "x.com" in d:
                 return "https://x.com/"
+            if "xhscdn" in d or "xiaohongshu" in d:
+                return "https://www.xiaohongshu.com/"
     return ""
+
+
+def _user_agent_for(url: str) -> str:
+    """根据 URL 域名返回对应 User-Agent，无匹配返回默认 Lumio UA。"""
+    for domain, ua in _SPECIAL_UA_DOMAINS.items():
+        if domain in url:
+            return ua
+    return "Mozilla/5.0 Lumio/4.2"
 
 
 def _load_cookie_header() -> str:
@@ -127,7 +152,8 @@ def _remote_fetch(
 
     命中 304 时 content 为空字节。
     """
-    headers = _build_headers()
+    # 用动态 UA（小红书等 CDN 屏蔽默认 Lumio UA）
+    headers = {"User-Agent": _user_agent_for(url)}
     ref = _referer_for(url)
     if ref:
         headers["Referer"] = ref
@@ -151,17 +177,48 @@ def _remote_fetch(
 
 
 def _resize_bytes(content: bytes, target_w: int, target_h: int) -> tuple[bytes, str]:
-    """用 PIL 把图片字节缩放到 target_w × target_h（保持比例填充），返回 (jpeg_bytes, content_type)。"""
+    """用 PIL 把图片字节缩放到 target_w × target_h（保持比例填充），返回 (jpeg_bytes, content_type)。
+
+    用 LANCZOS 重采样（最高质量）。thumbnail 是 contain 模式：
+    横图 16:9 缩到 400x225，竖图 9:16 缩到 225x400。
+    前端 CSS object-cover 会裁剪显示，所以 PIL 输出的最小边
+    必须大于显示尺寸的对应边，否则被拉伸会模糊。
+    """
     from io import BytesIO
     img = Image.open(BytesIO(content))
     # 转 RGB（PNG 透明通道 JPEG 不支持）
     if img.mode in ("RGBA", "LA", "P"):
         img = img.convert("RGB")
     # contain 模式：缩放到目标框内（不裁剪）
-    img.thumbnail((target_w, target_h))
+    img.thumbnail((target_w, target_h), Image.LANCZOS)
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=80)
+    img.save(buf, format="JPEG", quality=85, optimize=True)
     return buf.getvalue(), "image/jpeg"
+
+
+def _mem_cache_get(url: str) -> Optional[tuple[bytes, str]]:
+    """从内存缓存读取，命中且未过期返回 (content, content_type)，否则 None。"""
+    with _mem_cache_lock:
+        entry = _mem_cache.get(url)
+        if not entry:
+            return None
+        content, content_type, fetched_at = entry
+        if (time.time() - fetched_at) > _CACHE_TTL:
+            # 过期，移除
+            _mem_cache.pop(url, None)
+            return None
+        return content, content_type
+
+
+def _mem_cache_set(url: str, content: bytes, content_type: str) -> None:
+    """写入内存缓存，超过上限时按 FIFO 移除最旧条目。"""
+    with _mem_cache_lock:
+        if len(_mem_cache) >= _MEM_CACHE_MAX:
+            # 移除最旧的一条（按 fetched_at）
+            if _mem_cache:
+                oldest_url = min(_mem_cache, key=lambda k: _mem_cache[k][2])
+                _mem_cache.pop(oldest_url, None)
+        _mem_cache[url] = (content, content_type, time.time())
 
 
 def fetch_thumbnail_bytes(
@@ -169,6 +226,7 @@ def fetch_thumbnail_bytes(
     timeout: int = 15,
     target_w: int = 0,
     target_h: int = 0,
+    persist: bool = True,
 ) -> tuple[bytes, str, Optional[str]]:
     """下载远程缩略图（带服务端缓存），返回 (content_bytes, content_type, etag)。
 
@@ -177,6 +235,8 @@ def fetch_thumbnail_bytes(
         timeout: 请求超时秒数
         target_w: > 0 时用 PIL 缩放到该宽度
         target_h: > 0 时用 PIL 缩放到该高度
+        persist: True=写 .bin+.meta 磁盘缓存（用于素材库/历史等已下载完成的封面）；
+                 False=仅内存缓存（用于 Home 预览/搜索结果等临时场景，避免磁盘膨胀）
 
     Returns:
         (content_bytes, content_type, etag)
@@ -184,6 +244,22 @@ def fetch_thumbnail_bytes(
         - 失败但缓存存在 → 返回旧缓存
         - 失败且无缓存 → 抛 requests.HTTPError / RequestException
     """
+    # 非持久化路径：仅内存缓存
+    if not persist:
+        cached = _mem_cache_get(url)
+        if cached is not None:
+            content, content_type = cached
+            if target_w > 0 or target_h > 0:
+                content, content_type = _resize_bytes(content, target_w, target_h)
+            return content, content_type, None
+        # 内存未命中 → 远程下载
+        content, content_type, _etag, _lm, _status = _remote_fetch(url, timeout)
+        _mem_cache_set(url, content, content_type)
+        if target_w > 0 or target_h > 0:
+            content, content_type = _resize_bytes(content, target_w, target_h)
+        return content, content_type, None
+
+    # 持久化路径：磁盘缓存
     cache_d = _cache_dir()
     key = _cache_key(url)
     bin_path = cache_d / f"{key}.bin"
