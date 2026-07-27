@@ -34,6 +34,7 @@ import {
 } from "../api";
 import { useToast } from "../App";
 import { useI18n } from "../i18n";
+import { useTheme } from "../theme";
 
 // ============================================================
 // 常量
@@ -92,6 +93,8 @@ const COOKIE_FILTER = [{ name: "Cookie Files", extensions: ["txt"] }];
 export function SettingsPage() {
   // —— i18n ——
   const { tr, lang, setLang: setI18nLang } = useI18n();
+  // —— 主题 ——
+  const { theme, setTheme: setThemeState } = useTheme();
 
   // —— 派生：i18n 选项（tr 变化时重新生成） ——
   const storageModes = useMemo(
@@ -454,14 +457,15 @@ export function SettingsPage() {
 
   // —— 主题 / 语言切换 ——
   const onSetTheme = useCallback(
-    async (theme: string) => {
+    async (next: string) => {
       try {
-        await api.setTheme(theme);
+        // 调 ThemeProvider.setTheme（乐观更新 + api.setTheme + WS 事件）
+        await setThemeState(next === "dark" ? "dark" : "light");
       } catch (e) {
         showToast(`主题切换失败: ${e}`);
       }
     },
-    [showToast]
+    [showToast, setThemeState]
   );
 
   const onSetLang = useCallback(
@@ -545,7 +549,7 @@ export function SettingsPage() {
             <div className="flex-1" />
             <button
               onClick={() => setConfirmCookieClear(true)}
-              className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
+              className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text"
             >
               🗑 {tr("cookie_clear_btn")}
             </button>
@@ -583,7 +587,7 @@ export function SettingsPage() {
               return (
                 <div
                   key={p.key}
-                  className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1.5"
+                  className="flex items-center gap-2 rounded-md border border-text/15 bg-text/[0.06] px-2 py-1.5"
                 >
                   <span
                     className={`inline-block h-1.5 w-1.5 rounded-full ${
@@ -620,7 +624,7 @@ export function SettingsPage() {
               className={`ml-2 rounded border px-2 py-0.5 text-[10px] font-medium ${
                 config.instagram_mode === "api"
                   ? "border-success/30 bg-success/10 text-success"
-                  : "border-white/10 bg-white/5 text-text-muted"
+                  : "border-text/15 bg-text/[0.06] text-text-muted"
               }`}
             >
               {config.instagram_mode === "api" ? tr("apify_status_on") : tr("apify_status_off")}
@@ -641,12 +645,12 @@ export function SettingsPage() {
                   defaultValue={
                     apifyState?.token_configured ? "••••••••••••••••" : ""
                   }
-                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+                  className="flex-1 rounded-lg border border-text/15 bg-text/[0.06] px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
                 />
                 <button
                   onClick={onValidateApify}
                   disabled={apifyValidating}
-                  className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
+                  className="rounded-lg bg-text/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
                 >
                   {apifyValidating ? tr("apify_validating") : tr("apify_validate")}
                 </button>
@@ -662,7 +666,7 @@ export function SettingsPage() {
                     const v = e.target.value;
                     if (v) saveConfig("apify_ig_actor", v);
                   }}
-                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+                  className="flex-1 rounded-lg border border-text/15 bg-text/[0.06] px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
                 />
               </Row>
 
@@ -692,7 +696,7 @@ export function SettingsPage() {
                     ● {apifyState.connected ? tr("apify_connected") : tr("apify_pending_verify")}
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-muted">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-text/15 bg-text/[0.06] px-2 py-0.5 text-[10px] font-medium text-text-muted">
                     ● 未配置
                   </span>
                 )}
@@ -706,7 +710,7 @@ export function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={onForceRefreshApify}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-white/5 hover:text-text"
+                    className="rounded px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-text/[0.06] hover:text-text"
                   >
                     ↻ {tr("apify_quota_refresh")}
                   </button>
@@ -720,7 +724,7 @@ export function SettingsPage() {
                 </div>
               </div>
               {apifyUsage.plan_credits_usd != null && !apifyUsage.error && (
-                <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-text/10">
                   <div
                     className="h-full transition-all"
                     style={{
@@ -776,7 +780,7 @@ export function SettingsPage() {
               className={`ml-2 rounded border px-2 py-0.5 text-[10px] font-medium ${
                 config.telegram_enabled
                   ? "border-success/30 bg-success/10 text-success"
-                  : "border-white/10 bg-white/5 text-text-muted"
+                  : "border-text/15 bg-text/[0.06] text-text-muted"
               }`}
             >
               {config.telegram_enabled ? "运行中" : "已停止"}
@@ -799,12 +803,12 @@ export function SettingsPage() {
                       ? "••••••••••••••••"
                       : config.telegram_bot_token || ""
                   }
-                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+                  className="flex-1 rounded-lg border border-text/15 bg-text/[0.06] px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
                 />
                 <button
                   onClick={onValidateTelegram}
                   disabled={tgValidating}
-                  className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
+                  className="rounded-lg bg-text/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
                 >
                   {tgValidating ? tr("telegram_validating") : tr("telegram_validate_btn")}
                 </button>
@@ -826,7 +830,7 @@ export function SettingsPage() {
                   placeholder="https://api.telegram.org"
                   defaultValue={config.telegram_api_base || ""}
                   onBlur={(e) => saveConfig("telegram_api_base", e.target.value)}
-                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+                  className="flex-1 rounded-lg border border-text/15 bg-text/[0.06] px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
                 />
               </Row>
               <p className="text-[10px] text-text-dim">
@@ -842,14 +846,14 @@ export function SettingsPage() {
                   {tgState?.pair_code && (
                     <button
                       onClick={onCopyPairCode}
-                      className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
+                      className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text"
                     >
                       📋 {tr("telegram_copy_btn")}
                     </button>
                   )}
                   <button
                     onClick={onRegenPairCode}
-                    className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
+                    className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text"
                   >
                     ↻ {tr("telegram_regen_btn")}
                   </button>
@@ -899,7 +903,7 @@ export function SettingsPage() {
             </span>
             <button
               onClick={onBrowseDownloadDir}
-              className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
+              className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text"
             >
               📁 {tr("browse")}
             </button>
@@ -952,7 +956,7 @@ export function SettingsPage() {
           <div className="flex justify-end gap-2">
             <button
               onClick={onCleanByRules}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15"
+              className="rounded-lg bg-text/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15"
             >
               ↻ {tr("clean_now")}
             </button>
@@ -978,7 +982,7 @@ export function SettingsPage() {
               return (
                 <div
                   key={c.key}
-                  className="rounded-lg border border-white/10 bg-black/20 p-2.5"
+                  className="rounded-lg border border-white/10 bg-text/[0.08] p-2.5"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
@@ -1058,7 +1062,7 @@ export function SettingsPage() {
 
           <Row label={tr("theme_light") + " / " + tr("theme_dark")}>
             <Select
-              value={(config.theme as string) || "dark"}
+              value={theme}
               options={themes}
               onChange={(v) => onSetTheme(v)}
             />
@@ -1222,7 +1226,7 @@ function StatusBadge({ status }: { status: string }) {
       ? "border-warning/30 bg-warning/10 text-warning"
       : status === "expired"
       ? "border-danger/30 bg-danger/10 text-danger"
-      : "border-white/10 bg-white/5 text-text-muted";
+      : "border-text/15 bg-text/[0.06] text-text-muted";
   const label =
     status === "valid"
       ? tr("cookie_status_valid")
@@ -1266,19 +1270,21 @@ function Select({
   value,
   options,
   onChange,
+  className = "",
 }: {
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  className?: string;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+      className={`min-w-[7rem] rounded-lg border border-text/15 bg-bg-surface px-2.5 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40 ${className}`}
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value} className="bg-zinc-900">
+        <option key={o.value} value={o.value} className="bg-bg-surface text-text">
           {o.label}
         </option>
       ))}
@@ -1300,7 +1306,7 @@ function SpinBox({
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="flex w-32 items-center gap-1 rounded-lg border border-white/10 bg-white/5">
+    <div className="flex w-32 items-center gap-1 rounded-lg border border-text/15 bg-bg-surface shadow-sm transition-colors hover:border-text/25">
       <button
         onClick={() => onChange(Math.max(min, value - step))}
         disabled={value <= min}
@@ -1372,7 +1378,7 @@ function DialogActions({
     <div className="mt-5 flex justify-end gap-2">
       <button
         onClick={onCancel}
-        className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
+        className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-text/10 hover:text-text"
       >
         {tr("cancel")}
       </button>

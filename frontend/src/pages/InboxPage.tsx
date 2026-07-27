@@ -454,10 +454,10 @@ export function InboxPage() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="w-36 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            className="w-36 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           >
             {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} className="bg-zinc-900">
+              <option key={o.value} value={o.value} className="bg-bg-surface text-text">
                 {o.label}
               </option>
             ))}
@@ -467,10 +467,10 @@ export function InboxPage() {
           <select
             value={filterSource}
             onChange={(e) => setFilterSource(e.target.value)}
-            className="w-36 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            className="w-36 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           >
             {SOURCE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} className="bg-zinc-900">
+              <option key={o.value} value={o.value} className="bg-bg-surface text-text">
                 {o.label}
               </option>
             ))}

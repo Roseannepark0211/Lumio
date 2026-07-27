@@ -448,69 +448,67 @@ export function LibraryPage() {
       }}
     >
       {/* ============================================================ */}
-      {/* Collections 左侧栏 */}
+      {/* Collections 左侧栏 — 收窄到 180px，去掉 glass-card 改为透明背景 + 细分隔线 */}
       {/* ============================================================ */}
-      <aside className="w-[220px] shrink-0 p-4">
-        <div className="glass-card flex h-full flex-col gap-1 p-3.5">
-          {/* 顶部标题 + 新建按钮 */}
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
-              COLLECTIONS
-            </span>
-            <button
-              onClick={() => setNewCollectionOpen(true)}
-              className="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title={tr("collection_create")}
-            >
-              +
-            </button>
-          </div>
-
-          {/* All Items */}
-          <CollectionSidebarItem
-            active={activeCollectionId === -1}
-            icon="📚"
-            label={tr("all_items")}
-            count={items.length}
-            onClick={() => setActiveCollectionId(-1)}
-          />
-
-          {/* Favorites */}
-          <CollectionSidebarItem
-            active={activeCollectionId === -2}
-            icon="❤"
-            label={tr("favorites")}
-            count={favoritesCount}
-            onClick={() => setActiveCollectionId(-2)}
-          />
-
-          {/* 分隔线 */}
-          <div className="my-2 h-px bg-white/5" />
-
-          {/* User Collections */}
-          {collections.length === 0 ? (
-            <div className="px-2.5 py-1.5 text-xs text-text-dim">
-              {tr("no_collections")}
-            </div>
-          ) : (
-            collections.map((c) => (
-              <CollectionSidebarItem
-                key={c.id}
-                active={activeCollectionId === c.id}
-                icon="📁"
-                label={c.name}
-                count={c.count}
-                onClick={() => setActiveCollectionId(c.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setRenameCollection({ id: c.id, name: c.name });
-                }}
-              />
-            ))
-          )}
-
-          <div className="flex-1" />
+      <aside className="flex w-[180px] shrink-0 flex-col gap-1 border-r border-text/10 bg-transparent px-2.5 py-4">
+        {/* 顶部标题 + 新建按钮 */}
+        <div className="mb-2 flex items-center justify-between px-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-dim">
+            {tr("collections")}
+          </span>
+          <button
+            onClick={() => setNewCollectionOpen(true)}
+            className="flex h-5 w-5 items-center justify-center rounded text-text-muted transition-colors hover:bg-text/10 hover:text-text"
+            title={tr("collection_create")}
+          >
+            +
+          </button>
         </div>
+
+        {/* All Items */}
+        <CollectionSidebarItem
+          active={activeCollectionId === -1}
+          icon="📚"
+          label={tr("all_items")}
+          count={items.length}
+          onClick={() => setActiveCollectionId(-1)}
+        />
+
+        {/* Favorites */}
+        <CollectionSidebarItem
+          active={activeCollectionId === -2}
+          icon="❤"
+          label={tr("favorites")}
+          count={favoritesCount}
+          onClick={() => setActiveCollectionId(-2)}
+        />
+
+        {/* 分隔线 */}
+        <div className="my-1.5 h-px bg-text/10" />
+
+        {/* User Collections */}
+        {collections.length === 0 ? (
+          <div className="px-2.5 py-1.5 text-xs text-text-dim">
+            {tr("no_collections")}
+          </div>
+        ) : (
+          collections.map((c) => (
+            <CollectionSidebarItem
+              key={c.id}
+              active={activeCollectionId === c.id}
+              icon="📁"
+              label={c.name}
+              count={c.count}
+              onClick={() => setActiveCollectionId(c.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setRenameCollection({ id: c.id, name: c.name });
+              }}
+            />
+          ))
+        )}
+
+        <div className="flex-1" />
       </aside>
 
       {/* ============================================================ */}
@@ -538,15 +536,15 @@ export function LibraryPage() {
             placeholder={tr("library_search")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="flex-1 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+            className="flex-1 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 placeholder:text-text-dim focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           />
           <select
             value={filterPlatform}
             onChange={(e) => setFilterPlatform(e.target.value)}
-            className="w-36 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            className="w-36 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           >
             {platformOptions.map((o) => (
-              <option key={o.value} value={o.value} className="bg-zinc-900">
+              <option key={o.value} value={o.value} className="bg-bg-surface text-text">
                 {o.label}
               </option>
             ))}
@@ -554,10 +552,10 @@ export function LibraryPage() {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="w-28 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            className="w-28 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           >
             {typeOptions.map((o) => (
-              <option key={o.value} value={o.value} className="bg-zinc-900">
+              <option key={o.value} value={o.value} className="bg-bg-surface text-text">
                 {o.label}
               </option>
             ))}
@@ -743,7 +741,7 @@ function CollectionSidebarItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={`flex h-9 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors ${
-        active ? "bg-white/10" : "hover:bg-white/5"
+        active ? "bg-text/10" : "hover:bg-text/[0.06]"
       }`}
     >
       <span

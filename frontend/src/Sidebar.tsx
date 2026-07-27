@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, subscribeEvents, type AppEvent } from "./api";
 import { useI18n } from "./i18n";
+import { useTheme } from "./theme";
 
 /**
  * 左侧固定导航栏 — AGENTS.md 规定：
@@ -158,25 +159,25 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
   const visibleItems = navItems.filter((item) => enabledPages.includes(item.key));
 
   return (
-    <aside className="sidebar-glass flex h-full w-[200px] shrink-0 flex-col border-r border-white/5">
-      {/* Logo / App 名称 */}
-      <div className="flex h-14 shrink-0 items-center gap-2.5 px-5">
+    <aside className="sidebar-glass flex h-full w-[64px] shrink-0 flex-col items-center border-r border-text/10">
+      {/* Logo 图标（仅图标方块，无文字） */}
+      <div className="flex h-14 shrink-0 items-center justify-center">
         <div className="h-7 w-7 shrink-0 rounded-lg bg-gradient-to-br from-accent to-accent-glow shadow-lg shadow-accent/30" />
-        <span className="text-base font-bold tracking-tight text-text">Lumio</span>
       </div>
 
-      {/* 导航项列表 */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
+      {/* 导航项列表 — 仅图标，hover 显示 title tooltip */}
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {visibleItems.map((item) => {
           const isActive = current === item.key;
           return (
             <button
               key={item.key}
               onClick={() => onNavigate(item.key)}
-              className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+              title={item.label}
+              className={`group relative flex h-10 w-10 items-center justify-center rounded-lg transition-all ${
                 isActive
-                  ? "bg-white/10 text-text"
-                  : "text-text-muted hover:bg-white/5 hover:text-text"
+                  ? "bg-text/10 text-text"
+                  : "text-text-muted hover:bg-text/[0.06] hover:text-text"
               }`}
             >
               {/* 激活态左侧指示条 */}
@@ -184,16 +185,19 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
                 <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent" />
               )}
               <span className="shrink-0">{item.icon}</span>
-              <span className="flex-1 text-left">{item.label}</span>
-              {/* 徽章 */}
-              {item.badge && item.badge > 0 && <Badge count={item.badge} />}
+              {/* 徽章 — 绝对定位到右上角 */}
+              {item.badge && item.badge > 0 && (
+                <span className="absolute right-1 top-1">
+                  <Badge count={item.badge} />
+                </span>
+              )}
             </button>
           );
         })}
       </nav>
 
-      {/* 底部：主题切换按钮（AGENTS.md 规定） */}
-      <div className="shrink-0 border-t border-white/5 p-3">
+      {/* 底部：主题切换按钮（仅图标） */}
+      <div className="shrink-0 border-t border-text/10 p-2">
         <ThemeToggle />
       </div>
     </aside>
@@ -229,20 +233,20 @@ function Badge({ count }: { count: number }) {
 }
 
 // ============================================================
-// 主题切换按钮（占位实现 — 主题切换接入在第 3 步做）
+// 主题切换按钮 — 接入 ThemeProvider
 // ============================================================
 
 function ThemeToggle() {
   const { tr } = useI18n();
-  // TODO: 接入主题切换时实现完整逻辑
-  // 当前是占位按钮，避免阻塞 Sidebar 迁移
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === "dark";
   return (
     <button
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-text"
-      title={tr("theme_light") + " / " + tr("theme_dark")}
+      onClick={() => toggleTheme()}
+      title={isDark ? tr("theme_light") : tr("theme_dark")}
+      className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-text/[0.06] hover:text-text"
     >
-      <SunIcon />
-      <span>{tr("theme_light")} / {tr("theme_dark")}</span>
+      {isDark ? <SunIcon /> : <MoonIcon />}
     </button>
   );
 }
@@ -339,6 +343,14 @@ function SunIcon() {
       <line x1="21" y1="12" x2="23" y2="12" />
       <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
       <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg className={iconClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
     </svg>
   );
 }

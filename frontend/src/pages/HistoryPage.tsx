@@ -266,15 +266,15 @@ export function HistoryPage() {
             placeholder={tr("history_search")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="flex-1 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+            className="flex-1 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 placeholder:text-text-dim focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           />
           <select
             value={filterPlatform}
             onChange={(e) => setFilterPlatform(e.target.value)}
-            className="w-40 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            className="w-40 rounded-lg border border-text/15 bg-bg-surface px-3 py-1.5 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
           >
             {PLATFORM_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} className="bg-zinc-900">
+              <option key={o.value} value={o.value} className="bg-bg-surface text-text">
                 {o.translate ? tr(o.label) : o.label}
               </option>
             ))}

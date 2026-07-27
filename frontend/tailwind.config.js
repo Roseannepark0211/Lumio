@@ -1,25 +1,28 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Lumio 主题色（与 Theme.qml 对齐）
+        // Lumio 主题色 — 用 CSS 变量驱动，深色/浅色各一套值（见 index.css）
+        // 透明度通道用 rgb 通道引用：rgb(var(--color-bg) / <alpha-value>)
         bg: {
-          DEFAULT: "#0a0a0f",
-          surface: "#13131a",
-          elevated: "#1c1c26",
+          DEFAULT: "rgb(var(--color-bg) / <alpha-value>)",
+          surface: "rgb(var(--color-bg-surface) / <alpha-value>)",
+          elevated: "rgb(var(--color-bg-elevated) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#a78bfa",
-          glow: "#c4b5fd",
+          DEFAULT: "rgb(var(--color-accent) / <alpha-value>)",
+          glow: "rgb(var(--color-accent-glow) / <alpha-value>)",
         },
-        danger: "#ef4444",
-        success: "#10b981",
-        warning: "#f59e0b",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
         text: {
-          DEFAULT: "#e5e7eb",
-          muted: "#9ca3af",
+          DEFAULT: "rgb(var(--color-text) / <alpha-value>)",
+          muted: "rgb(var(--color-text-muted) / <alpha-value>)",
+          dim: "rgb(var(--color-text-dim) / <alpha-value>)",
         },
       },
       fontFamily: {

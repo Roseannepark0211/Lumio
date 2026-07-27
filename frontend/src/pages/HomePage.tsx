@@ -115,6 +115,17 @@ export function HomePage() {
 
   const handleEvent = useCallback((e: AppEvent) => {
     switch (e.type) {
+      case "config_changed": {
+        // X-Sou 开关等配置变更时实时刷新（设置页切换开关后立即生效）
+        // 后端事件只通知 key，不带值，需重新拉 config
+        (async () => {
+          try {
+            const cfg = await api.getConfig();
+            setXsouEnabled(!!(cfg as Record<string, unknown>).enable_xsou);
+          } catch {}
+        })();
+        break;
+      }
       case "parse_completed": {
         const p = e.data as ParseCompletedPayload;
         setIsParsing(false);
@@ -543,7 +554,7 @@ export function HomePage() {
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
                 placeholder={tr("leave_empty")}
-                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
+                className="flex-1 rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 placeholder:text-text-muted/60 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
               />
               {previewInfo.formats.length > 1 && (
                 <select
@@ -555,10 +566,10 @@ export function HomePage() {
                       setSelectedFormatType(f.type);
                     }
                   }}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
+                  className="rounded-xl border border-text/15 bg-bg-surface px-3 py-2 text-sm text-text shadow-sm transition-colors hover:border-text/25 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40"
                 >
                   {previewInfo.formats.map((f) => (
-                    <option key={f.format_id} value={f.format_id} className="bg-bg-surface">
+                    <option key={f.format_id} value={f.format_id} className="bg-bg-surface text-text">
                       {f.label}
                     </option>
                   ))}
