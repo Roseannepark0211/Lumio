@@ -47,6 +47,7 @@ config.json
 
 # Non-code docs
 CLAUDE.md
+AGENTS.md
 工具迭代路线集合/
 测试链接.md
 
