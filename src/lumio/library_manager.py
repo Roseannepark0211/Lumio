@@ -4,7 +4,7 @@ import json
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from .utils.signal import QObject, Signal
 
 from .models import Collection, ItemCollection, LibraryItem
 from .utils.config import get_history_path

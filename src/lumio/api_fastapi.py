@@ -46,8 +46,7 @@ logger = logging.getLogger("lumio.api")
 # manager 是 QObject 子类，必须先有 QApplication 实例才能用 Signal
 # 这里创建但不 exec() —— Signal emit 通过 DirectConnection 直接调用 callback，
 # 不依赖 Qt event loop
-from PySide6.QtCore import Qt, QObject, Signal
-from PySide6.QtWidgets import QApplication
+from .utils.signal import Qt, QObject, Signal, QApplication
 
 _qt_app: Optional[QApplication] = None
 
@@ -1407,10 +1406,9 @@ def create_app() -> FastAPI:
     @app.post("/api/clipboard/copy")
     async def clipboard_copy(req: CopyClipboardRequest) -> dict:
         try:
-            from PySide6.QtGui import QGuiApplication
-            cb = QGuiApplication.clipboard()
-            if cb:
-                cb.setText(req.text)
+            from .utils.signal import _qgui_clipboard
+            cb = _qgui_clipboard()
+            cb.setText(req.text)
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -1418,9 +1416,9 @@ def create_app() -> FastAPI:
     @app.get("/api/clipboard/text")
     async def clipboard_text() -> dict:
         try:
-            from PySide6.QtGui import QGuiApplication
-            cb = QGuiApplication.clipboard()
-            return {"text": cb.text() if cb else ""}
+            from .utils.signal import _qgui_clipboard
+            cb = _qgui_clipboard()
+            return {"text": cb.text()}
         except Exception:
             return {"text": ""}
 
@@ -1443,7 +1441,7 @@ def create_app() -> FastAPI:
         if not req.url:
             return {"ok": False, "error": "empty"}
         try:
-            from PySide6.QtGui import QDesktopServices, QUrl as _QUrl
+            from .utils.signal import QDesktopServices, QUrl as _QUrl
             return {"ok": bool(QDesktopServices.openUrl(_QUrl(req.url)))}
         except Exception as e:
             return {"ok": False, "error": str(e)}

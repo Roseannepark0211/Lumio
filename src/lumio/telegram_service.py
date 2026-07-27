@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-from PySide6.QtCore import QObject, Signal
+from .utils.signal import QObject, Signal
 
 from .models import InboxItem, TelegramDevice
 from .utils.config import load_config, save_config
