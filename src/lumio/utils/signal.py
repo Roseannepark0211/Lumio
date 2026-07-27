@@ -47,8 +47,25 @@ class QObject:
 
     PySide6 的 QObject 提供 parent/children 管理、signal-threading 检查，
     这里都不需要。manager 子类继承它只是为了符合 PySide6 语法。
+
+    接受可选 parent 参数兼容 PySide6 API（如 DownloadManager.__init__(parent)）。
     """
-    pass
+
+    def __init__(self, parent: "QObject | None" = None) -> None:
+        # parent 仅作语法兼容，不做实际父子关系管理
+        pass
+
+    def moveToThread(self, thread: "QThread | None") -> None:
+        """no-op — 兼容 PySide6 API。
+
+        本兼容层 Signal 总是同步调用 callback（DirectConnection），
+        不依赖线程亲和性，moveToThread 无实际效果。
+        """
+        pass
+
+    def thread(self) -> "QThread | None":
+        """no-op — 兼容 PySide6 API。返回 None 表示无亲和线程。"""
+        return None
 
 
 # ============================================================
