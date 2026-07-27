@@ -1251,8 +1251,23 @@ def create_app() -> FastAPI:
                 ctx["app_ctx"]._apify_usage_cache = {"_ts": 0}
                 _bus().publish("config_changed", {"key": "apify"})
                 return {"ok": True}
+            # 验证失败：清除 verified 状态，避免 UI 一直显示"已连接"
+            cfg = load_config()
+            if cfg.get("apify_verified"):
+                cfg["apify_verified"] = False
+                save_config(cfg)
+                _bus().publish("config_changed", {"key": "apify"})
             return {"ok": False, "error": "validate failed"}
         except Exception as e:
+            # 异常也清除 verified
+            try:
+                cfg = load_config()
+                if cfg.get("apify_verified"):
+                    cfg["apify_verified"] = False
+                    save_config(cfg)
+                    _bus().publish("config_changed", {"key": "apify"})
+            except Exception:
+                pass
             return {"ok": False, "error": str(e)}
 
     @app.get("/api/apify/status")

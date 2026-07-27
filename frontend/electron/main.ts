@@ -16,7 +16,7 @@
  *   3. 强制 kill 残留进程（兜底）
  */
 
-import { app, BrowserWindow, shell, protocol, net } from "electron";
+import { app, BrowserWindow, shell, protocol, net, dialog, ipcMain } from "electron";
 import { spawn, ChildProcess, execSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
@@ -337,6 +337,35 @@ function createWindow(): void {
 let isQuitting = false;
 
 app.whenReady().then(async () => {
+  // ============================================================
+  // IPC handlers — 文件/文件夹选择对话框
+  // ============================================================
+  // SettingsPage 走 Electron 原生对话框，不走 FastAPI/Qt 的 QFileDialog
+  // 原因：QFileDialog 必须在 Qt 主线程调用，而 FastAPI 端点在 asyncio 事件循环，
+  //       模态对话框会阻塞整个 FastAPI 30 秒（用户选文件夹期间），
+  //       期间所有其他 API 请求都会卡住。Electron dialog 异步且不阻塞 FastAPI。
+  ipcMain.handle("dialog:open-folder", async () => {
+    if (!mainWindow) return "";
+    const r = await dialog.showOpenDialog(mainWindow, {
+      title: "选择文件夹",
+      properties: ["openDirectory"],
+    });
+    return r.canceled || r.filePaths.length === 0 ? "" : r.filePaths[0];
+  });
+
+  ipcMain.handle(
+    "dialog:open-files",
+    async (_evt, filters: Electron.FileFilter[] | undefined) => {
+      if (!mainWindow) return [] as string[];
+      const r = await dialog.showOpenDialog(mainWindow, {
+        title: "选择文件",
+        properties: ["openFile", "multiSelections"],
+        filters: filters || [{ name: "All Files", extensions: ["*"] }],
+      });
+      return r.canceled ? [] : r.filePaths;
+    }
+  );
+
   // 注册 lumio-file:// protocol 的实际 handler
   // lumio-file:///C:/Users/.../foo.mp4 → 本地文件 → Response(stream)
   //

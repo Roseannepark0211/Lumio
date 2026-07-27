@@ -6,7 +6,7 @@
  * lumio.lumioFileUrl(path) 把本地文件路径转成 lumio-file:// URL（用于 <video>/<img>）。
  */
 
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 const fastapiBase = process.env.LUMIO_FASTAPI_BASE || "http://127.0.0.1:38910";
 const fastapiToken = process.env.LUMIO_FASTAPI_TOKEN || "";
@@ -32,6 +32,12 @@ function lumioFileUrl(p: string): string {
   return `lumio-file:///${normalized}`;
 }
 
+/** 文件过滤器（与 Electron FileFilter 对齐） */
+export interface ElectronFileFilter {
+  name: string;
+  extensions: string[];
+}
+
 contextBridge.exposeInMainWorld("lumio", {
   version: "0.1.0",
   platform: process.platform,
@@ -39,4 +45,9 @@ contextBridge.exposeInMainWorld("lumio", {
   fastapiBase,
   fastapiToken,
   lumioFileUrl,
+  /** 打开文件夹选择对话框，返回选中路径（取消返回空串） */
+  pickFolder: (): Promise<string> => ipcRenderer.invoke("dialog:open-folder"),
+  /** 打开文件选择对话框（支持多选），返回路径数组 */
+  pickFiles: (filters?: ElectronFileFilter[]): Promise<string[]> =>
+    ipcRenderer.invoke("dialog:open-files", filters),
 });
