@@ -1451,6 +1451,7 @@ def create_app() -> FastAPI:
         """代理远程缩略图下载，附加 Referer/Cookie（与 ThumbnailProvider 等价）。
         返回原始图片字节，前端用 <img src="/api/thumb-proxy?url=..."> 直接渲染。
         """
+        import requests as _requests
         try:
             from .utils.thumb_proxy import fetch_thumbnail_bytes
             content, content_type = fetch_thumbnail_bytes(url, timeout=15)
@@ -1461,7 +1462,7 @@ def create_app() -> FastAPI:
                 "Content-Type": content_type,
             }
             return Response(content=content, headers=headers_out)
-        except requests.HTTPError as e:
+        except _requests.HTTPError as e:
             # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
             status = e.response.status_code if e.response is not None else 0
             raise HTTPException(502, f"thumb fetch failed (upstream {status}): {e}")
