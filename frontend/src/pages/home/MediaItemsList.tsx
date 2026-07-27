@@ -8,6 +8,7 @@
  */
 
 import { type MediaItem, thumbProxyUrl } from "../../api";
+import { useI18n } from "../../i18n";
 
 export interface SortedMediaItem {
   orig_idx: number;       // 原始 items 数组中的索引
@@ -24,15 +25,16 @@ interface Props {
 }
 
 export function MediaItemsList({ items, selectedItemIndex, addedItemIndices, onSelect, onEnqueue }: Props) {
+  const { tr } = useI18n();
   if (items.length <= 1) return null;
 
   return (
     <div className="glass-card mb-4 p-4 animate-slide-up">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-          媒体项 ({items.length})
+          {tr("media_items_title")} ({items.length})
         </h3>
-        <span className="text-xs text-text-muted">点击卡片切换预览</span>
+        <span className="text-xs text-text-muted">{tr("media_items_hint")}</span>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-2">
         {items.map((s) => {
@@ -84,7 +86,7 @@ export function MediaItemsList({ items, selectedItemIndex, addedItemIndices, onS
                   }}
                   className="absolute bottom-1 right-1 flex h-7 items-center gap-1 rounded-full bg-accent/90 px-2 text-xs font-medium text-white opacity-0 shadow-md backdrop-blur-sm transition-opacity group-hover:opacity-100 hover:bg-accent"
                 >
-                  下载
+                  {tr("download")}
                 </button>
               )}
 

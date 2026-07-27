@@ -11,6 +11,7 @@
  */
 
 import { type PreviewProgressPayload } from "../../api";
+import { useI18n } from "../../i18n";
 
 interface Props {
   open: boolean;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function PreviewProgressDialog({ open, progress, onCancel }: Props) {
+  const { tr } = useI18n();
   if (!open) return null;
 
   const downloaded = progress?.downloaded ?? 0;
@@ -28,7 +30,7 @@ export function PreviewProgressDialog({ open, progress, onCancel }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
       <div className="w-80 rounded-2xl border border-white/10 bg-bg-surface p-5 shadow-2xl">
-        <div className="mb-3 text-sm font-medium text-text">缓存视频到本地...</div>
+        <div className="mb-3 text-sm font-medium text-text">{tr("cache_video")}</div>
 
         {/* 进度条 */}
         <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
@@ -49,7 +51,7 @@ export function PreviewProgressDialog({ open, progress, onCancel }: Props) {
           onClick={onCancel}
           className="mt-4 w-full rounded-lg bg-white/5 py-2 text-sm text-text-muted transition-colors hover:bg-white/10 hover:text-text"
         >
-          取消
+          {tr("cancel")}
         </button>
       </div>
     </div>

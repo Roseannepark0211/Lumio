@@ -10,6 +10,7 @@
 
 import { type VideoInfo, type MediaItem, thumbProxyUrl } from "../../api";
 import type { SortedMediaItem } from "./MediaItemsList";
+import { useI18n } from "../../i18n";
 
 interface Props {
   previewInfo: VideoInfo;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function PreviewArea({ previewInfo, selectedItemIndex, sortedItems }: Props) {
+  const { tr } = useI18n();
   const selectedItem: MediaItem | null = selectedItemIndex >= 0
     ? (sortedItems.find((s) => s.orig_idx === selectedItemIndex)?.item ?? null)
     : null;
@@ -31,7 +33,7 @@ export function PreviewArea({ previewInfo, selectedItemIndex, sortedItems }: Pro
     <div className="glass-card mb-4 p-4 animate-slide-up">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-          预览
+          {tr("preview")}
         </h3>
         <PlatformPill platform={previewInfo.platform} />
       </div>
@@ -72,7 +74,7 @@ export function PreviewArea({ previewInfo, selectedItemIndex, sortedItems }: Pro
 
       {/* 标题/作者/发布时间 */}
       <div className="mt-3 space-y-1">
-        <div className="text-sm font-medium text-text line-clamp-2">{previewInfo.title || '(无标题)'}</div>
+        <div className="text-sm font-medium text-text line-clamp-2">{previewInfo.title || `(${tr("untitled")})`}</div>
         <div className="flex items-center gap-3 text-xs text-text-muted">
           {previewInfo.author && <span>@{previewInfo.author}</span>}
           {previewInfo.post_time && <span>{previewInfo.post_time}</span>}
@@ -133,15 +135,16 @@ function formatDuration(sec: number): string {
 }
 
 function PlatformPill({ platform }: { platform: string }) {
+  const { tr } = useI18n();
   const labels: Record<string, string> = {
     youtube: "YouTube",
     instagram: "IG",
     x: "X",
-    bilibili: "B站",
-    douyin: "抖音",
-    kuaishou: "快手",
-    weibo: "微博",
-    xiaohongshu: "小红书",
+    bilibili: tr("platform_bilibili"),
+    douyin: tr("platform_douyin"),
+    kuaishou: tr("platform_kuaishou"),
+    weibo: tr("platform_weibo"),
+    xiaohongshu: tr("platform_xiaohongshu"),
   };
   return (
     <span className="pill-accent">{labels[platform] || platform}</span>

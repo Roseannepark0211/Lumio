@@ -21,6 +21,7 @@ import {
   type AppEvent,
   type QueueTask,
 } from "../api";
+import { useI18n } from "../i18n";
 import { TaskCard } from "./downloads/TaskCard";
 import {
   applyFilter,
@@ -30,6 +31,7 @@ import {
 } from "../utils/downloads";
 
 export function DownloadsPage() {
+  const { tr } = useI18n();
   // —— 任务列表状态 ——
   const [tasks, setTasks] = useState<QueueTask[]>([]);
   const [filterStatus] = useState<FilterStatus>("all");
@@ -217,7 +219,7 @@ export function DownloadsPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -226,7 +228,7 @@ export function DownloadsPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -239,37 +241,37 @@ export function DownloadsPage() {
         {/* PageHeader */}
         <header className="flex animate-slide-up items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-text">下载队列</h1>
+            <h1 className="text-xl font-bold text-text">{tr("queue_title")}</h1>
             <p className="mt-0.5 text-xs text-text-muted">
-              管理下载任务、查看进度、控制全局操作
+              {tr("downloads_subtitle")}
             </p>
           </div>
           <div className="flex items-center gap-2">
             {/* 活跃任务数 pill */}
             <div className="rounded-full border border-accent/30 bg-accent/15 px-2.5 py-1 text-xs font-semibold text-accent">
-              {activeCount} active
+              {activeCount} {tr("active")}
             </div>
             {/* 全局操作按钮 */}
             <button
               onClick={onStartAll}
               className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-glow"
-              title="全部开始"
+              title={tr("start_all")}
             >
-              ▶ 全部开始
+              ▶ {tr("start_all")}
             </button>
             <button
               onClick={onPauseAll}
               className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title="全部暂停"
+              title={tr("pause_all")}
             >
-              ⏸ 全部暂停
+              ⏸ {tr("pause_all")}
             </button>
             <button
               onClick={onResumeAll}
               className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title="全部恢复"
+              title={tr("resume_interrupted")}
             >
-              ↻ 全部恢复
+              ↻ {tr("resume_interrupted")}
             </button>
           </div>
         </header>
@@ -277,7 +279,7 @@ export function DownloadsPage() {
         {/* 空状态 */}
         {tasks.length === 0 && (
           <div className="mt-20 text-center text-sm text-text-muted">
-            暂无下载任务
+            {tr("downloads_empty")}
           </div>
         )}
 

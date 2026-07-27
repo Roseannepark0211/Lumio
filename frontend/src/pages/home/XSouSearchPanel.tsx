@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { type XSouResult, thumbProxyUrl } from "../../api";
+import { useI18n } from "../../i18n";
 
 interface Props {
   isSearching: boolean;
@@ -42,6 +43,7 @@ export function XSouSearchPanel({
   onPreview,
   onClose,
 }: Props) {
+  const { tr } = useI18n();
   const [query, setQuery] = useState("");
   const selectedCount = Object.values(selectedItems).filter(Boolean).length;
   const totalPages = Math.ceil(searchTotal / searchLimit) || 1;
@@ -61,7 +63,7 @@ export function XSouSearchPanel({
               onSearch(query.trim(), 1);
             }
           }}
-          placeholder="搜索 X 内容（@username 转 from: 搜索）"
+          placeholder={tr("xsou_search_placeholder")}
           className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
         />
         <button
@@ -69,12 +71,12 @@ export function XSouSearchPanel({
           onClick={() => onSearch(query.trim(), 1)}
           className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {isSearching ? "搜索中..." : "搜索"}
+          {isSearching ? tr("search_loading") : tr("search")}
         </button>
         {canClose && (
           <button
             onClick={onClose}
-            title="关闭搜索结果"
+            title={tr("close_search_results")}
             className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-text-muted transition-colors hover:bg-white/10 hover:text-text"
           >
             ✕
@@ -84,16 +86,16 @@ export function XSouSearchPanel({
 
       {/* 18+ 警告 */}
       <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-        ⚠ X-Sou 搜索结果可能含 18+ 内容，仅供个人学习研究使用
+        {tr("xsou_warning")}
       </div>
 
       {/* 结果列表 */}
       {searchResults.length > 0 && (
         <>
           <div className="mb-2 flex items-center justify-between text-xs text-text-muted">
-            <span>共 {searchTotal} 条结果（第 {searchPage}/{totalPages} 页）</span>
+            <span>{tr("search_results_total", { total: searchTotal, page: searchPage, pages: totalPages })}</span>
             {selectedCount > 0 && (
-              <span className="text-accent">已选 {selectedCount} 项</span>
+              <span className="text-accent">{tr("search_selected_count", { n: selectedCount })}</span>
             )}
           </div>
 
@@ -139,7 +141,7 @@ export function XSouSearchPanel({
                       disabled={!r.video_url}
                       className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] text-text hover:bg-white/10 disabled:opacity-30"
                     >
-                      预览
+                      {tr("preview")}
                     </button>
                   </div>
                 </div>
@@ -155,14 +157,14 @@ export function XSouSearchPanel({
                 onClick={() => onSearch(query.trim(), searchPage - 1)}
                 className="rounded-md bg-white/5 px-3 py-1 text-xs text-text hover:bg-white/10 disabled:opacity-30"
               >
-                上一页
+                {tr("prev_page")}
               </button>
               <button
                 disabled={searchPage >= totalPages || isSearching}
                 onClick={() => onSearch(query.trim(), searchPage + 1)}
                 className="rounded-md bg-white/5 px-3 py-1 text-xs text-text hover:bg-white/10 disabled:opacity-30"
               >
-                下一页
+                {tr("next_page")}
               </button>
             </div>
             <div className="flex gap-2">
@@ -171,7 +173,7 @@ export function XSouSearchPanel({
                   onClick={onClearSelection}
                   className="rounded-md bg-white/5 px-3 py-1 text-xs text-text-muted hover:bg-white/10"
                 >
-                  取消选择
+                  {tr("clear_selection")}
                 </button>
               )}
               <button
@@ -179,7 +181,7 @@ export function XSouSearchPanel({
                 onClick={onBatchEnqueue}
                 className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-glow disabled:opacity-30"
               >
-                入队 ({selectedCount})
+                {tr("enqueue_count", { n: selectedCount })}
               </button>
             </div>
           </div>
@@ -189,7 +191,7 @@ export function XSouSearchPanel({
       {/* 空状态 */}
       {searchResults.length === 0 && !isSearching && searchPage === 0 && (
         <div className="py-6 text-center text-xs text-text-muted">
-          输入关键词开始搜索
+          {tr("search_input_hint")}
         </div>
       )}
     </div>

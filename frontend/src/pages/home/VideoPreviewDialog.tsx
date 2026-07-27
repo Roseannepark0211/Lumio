@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { lumioFileUrl } from "../../api";
+import { useI18n } from "../../i18n";
 
 interface Props {
   /** 本地文件绝对路径（来自 WS preview_ready 事件 payload.path） */
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
+  const { tr } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
         <button
           onClick={onClose}
           className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white"
-          aria-label="关闭"
+          aria-label={tr("close")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -76,7 +78,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
             </div>
-            <div className="text-sm font-medium text-danger">视频加载失败</div>
+            <div className="text-sm font-medium text-danger">{tr("video_load_failed")}</div>
             <div className="text-xs text-text-muted">{error}</div>
           </div>
         ) : videoError ? (
@@ -88,7 +90,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
             </div>
-            <div className="text-sm font-medium text-danger">视频播放失败</div>
+            <div className="text-sm font-medium text-danger">{tr("video_play_failed")}</div>
             <div className="max-w-md text-xs text-text-muted">{videoError}</div>
           </div>
         ) : (
@@ -110,7 +112,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
               };
               const label = code ? codeMap[code] || `code ${code}` : "unknown";
               console.error("[VideoPreviewDialog] video error:", { code, message: msg, src: videoSrc });
-              setVideoError(`${label}: ${msg || "无详细信息"} (src=${videoSrc})`);
+              setVideoError(`${label}: ${msg || tr("no_detail")} (src=${videoSrc})`);
             }}
             onLoadedData={() => console.log("[VideoPreviewDialog] video loaded OK")}
           />

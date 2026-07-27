@@ -591,11 +591,14 @@ export const api = {
   setNestedConfig: (parentKey: string, updates: Record<string, unknown>) =>
     put<{ ok: boolean }>(`/api/config/nested/${encodeURIComponent(parentKey)}`, { updates }),
 
-  // —— SettingsPage: 主题 / 语言 ——
+  // —— 主题 / 语言 / i18n ——
   setTheme: (theme: string) =>
     put<{ theme: string }>("/api/theme", { theme }),
   setLang: (lang: string) =>
     put<{ lang: string }>("/api/lang", { lang }),
+  /** 拉取完整翻译字典（前端启动时一次性缓存到内存）。
+   *  返回结构：{ zh: {key: text}, en: {key: text} } */
+  getI18n: () => get<Record<string, Record<string, string>>>("/api/i18n"),
 
   // —— SettingsPage: Cookie 管理 ——
   getCookieStatus: () => get<CookieStatusResponse>("/api/cookie/status"),

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, subscribeEvents, type AppEvent } from "./api";
+import { useI18n } from "./i18n";
 
 /**
  * 左侧固定导航栏 — AGENTS.md 规定：
@@ -40,6 +41,8 @@ interface NavItem {
 }
 
 export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
+  const { tr } = useI18n();
+
   // —— 徽章计数 ——
   const [inboxCount, setInboxCount] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
@@ -108,45 +111,45 @@ export function Sidebar({ current, onNavigate, enabledPages }: SidebarProps) {
   const navItems: NavItem[] = [
     {
       key: "home",
-      label: "Home",
+      label: tr("home"),
       icon: <HomeIcon />,
     },
     {
       key: "inbox",
-      label: "Inbox",
+      label: tr("inbox"),
       icon: <InboxIcon />,
       badge: inboxCount,
     },
     {
       key: "downloads",
-      label: "Downloads",
+      label: tr("downloads"),
       icon: <DownloadIcon />,
       badge: activeDownloads,
     },
     {
       key: "history",
-      label: "History",
+      label: tr("history"),
       icon: <HistoryIcon />,
     },
     {
       key: "library",
-      label: "Library",
+      label: tr("library"),
       icon: <LibraryIcon />,
     },
     {
       key: "stats",
-      label: "Stats",
+      label: tr("stats"),
       icon: <StatsIcon />,
     },
     {
       key: "notifications",
-      label: "Notifications",
+      label: tr("notifications"),
       icon: <BellIcon />,
       badge: notifCount,
     },
     {
       key: "settings",
-      label: "Settings",
+      label: tr("settings"),
       icon: <SettingsIcon />,
     },
   ];
@@ -230,15 +233,16 @@ function Badge({ count }: { count: number }) {
 // ============================================================
 
 function ThemeToggle() {
+  const { tr } = useI18n();
   // TODO: 接入主题切换时实现完整逻辑
   // 当前是占位按钮，避免阻塞 Sidebar 迁移
   return (
     <button
       className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-text"
-      title="主题切换（即将实现）"
+      title={tr("theme_light") + " / " + tr("theme_dark")}
     >
       <SunIcon />
-      <span>Light / Dark</span>
+      <span>{tr("theme_light")} / {tr("theme_dark")}</span>
     </button>
   );
 }

@@ -26,33 +26,41 @@ import {
   type NotificationItem,
 } from "../api";
 import { useNav } from "../App";
+import { useI18n } from "../i18n";
 
 // ============================================================
 // 常量
 // ============================================================
 
 // 分类筛选选项（与 QML NotificationsPage.qml model 对齐）
+// labelKey 字段为 i18n key，在渲染时通过 tr() 解析
 const FILTER_OPTIONS: {
   value: string;
-  label: string;
+  labelKey: string;
   color: string; // tailwind text-* 类
   bg: string;    // tailwind bg-*/10 类
   border: string;
 }[] = [
-  { value: "all",        label: "全部",   color: "text-accent",      bg: "bg-accent/15",      border: "border-accent/40" },
-  { value: "deps",       label: "依赖",   color: "text-warning",     bg: "bg-warning/15",     border: "border-warning/40" },
-  { value: "env",        label: "环境",   color: "text-info",        bg: "bg-info/15",        border: "border-info/40" },
-  { value: "update",     label: "更新",   color: "text-success",     bg: "bg-success/15",     border: "border-success/40" },
-  { value: "system",     label: "系统",   color: "text-purple-400",  bg: "bg-purple-500/15",  border: "border-purple-500/40" },
-  { value: "permanent",  label: "永久",   color: "text-danger",      bg: "bg-danger/15",      border: "border-danger/40" },
+  { value: "all",        labelKey: "notif_filter_all",    color: "text-accent",      bg: "bg-accent/15",      border: "border-accent/40" },
+  { value: "deps",       labelKey: "notif_cat_deps",      color: "text-warning",     bg: "bg-warning/15",     border: "border-warning/40" },
+  { value: "env",        labelKey: "notif_cat_env",       color: "text-info",        bg: "bg-info/15",        border: "border-info/40" },
+  { value: "update",     labelKey: "notif_cat_update",    color: "text-success",     bg: "bg-success/15",     border: "border-success/40" },
+  { value: "system",     labelKey: "notif_cat_system",    color: "text-purple-400",  bg: "bg-purple-500/15",  border: "border-purple-500/40" },
+  { value: "permanent",  labelKey: "notif_cat_permanent", color: "text-danger",      bg: "bg-danger/15",      border: "border-danger/40" },
 ];
 
-// 分类展示标签
-const CATEGORY_LABEL: Record<string, string> = {
-  deps: "依赖",
-  env: "环境",
-  update: "更新",
-  system: "系统",
+// 分类展示标签 i18n key 映射
+// 注：inbox 类别在 i18n.py 中暂无对应 key（notif_cat_inbox 不存在），
+// 因此 inbox 保持硬编码中文 "收件箱"，其余类别走 tr() 解析
+const CATEGORY_LABEL_KEY: Record<string, string> = {
+  deps: "notif_cat_deps",
+  env: "notif_cat_env",
+  update: "notif_cat_update",
+  system: "notif_cat_system",
+};
+
+// inbox 类别无 i18n key，保留原文
+const CATEGORY_LABEL_FALLBACK: Record<string, string> = {
   inbox: "收件箱",
 };
 
@@ -116,6 +124,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 
 export function NotificationsPage() {
   const navigate = useNav();
+  const { tr } = useI18n();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -235,7 +244,7 @@ export function NotificationsPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -244,7 +253,8 @@ export function NotificationsPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          {/* 注：i18n.py 暂无 "加载失败" 对应 key，保留原文 */}
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -258,16 +268,16 @@ export function NotificationsPage() {
       {/* ============================================================ */}
       <header className="mb-6 flex items-center gap-4">
         <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">通知</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{tr("notifications_page")}</h1>
           <p className="mt-1 text-sm text-text-muted">
-            环境检测、依赖状态、版本更新及系统消息
+            {tr("notifications_subtitle")}
           </p>
         </div>
 
         {/* 未读 badge */}
         <div className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1">
           <span className="font-mono text-xs font-semibold text-accent">
-            {unreadCount} 未读 · {items.length} 条
+            {tr("notif_unread_count", { n: unreadCount, total: items.length })}
           </span>
         </div>
 
@@ -276,14 +286,14 @@ export function NotificationsPage() {
           disabled={items.length === 0}
           className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          全部已读
+          {tr("mark_all_read")}
         </button>
         <button
           onClick={onClearRead}
           disabled={items.length === 0}
           className="rounded-lg px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
         >
-          清除已读
+          {tr("notif_clear_read")}
         </button>
       </header>
 
@@ -310,7 +320,7 @@ export function NotificationsPage() {
                   }`}
                 />
               )}
-              {opt.label}
+              {tr(opt.labelKey)}
             </button>
           );
         })}
@@ -320,7 +330,7 @@ export function NotificationsPage() {
       {/* 空状态 */}
       {/* ============================================================ */}
       {items.length === 0 && (
-        <div className="mt-20 text-center text-text-muted">暂无通知</div>
+        <div className="mt-20 text-center text-text-muted">{tr("no_notifications")}</div>
       )}
 
       {/* ============================================================ */}
@@ -395,7 +405,9 @@ export function NotificationsPage() {
 
                   {/* 分类 badge */}
                   <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-text-muted">
-                    {CATEGORY_LABEL[n.category] || n.category}
+                    {CATEGORY_LABEL_KEY[n.category]
+                      ? tr(CATEGORY_LABEL_KEY[n.category])
+                      : CATEGORY_LABEL_FALLBACK[n.category] || n.category}
                   </span>
 
                   {/* 时间 */}
@@ -446,7 +458,7 @@ export function NotificationsPage() {
                       e.stopPropagation();
                       onDismiss(n.id);
                     }}
-                    title="关闭"
+                    title={tr("close")}
                     className="flex h-6 w-6 items-center justify-center rounded text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text group-hover:opacity-100"
                   >
                     ✕
@@ -454,7 +466,7 @@ export function NotificationsPage() {
                 ) : (
                   /* 永久通知的锁图标 */
                   <div
-                    title="永久通知，不可关闭"
+                    title={tr("notif_permanent_locked")}
                     className="flex h-6 w-6 cursor-help items-center justify-center rounded border border-white/10 text-text-dim"
                   >
                     <span className="text-[10px]">🔒</span>

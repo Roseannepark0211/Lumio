@@ -27,45 +27,34 @@ import {
   type LibraryItem,
   type LibraryCollection,
 } from "../api";
+import { useI18n } from "../i18n";
 
 // ============================================================
 // 常量
 // ============================================================
 
-// 平台筛选选项（与 QML LibraryPage.qml model 对齐）
-const PLATFORM_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "全部平台" },
-  { value: "youtube", label: "YouTube" },
-  { value: "instagram", label: "Instagram" },
-  { value: "x", label: "X" },
-  { value: "bilibili", label: "B站" },
-  { value: "douyin", label: "抖音" },
-  { value: "kuaishou", label: "快手" },
-  { value: "weibo", label: "微博" },
-  { value: "xiaohongshu", label: "小红书" },
-];
-
-const TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "全部类型" },
-  { value: "video", label: "视频" },
-  { value: "audio", label: "音频" },
-  { value: "image", label: "图片" },
-];
-
-// 平台展示名
-const PLATFORM_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "IG",
-  x: "X",
-  bilibili: "B站",
-  douyin: "抖音",
-  kuaishou: "快手",
-  weibo: "微博",
-  xiaohongshu: "小红书",
-};
-
-function platformLabel(p: string): string {
-  return PLATFORM_LABEL[p] || (p ? p.toUpperCase() : "");
+// 平台展示名（接受 tr 以支持多语言；YouTube/IG/X 等英文名不翻译）
+function platformLabel(p: string, tr: (k: string) => string): string {
+  switch (p) {
+    case "youtube":
+      return "YouTube";
+    case "instagram":
+      return "IG";
+    case "x":
+      return "X";
+    case "bilibili":
+      return tr("platform_bilibili");
+    case "douyin":
+      return tr("platform_douyin");
+    case "kuaishou":
+      return tr("platform_kuaishou");
+    case "weibo":
+      return tr("platform_weibo");
+    case "xiaohongshu":
+      return tr("platform_xiaohongshu");
+    default:
+      return p ? p.toUpperCase() : "";
+  }
 }
 
 // 平台徽章颜色（与 QML Theme.platformColor 对齐）
@@ -84,17 +73,20 @@ function platformColor(p: string): string {
   return PLATFORM_COLOR[p] || "text-text-muted";
 }
 
-// 媒体类型徽章颜色（与 QML 实现对齐）
-function typeBadgeClass(t: string): { bg: string; text: string; label: string } {
+// 媒体类型徽章颜色（与 QML 实现对齐；label 走 i18n）
+function typeBadgeClass(
+  t: string,
+  tr: (k: string) => string
+): { bg: string; text: string; label: string } {
   switch (t) {
     case "video":
-      return { bg: "bg-accent/20", text: "text-accent", label: "视频" };
+      return { bg: "bg-accent/20", text: "text-accent", label: tr("library_filter_video") };
     case "image":
-      return { bg: "bg-success/20", text: "text-success", label: "图片" };
+      return { bg: "bg-success/20", text: "text-success", label: tr("library_filter_image") };
     case "audio":
-      return { bg: "bg-warning/20", text: "text-warning", label: "音频" };
+      return { bg: "bg-warning/20", text: "text-warning", label: tr("library_filter_audio") };
     case "mixed":
-      return { bg: "bg-purple-500/20", text: "text-purple-400", label: "混合" };
+      return { bg: "bg-purple-500/20", text: "text-purple-400", label: tr("media_mixed") };
     default:
       return { bg: "bg-white/10", text: "text-text-muted", label: t.toUpperCase() };
   }
@@ -117,6 +109,34 @@ function formatCount(n: number): string {
 // ============================================================
 
 export function LibraryPage() {
+  const { tr } = useI18n();
+
+  // 平台/类型筛选选项（label 走 i18n，lang 切换时随 tr 重建）
+  const platformOptions = useMemo(
+    () => [
+      { value: "all", label: tr("library_filter_all_platform") },
+      { value: "youtube", label: "YouTube" },
+      { value: "instagram", label: "Instagram" },
+      { value: "x", label: "X" },
+      { value: "bilibili", label: tr("platform_bilibili") },
+      { value: "douyin", label: tr("platform_douyin") },
+      { value: "kuaishou", label: tr("platform_kuaishou") },
+      { value: "weibo", label: tr("platform_weibo") },
+      { value: "xiaohongshu", label: tr("platform_xiaohongshu") },
+    ],
+    [tr]
+  );
+
+  const typeOptions = useMemo(
+    () => [
+      { value: "all", label: tr("library_filter_all_type") },
+      { value: "video", label: tr("library_filter_video") },
+      { value: "audio", label: tr("library_filter_audio") },
+      { value: "image", label: tr("library_filter_image") },
+    ],
+    [tr]
+  );
+
   // —— 数据状态 ——
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [collections, setCollections] = useState<LibraryCollection[]>([]);
@@ -403,7 +423,7 @@ export function LibraryPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -412,7 +432,7 @@ export function LibraryPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -440,7 +460,7 @@ export function LibraryPage() {
             <button
               onClick={() => setNewCollectionOpen(true)}
               className="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title="新建 Collection"
+              title={tr("collection_create")}
             >
               +
             </button>
@@ -450,7 +470,7 @@ export function LibraryPage() {
           <CollectionSidebarItem
             active={activeCollectionId === -1}
             icon="📚"
-            label="全部素材"
+            label={tr("all_items")}
             count={items.length}
             onClick={() => setActiveCollectionId(-1)}
           />
@@ -459,7 +479,7 @@ export function LibraryPage() {
           <CollectionSidebarItem
             active={activeCollectionId === -2}
             icon="❤"
-            label="收藏夹"
+            label={tr("favorites")}
             count={favoritesCount}
             onClick={() => setActiveCollectionId(-2)}
           />
@@ -470,7 +490,7 @@ export function LibraryPage() {
           {/* User Collections */}
           {collections.length === 0 ? (
             <div className="px-2.5 py-1.5 text-xs text-text-dim">
-              暂无 Collection
+              {tr("no_collections")}
             </div>
           ) : (
             collections.map((c) => (
@@ -500,9 +520,9 @@ export function LibraryPage() {
         {/* PageHeader */}
         <header className="flex animate-slide-up items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-text">素材库</h1>
+            <h1 className="text-xl font-bold text-text">{tr("library_title")}</h1>
             <p className="mt-0.5 text-xs text-text-muted">
-              查看、管理和组织已下载的素材
+              {tr("library_subtitle")}
             </p>
           </div>
           {/* 统计 badge */}
@@ -515,7 +535,7 @@ export function LibraryPage() {
         <div className="glass-card flex items-center gap-2.5 px-3.5 py-2.5">
           <input
             type="text"
-            placeholder="搜索标题/作者/URL..."
+            placeholder={tr("library_search")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className="flex-1 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
@@ -525,7 +545,7 @@ export function LibraryPage() {
             onChange={(e) => setFilterPlatform(e.target.value)}
             className="w-36 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
           >
-            {PLATFORM_OPTIONS.map((o) => (
+            {platformOptions.map((o) => (
               <option key={o.value} value={o.value} className="bg-zinc-900">
                 {o.label}
               </option>
@@ -536,7 +556,7 @@ export function LibraryPage() {
             onChange={(e) => setFilterType(e.target.value)}
             className="w-28 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
           >
-            {TYPE_OPTIONS.map((o) => (
+            {typeOptions.map((o) => (
               <option key={o.value} value={o.value} className="bg-zinc-900">
                 {o.label}
               </option>
@@ -545,16 +565,16 @@ export function LibraryPage() {
           <button
             onClick={onResetFilters}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-text"
-            title="重置所有筛选"
+            title={tr("library_reset_filters")}
           >
-            重置
+            {tr("library_reset_filters")}
           </button>
         </div>
 
         {/* 空状态 */}
         {items.length === 0 && (
           <div className="mt-20 text-center text-sm text-text-muted">
-            暂无素材，下载后会自动入库
+            {tr("library_empty")}
           </div>
         )}
 
@@ -602,7 +622,7 @@ export function LibraryPage() {
       {/* 新建 Collection 对话框 */}
       {newCollectionOpen && (
         <CollectionNameDialog
-          title="新建 Collection"
+          title={tr("collection_create")}
           onCancel={() => setNewCollectionOpen(false)}
           onConfirm={onCreateCollection}
         />
@@ -611,7 +631,7 @@ export function LibraryPage() {
       {/* 重命名 Collection 对话框 */}
       {renameCollection && (
         <CollectionNameDialog
-          title="重命名 Collection"
+          title={tr("collection_rename")}
           initialName={renameCollection.name}
           onCancel={() => setRenameCollection(null)}
           onConfirm={(name) => onRenameCollection(renameCollection.id, name)}
@@ -621,7 +641,7 @@ export function LibraryPage() {
       {/* 删除 Collection 确认 */}
       {confirmDeleteCollection && (
         <ModalDialog
-          title="删除 Collection"
+          title={tr("collection_delete")}
           onClose={() => setConfirmDeleteCollection(null)}
         >
           <p className="text-sm text-text">
@@ -635,13 +655,13 @@ export function LibraryPage() {
               onClick={() => setConfirmDeleteCollection(null)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={() => onDeleteCollection(confirmDeleteCollection.id)}
               className="rounded-lg bg-danger px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-glow"
             >
-              删除
+              {tr("delete")}
             </button>
           </div>
         </ModalDialog>
@@ -650,7 +670,7 @@ export function LibraryPage() {
       {/* 文件缺失对话框 */}
       {fileMissing && (
         <ModalDialog
-          title="文件缺失"
+          title={tr("file_missing_title")}
           onClose={() => setFileMissing(null)}
         >
           <p className="text-sm font-semibold text-danger">
@@ -665,7 +685,7 @@ export function LibraryPage() {
               onClick={() => setFileMissing(null)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={onConfirmFileMissingDelete}
@@ -771,6 +791,8 @@ function LibraryCardInner({
   onOpenFolder,
   onShowCollectionMenu,
 }: LibraryCardProps) {
+  const { tr } = useI18n();
+
   // 本地缩略图优先（thumbnail_path 是本地路径），否则用远程 URL 走 thumb-proxy
   const localThumb = item.thumbnail_path || "";
   const remoteThumb = item.thumbnail_url || "";
@@ -780,7 +802,7 @@ function LibraryCardInner({
     ? thumbProxyUrl(remoteThumb)
     : "";
 
-  const typeBadge = typeBadgeClass(item.media_type);
+  const typeBadge = typeBadgeClass(item.media_type, tr);
   const isInActiveCollection =
     activeCollectionId > 0 &&
     (item.collection_ids || []).includes(activeCollectionId);
@@ -821,7 +843,7 @@ function LibraryCardInner({
         <button
           onClick={() => onToggleFavorite(item.id)}
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 backdrop-blur transition-colors hover:bg-black/70"
-          title={item.is_favorite ? "取消收藏" : "添加收藏"}
+          title={item.is_favorite ? tr("unfavorite") : tr("favorite")}
         >
           <span
             className={`text-xs ${
@@ -848,7 +870,7 @@ function LibraryCardInner({
           {item.platform && (
             <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[9px] font-semibold">
               <span className={platformColor(item.platform)}>
-                {platformLabel(item.platform)}
+                {platformLabel(item.platform, tr)}
               </span>
             </span>
           )}
@@ -868,7 +890,7 @@ function LibraryCardInner({
           onClick={() => onOpenFile(item.file_path)}
           disabled={!item.file_path}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
-          title="打开文件"
+          title={tr("library_open_file")}
         >
           ▶
         </button>
@@ -876,7 +898,7 @@ function LibraryCardInner({
           onClick={() => onOpenFolder(item.file_path)}
           disabled={!item.file_path}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
-          title="打开所在目录"
+          title={tr("library_open_dir")}
         >
           📂
         </button>
@@ -889,7 +911,7 @@ function LibraryCardInner({
             });
           }}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-          title={isInActiveCollection ? "从当前分类移除" : "加入 Collection"}
+          title={isInActiveCollection ? tr("collection_remove") : tr("collection_add_to")}
         >
           {isInActiveCollection ? "✕" : "📁+"}
         </button>
@@ -897,7 +919,7 @@ function LibraryCardInner({
         <button
           onClick={() => onDelete(item.id)}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
-          title="删除素材"
+          title={tr("library_delete")}
         >
           🗑
         </button>
@@ -936,6 +958,8 @@ function CollectionMenu({
   onCreateNew,
   onClose,
 }: CollectionMenuProps) {
+  const { tr } = useI18n();
+
   // 计算菜单位置：以 anchor.x 为右边界，避免溢出右侧
   const MENU_WIDTH = 220;
   const left = Math.max(8, menu.anchor.x - MENU_WIDTH);
@@ -957,7 +981,7 @@ function CollectionMenu({
           onClick={onCreateNew}
           className="flex h-8 w-full items-center rounded px-3 text-xs text-text transition-colors hover:bg-accent/15 hover:text-accent"
         >
-          新建 Collection
+          {tr("collection_create")}
         </button>
 
         <div className="my-1 h-px bg-white/5" />
@@ -965,7 +989,7 @@ function CollectionMenu({
         {/* 已有 Collection 列表 */}
         {collections.length === 0 ? (
           <div className="px-3 py-2 text-xs text-text-dim">
-            暂无 Collection
+            {tr("no_collections")}
           </div>
         ) : (
           collections.map((c) => {
@@ -1012,6 +1036,7 @@ function CollectionNameDialog({
   onCancel,
   onConfirm,
 }: CollectionNameDialogProps) {
+  const { tr } = useI18n();
   const [name, setName] = useState(initialName);
 
   return (
@@ -1019,7 +1044,7 @@ function CollectionNameDialog({
       <input
         type="text"
         autoFocus
-        placeholder="Collection 名称"
+        placeholder={tr("collection_name_label")}
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
@@ -1033,7 +1058,7 @@ function CollectionNameDialog({
           onClick={onCancel}
           className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
         >
-          取消
+          {tr("cancel")}
         </button>
         <button
           onClick={() => onConfirm(name)}

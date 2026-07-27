@@ -19,27 +19,34 @@ import {
   type AppEvent,
   type StatsResponse,
 } from "../api";
+import { useI18n } from "../i18n";
 
 // ============================================================
 // 常量
 // ============================================================
 
 // 平台展示名（与 LibraryPage / HistoryPage 对齐）
-const PLATFORM_LABEL: Record<string, string> = {
+// 仅保留无需翻译的英文名；国内平台走 i18n tr() 调用
+const PLATFORM_LABEL_EN: Record<string, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   x: "X",
-  bilibili: "B站",
-  douyin: "抖音",
-  kuaishou: "快手",
-  weibo: "微博",
-  xiaohongshu: "小红书",
   telegram: "Telegram",
-  unknown: "未知",
 };
 
-function platformLabel(p: string): string {
-  return PLATFORM_LABEL[p] || (p ? p.toUpperCase() : "未知");
+// 国内平台 i18n key 映射（YouTube/Instagram/X/Telegram 等英文名不翻译）
+const PLATFORM_I18N_KEY: Record<string, string> = {
+  bilibili: "platform_bilibili",
+  douyin: "platform_douyin",
+  kuaishou: "platform_kuaishou",
+  weibo: "platform_weibo",
+  xiaohongshu: "platform_xiaohongshu",
+};
+
+function platformLabel(p: string, tr: (k: string) => string): string {
+  if (PLATFORM_LABEL_EN[p]) return PLATFORM_LABEL_EN[p];
+  if (PLATFORM_I18N_KEY[p]) return tr(PLATFORM_I18N_KEY[p]);
+  return p ? p.toUpperCase() : "未知";
 }
 
 // 平台圆点颜色（与 QML Theme.platformColor 对齐）
@@ -99,6 +106,8 @@ const EMPTY_STATS: StatsResponse = {
 };
 
 export function StatsPage() {
+  const { tr } = useI18n();
+
   // —— 数据状态 ——
   const [stats, setStats] = useState<StatsResponse>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
@@ -148,34 +157,34 @@ export function StatsPage() {
   const mainCards = useMemo(
     () => [
       {
-        label: "总下载",
+        label: tr("stats_total"),
         value: stats.total_downloads.toString(),
         accent: "text-accent",
       },
       {
-        label: "下载体积",
+        label: tr("stats_size"),
         value: formatSize(stats.total_size),
         accent: "text-success",
       },
       {
-        label: "成功率",
+        label: tr("stats_success_rate"),
         value: (stats.success_rate || 0).toFixed(1) + "%",
         accent: "text-warning",
       },
       {
-        label: "今日下载",
+        label: tr("stats_today"),
         value: stats.today_count.toString(),
         accent: "text-pink-400",
       },
     ],
-    [stats]
+    [stats, tr]
   );
 
   // —— 渲染 ——
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -184,7 +193,7 @@ export function StatsPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -197,17 +206,17 @@ export function StatsPage() {
         {/* PageHeader */}
         <header className="flex animate-slide-up items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-text">统计</h1>
+            <h1 className="text-xl font-bold text-text">{tr("stats")}</h1>
             <p className="mt-0.5 text-xs text-text-muted">
-              总览下载量、成功率与平台分布
+              {tr("stats_subtitle")}
             </p>
           </div>
           <button
             onClick={() => reload()}
             className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-            title="刷新"
+            title={tr("inbox_refresh")}
           >
-            ↻ 刷新
+            ↻ {tr("inbox_refresh")}
           </button>
         </header>
 
@@ -248,7 +257,7 @@ export function StatsPage() {
                 {/* 平台名 + 次数小字 */}
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <div className="truncate text-sm font-semibold text-text">
-                    {platformLabel(p.platform)}
+                    {platformLabel(p.platform, tr)}
                   </div>
                   <div className="font-mono text-[11px] text-text-muted">
                     {p.count} 次下载
