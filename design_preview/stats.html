@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Statistics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   STATS PAGE — specific styles
+   ============================================================ */
+.main { padding: 32px 48px 48px; }
+
+/* ---------- Section labels ---------- */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin: 28px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-border), transparent);
+}
+
+/* ---------- Segmented time-range control ---------- */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-pill);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+.seg-btn {
+  padding: 6px 14px;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-mute);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: all 0.22s var(--ease);
+  letter-spacing: 0.2px;
+}
+.seg-btn:hover { color: var(--text-primary); }
+.seg-btn.active {
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  color: white;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset,
+              0 4px 12px -2px rgba(10, 132, 255, 0.5);
+}
+
+/* ---------- KPI grid (4 columns) ---------- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.kpi-card {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset,
+              0 28px 60px -20px rgba(0,0,0,0.7),
+              0 12px 30px -12px rgba(0,0,0,0.5);
+}
+.kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.kpi-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--glass-bg-hi);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.kpi-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.kpi-icon.is-success { color: var(--success); }
+.kpi-icon.is-accent2 { color: var(--accent-2); }
+.kpi-icon.is-warning { color: var(--warning); }
+.kpi-title {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.kpi-value {
+  font-family: var(--font-mono);
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -1px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.kpi-value .unit {
+  font-size: 18px;
+  font-weight: 500;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.5);
+}
+.kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+.kpi-trend.up { color: var(--success); }
+.kpi-trend.down { color: var(--danger); }
+.kpi-trend.info { color: var(--accent); }
+.kpi-trend svg {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Middle grid (3 columns) ---------- */
+.mid-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+.mid-card {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mid-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mid-card-title {
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+.mid-card-sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+/* Storage donut */
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 1;
+}
+.donut {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) 0 58%,
+    var(--warning) 58% 82%,
+    var(--success) 82% 94%,
+    var(--accent-2) 94% 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 0 0 30px -8px rgba(10, 132, 255, 0.35);
+  transition: transform 0.3s var(--ease);
+}
+.donut:hover { transform: rotate(-3deg) scale(1.02); }
+.donut::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.18), transparent 60%);
+  pointer-events: none;
+}
+.donut-hole {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(12, 12, 24, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.donut-num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.donut-label {
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-small);
+}
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px currentColor;
+}
+.legend-name {
+  color: var(--text-mute);
+  flex: 1;
+}
+.legend-pct {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Line chart */
+.line-chart {
+  width: 100%;
+  flex: 1;
+  min-height: 120px;
+}
+.line-chart svg { width: 100%; height: 100%; display: block; }
+.chart-x {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px;
+  margin-top: 4px;
+}
+.chart-x span {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+/* Platform horizontal bars (mid card) */
+.plat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  flex: 1;
+}
+.plat-bar-row {
+  display: grid;
+  grid-template-columns: 78px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+}
+.plat-bar-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-small);
+  color: var(--text-mute);
+}
+.plat-bar-name svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+.plat-bar-track {
+  height: 7px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  position: relative;
+}
+.plat-bar-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--pc);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--pc) 60%, transparent),
+              0 1px 0 rgba(255, 255, 255, 0.25) inset;
+  transition: width 0.4s var(--ease);
+}
+.plat-bar-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+/* ---------- Platform cards grid (4 columns, 8 cards) ---------- */
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.plat-card {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.plat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset,
+              0 24px 50px -20px rgba(0,0,0,0.65),
+              0 10px 26px -12px rgba(0,0,0,0.45);
+}
+.plat-card[data-plat="youtube"]    { --pc: var(--plat-yt); }
+.plat-card[data-plat="instagram"]  { --pc: var(--plat-ig); }
+.plat-card[data-plat="x"]          { --pc: var(--plat-x); }
+.plat-card[data-plat="bilibili"]   { --pc: var(--plat-bili); }
+.plat-card[data-plat="douyin"]     { --pc: var(--plat-douyin); }
+.plat-card[data-plat="xiaohongshu"]{ --pc: var(--plat-xhs); }
+.plat-card[data-plat="weibo"]      { --pc: var(--plat-weibo); }
+.plat-card[data-plat="kuaishou"]   { --pc: var(--plat-kuaishou); }
+.plat-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.plat-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--pc) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pc) 32%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pc);
+  flex-shrink: 0;
+  box-shadow: 0 0 14px -4px var(--pc);
+}
+.plat-card-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.plat-card-name {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+.plat-card-value {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+.plat-card-share {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  margin-top: -6px;
+}
+.plat-bar-mini-track {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+}
+.plat-bar-mini-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--pc), color-mix(in srgb, var(--pc) 60%, white));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--pc) 55%, transparent);
+  transition: width 0.4s var(--ease);
+}
+
+/* ---------- Activity timeline ---------- */
+.activity-card { padding: 8px 0; }
+.activity-row {
+  display: grid;
+  grid-template-columns: 76px 96px 80px 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--glass-border);
+  transition: background 0.2s var(--ease);
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-row:hover { background: var(--glass-bg); }
+.activity-time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+.activity-name {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-size {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.activity-size.err {
+  color: var(--danger);
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .kpi-grid,
+  .mid-grid,
+  .platform-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .kpi-grid,
+  .mid-grid,
+  .platform-grid { grid-template-columns: 1fr; }
+  .activity-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-home"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-inbox"/></svg></span>
+        <span>Inbox</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-history"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-stats"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-bell"/></svg></span>
+        <span>Notifications</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24"><use href="icons.svg#i-moon"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.24</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <div class="page-header">
+      <div class="flex" style="gap: 18px; align-items: center; flex-wrap: wrap;">
+        <h1 class="page-title">Statistics</h1>
+        <div class="seg" role="tablist" aria-label="Time range">
+          <button class="seg-btn">Today</button>
+          <button class="seg-btn">7 Days</button>
+          <button class="seg-btn active">30 Days</button>
+          <button class="seg-btn">All Time</button>
+        </div>
+      </div>
+
+      <div class="page-actions">
+        <button class="btn" title="Refresh">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-retry"/></svg>
+          Refresh
+        </button>
+        <button class="btn" title="Export report">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+          Export
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ KPI GRID (4 core metrics) ============ -->
+    <div class="kpi-grid">
+
+      <!-- KPI 1: Total Downloads -->
+      <div class="card kpi-card">
+        <div class="kpi-head">
+          <div class="kpi-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></div>
+          <div class="kpi-title">Total Downloads</div>
+        </div>
+        <div class="kpi-value">1,284</div>
+        <div class="kpi-trend up">
+          <svg viewBox="0 0 24 24"><polyline points="6 14 12 8 18 14"/></svg>
+          +12.4% vs last month
+        </div>
+      </div>
+
+      <!-- KPI 2: Total Size -->
+      <div class="card kpi-card">
+        <div class="kpi-head">
+          <div class="kpi-icon is-accent2"><svg viewBox="0 0 24 24"><use href="icons.svg#i-folder"/></svg></div>
+          <div class="kpi-title">Total Size</div>
+        </div>
+        <div class="kpi-value">18.6<span class="unit"> GB</span></div>
+        <div class="kpi-trend up">
+          <svg viewBox="0 0 24 24"><polyline points="6 14 12 8 18 14"/></svg>
+          +2.1 GB
+        </div>
+      </div>
+
+      <!-- KPI 3: Success Rate -->
+      <div class="card kpi-card">
+        <div class="kpi-head">
+          <div class="kpi-icon is-success"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg></div>
+          <div class="kpi-title">Success Rate</div>
+        </div>
+        <div class="kpi-value">94.2<span class="unit">%</span></div>
+        <div class="kpi-trend up">
+          <svg viewBox="0 0 24 24"><polyline points="6 14 12 8 18 14"/></svg>
+          +1.8%
+        </div>
+      </div>
+
+      <!-- KPI 4: Today's Downloads -->
+      <div class="card kpi-card">
+        <div class="kpi-head">
+          <div class="kpi-icon is-warning"><svg viewBox="0 0 24 24"><use href="icons.svg#i-clock"/></svg></div>
+          <div class="kpi-title">Today's Downloads</div>
+        </div>
+        <div class="kpi-value">12</div>
+        <div class="kpi-trend info">
+          <span class="led led-blue" style="width:6px;height:6px;"></span>
+          3 active now
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ MID GRID (3 charts) ============ -->
+    <div class="mid-grid">
+
+      <!-- MID 1: Storage Distribution donut -->
+      <div class="card mid-card">
+        <div class="mid-card-head">
+          <div class="mid-card-title">Storage Distribution</div>
+          <div class="mid-card-sub">by media type</div>
+        </div>
+        <div class="donut-wrap">
+          <div class="donut" title="1,284 total items">
+            <div class="donut-hole">
+              <div class="donut-num">1,284</div>
+              <div class="donut-label">Total</div>
+            </div>
+          </div>
+          <div class="legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background:var(--accent);color:var(--accent);"></span>
+              <span class="legend-name">Video</span>
+              <span class="legend-pct">58%</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:var(--warning);color:var(--warning);"></span>
+              <span class="legend-name">Image</span>
+              <span class="legend-pct">24%</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:var(--success);color:var(--success);"></span>
+              <span class="legend-name">Audio</span>
+              <span class="legend-pct">12%</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background:var(--accent-2);color:var(--accent-2);"></span>
+              <span class="legend-name">Mixed</span>
+              <span class="legend-pct">6%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MID 2: Download Trends line chart -->
+      <div class="card mid-card">
+        <div class="mid-card-head">
+          <div class="mid-card-title">Download Trends</div>
+          <div class="mid-card-sub">last 7 days</div>
+        </div>
+        <div class="line-chart">
+          <svg viewBox="0 0 300 110" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0a84ff" stop-opacity="0.55"/>
+                <stop offset="100%" stop-color="#0a84ff" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="trendStroke" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#5e5ce6"/>
+                <stop offset="100%" stop-color="#4cc2ff"/>
+              </linearGradient>
+            </defs>
+            <!-- horizontal grid lines -->
+            <line x1="10" y1="25" x2="290" y2="25" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+            <line x1="10" y1="55" x2="290" y2="55" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+            <line x1="10" y1="85" x2="290" y2="85" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+            <!-- filled area under the line -->
+            <path d="M 15 60 L 60 40 L 105 53 L 150 28 L 195 15 L 240 37 L 285 47 L 285 90 L 15 90 Z"
+                  fill="url(#trendFill)"/>
+            <!-- the line itself -->
+            <path d="M 15 60 L 60 40 L 105 53 L 150 28 L 195 15 L 240 37 L 285 47"
+                  fill="none" stroke="url(#trendStroke)" stroke-width="2.2"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- data points -->
+            <circle cx="15"  cy="60" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="60"  cy="40" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="105" cy="53" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="150" cy="28" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="195" cy="15" r="4" fill="#4cc2ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="240" cy="37" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+            <circle cx="285" cy="47" r="3" fill="#0a84ff" stroke="#07070d" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="chart-x">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+        </div>
+      </div>
+
+      <!-- MID 3: Platform Distribution bars -->
+      <div class="card mid-card">
+        <div class="mid-card-head">
+          <div class="mid-card-title">Platform Distribution</div>
+          <div class="mid-card-sub">share of total</div>
+        </div>
+        <div class="plat-bars">
+          <div class="plat-bar-row" style="--pc:var(--plat-yt);">
+            <div class="plat-bar-name" style="color:var(--plat-yt);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:100%;"></div></div>
+            <div class="plat-bar-count">384</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-ig);">
+            <div class="plat-bar-name" style="color:var(--plat-ig);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-ig"/></svg>Instagram</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:67%;"></div></div>
+            <div class="plat-bar-count">256</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-x);">
+            <div class="plat-bar-name" style="color:var(--plat-x);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-x"/></svg>X</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:44%;"></div></div>
+            <div class="plat-bar-count">168</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-bili);">
+            <div class="plat-bar-name" style="color:var(--plat-bili);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-bili"/></svg>B站</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:37%;"></div></div>
+            <div class="plat-bar-count">142</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-douyin);">
+            <div class="plat-bar-name" style="color:var(--plat-douyin);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-douyin"/></svg>抖音</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:32%;"></div></div>
+            <div class="plat-bar-count">124</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-xhs);">
+            <div class="plat-bar-name" style="color:var(--plat-xhs);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-xhs"/></svg>小红书</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:22%;"></div></div>
+            <div class="plat-bar-count">86</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-weibo);">
+            <div class="plat-bar-name" style="color:var(--plat-weibo);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-weibo"/></svg>微博</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:19%;"></div></div>
+            <div class="plat-bar-count">72</div>
+          </div>
+          <div class="plat-bar-row" style="--pc:var(--plat-kuaishou);">
+            <div class="plat-bar-name" style="color:var(--plat-kuaishou);"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-kuaishou"/></svg>快手</div>
+            <div class="plat-bar-track"><div class="plat-bar-fill" style="width:14%;"></div></div>
+            <div class="plat-bar-count">52</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ PLATFORM CARDS (8 detailed) ============ -->
+    <div class="section-label">Platform Breakdown</div>
+    <div class="platform-grid">
+
+      <div class="card plat-card" data-plat="youtube">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg></div>
+          <div class="plat-card-name">YouTube</div>
+        </div>
+        <div class="plat-card-value">384</div>
+        <div class="plat-card-share">29.9% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:100%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="instagram">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-ig"/></svg></div>
+          <div class="plat-card-name">Instagram</div>
+        </div>
+        <div class="plat-card-value">256</div>
+        <div class="plat-card-share">19.9% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:67%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="x">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-x"/></svg></div>
+          <div class="plat-card-name">X</div>
+        </div>
+        <div class="plat-card-value">168</div>
+        <div class="plat-card-share">13.1% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:44%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="bilibili">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-bili"/></svg></div>
+          <div class="plat-card-name">B站</div>
+        </div>
+        <div class="plat-card-value">142</div>
+        <div class="plat-card-share">11.1% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:37%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="douyin">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-douyin"/></svg></div>
+          <div class="plat-card-name">抖音</div>
+        </div>
+        <div class="plat-card-value">124</div>
+        <div class="plat-card-share">9.7% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:32%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="xiaohongshu">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-xhs"/></svg></div>
+          <div class="plat-card-name">小红书</div>
+        </div>
+        <div class="plat-card-value">86</div>
+        <div class="plat-card-share">6.7% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:22%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="weibo">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-weibo"/></svg></div>
+          <div class="plat-card-name">微博</div>
+        </div>
+        <div class="plat-card-value">72</div>
+        <div class="plat-card-share">5.6% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:19%;"></div></div>
+      </div>
+
+      <div class="card plat-card" data-plat="kuaishou">
+        <div class="plat-card-head">
+          <div class="plat-card-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-kuaishou"/></svg></div>
+          <div class="plat-card-name">快手</div>
+        </div>
+        <div class="plat-card-value">52</div>
+        <div class="plat-card-share">4.0% of total</div>
+        <div class="plat-bar-mini-track"><div class="plat-bar-mini-fill" style="width:14%;"></div></div>
+      </div>
+
+    </div>
+
+    <!-- ============ ACTIVITY TIMELINE ============ -->
+    <div class="section-label">Recent Activity</div>
+    <div class="card activity-card">
+
+      <div class="activity-row">
+        <span class="activity-time">14:32:18</span>
+        <span class="badge" data-plat="youtube"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-yt"/></svg>YouTube</span>
+        <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+        <span class="activity-name">Rick Astley — Never Gonna Give You Up</span>
+        <span class="badge" data-status="completed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Completed</span>
+        <span class="activity-size">8.4 MB</span>
+      </div>
+
+      <div class="activity-row">
+        <span class="activity-time">14:28:05</span>
+        <span class="badge" data-plat="instagram"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-ig"/></svg>Instagram</span>
+        <span class="badge" data-media="image"><svg viewBox="0 0 24 24"><use href="icons.svg#i-image"/></svg>Image</span>
+        <span class="activity-name">Summer sunset over Tokyo</span>
+        <span class="badge" data-status="completed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Completed</span>
+        <span class="activity-size">2.1 MB</span>
+      </div>
+
+      <div class="activity-row">
+        <span class="activity-time">14:15:42</span>
+        <span class="badge" data-plat="x"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-x"/></svg>X</span>
+        <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+        <span class="activity-name">Late night design thoughts</span>
+        <span class="badge" data-status="failed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-x-circle"/></svg>Failed</span>
+        <span class="activity-size err">Cookie expired</span>
+      </div>
+
+      <div class="activity-row">
+        <span class="activity-time">14:02:18</span>
+        <span class="badge" data-plat="bilibili"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-bili"/></svg>B站</span>
+        <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+        <span class="activity-name">赛博朋克城市夜景航拍</span>
+        <span class="badge" data-status="completed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Completed</span>
+        <span class="activity-size">248 MB</span>
+      </div>
+
+      <div class="activity-row">
+        <span class="activity-time">13:48:30</span>
+        <span class="badge" data-plat="douyin"><svg viewBox="0 0 24 24"><use href="icons.svg#i-plat-douyin"/></svg>抖音</span>
+        <span class="badge" data-media="video"><svg viewBox="0 0 24 24"><use href="icons.svg#i-video"/></svg>Video</span>
+        <span class="activity-name">设计师的 5 分钟早晨仪式</span>
+        <span class="badge" data-status="completed"><svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>Completed</span>
+        <span class="activity-size">12.4 MB</span>
+      </div>
+
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item"><span class="led led-green"></span>API Online</span>
+        <span class="status-item"><span class="led led-blue"></span>Cache Ready</span>
+        <span class="status-item">Last sync 14:32</span>
+      </div>
+      <div class="status-right">
+        <span>Period 30D</span>
+        <span>1,284 downloads</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* Time-range segmented control — toggle active state (no data reload in preview) */
+document.querySelectorAll('.seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+</script>
+
+</body>
+</html>

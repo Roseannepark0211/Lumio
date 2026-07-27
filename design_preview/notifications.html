@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Notifications (Refactor Preview)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   NOTIFICATIONS PAGE — REFACTOR PREVIEW
+   新增设计点：
+   1. system 分类（紫色 accent2）
+   2. priority 视觉（critical 红色左边条 / high 橙色 / normal 默认 / low 半透明）
+   3. 新通知类型：Cookie 即将过期、Apify 配额告警、缓存清理完成
+   4. 单条点击标记已读（整卡可点）
+   5. 永久通知强化"不可关闭"视觉
+   6. 修复"清除已读"逻辑
+   ============================================================ */
+.main { padding: 32px 48px 48px; }
+
+/* ---------- UNREAD BADGE (header) ---------- */
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 132, 255, 0.12);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.unread-badge .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+/* ---------- SEGMENTED CONTROL ---------- */
+.seg-control {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.seg-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: all 0.22s var(--ease);
+  border: 1px solid transparent;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.seg-tab:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg);
+}
+
+.seg-tab.active {
+  color: #fff;
+  background: linear-gradient(180deg, var(--accent) 0%, #0070e0 100%);
+  border-color: transparent;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset,
+              0 4px 12px -2px rgba(10, 132, 255, 0.45);
+}
+
+.seg-tab .count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+  min-width: 18px;
+  text-align: center;
+}
+
+.seg-tab.active .count {
+  background: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.95);
+}
+
+.seg-tab .cat-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 分类色：deps=黄 / env=青 / update=绿 / system=紫 / permanent=红 */
+.seg-tab[data-cat="dependencies"]  .cat-dot { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.seg-tab[data-cat="environment"]   .cat-dot { background: var(--info);    box-shadow: 0 0 6px var(--info); }
+.seg-tab[data-cat="version"]       .cat-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.seg-tab[data-cat="system"]        .cat-dot { background: var(--accent-2); box-shadow: 0 0 6px var(--accent-2); }
+.seg-tab[data-cat="permanent"]     .cat-dot { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+
+/* ---------- NOTIFICATION LIST ---------- */
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.notif-card {
+  padding: 14px 18px 14px 16px;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 14px;
+  align-items: flex-start;
+  position: relative;
+  transition: all 0.22s var(--ease);
+  cursor: pointer; /* 整卡可点：标记已读 */
+}
+
+.notif-card:hover {
+  background: var(--glass-bg-hi);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset,
+              0 24px 60px -22px rgba(0,0,0,0.7),
+              0 10px 30px -14px rgba(0,0,0,0.5);
+}
+
+/* ---------- PRIORITY 视觉区分 ----------
+   critical: 红色左边条 + 红色微光背景（最显眼）
+   high:     橙色左边条
+   normal:   默认（无边条）
+   low:      半透明 + 缩小图标（最弱）
+*/
+.notif-card[data-priority="critical"] {
+  background:
+    linear-gradient(90deg, rgba(255, 69, 58, 0.08) 0%, transparent 50%),
+    var(--glass-bg);
+}
+.notif-card[data-priority="critical"]::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px;
+  width: 3px;
+  background: linear-gradient(180deg, var(--danger), rgba(255, 69, 58, 0.4));
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.5);
+}
+
+.notif-card[data-priority="high"]::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 2px;
+  background: linear-gradient(180deg, var(--warning), rgba(255, 214, 10, 0.3));
+  border-radius: 0 1px 1px 0;
+}
+
+.notif-card[data-priority="low"] {
+  opacity: 0.72;
+}
+.notif-card[data-priority="low"] .notif-icon {
+  width: 32px; height: 32px;
+  margin-top: 4px;
+}
+.notif-card[data-priority="low"] .notif-icon svg {
+  width: 14px; height: 14px;
+}
+
+/* 永久通知 — 保留原红色 indicator，但与 priority=critical 区分：
+   永久通知用更深的红色背景 + 不可关闭锁图标 */
+.notif-card.permanent {
+  background:
+    linear-gradient(90deg, rgba(255, 69, 58, 0.06) 0%, transparent 60%),
+    var(--glass-bg);
+}
+.notif-card.permanent::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 14px; bottom: 14px;
+  width: 4px;
+  background: linear-gradient(180deg, var(--danger), rgba(255, 69, 58, 0.5));
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.4);
+}
+
+.notif-card.read {
+  opacity: 0.78;
+}
+.notif-card.read .notif-title {
+  color: var(--text-mute);
+}
+
+/* ---------- TYPE ICON ---------- */
+.notif-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  margin-top: 2px;
+}
+
+.notif-icon svg {
+  width: 18px; height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 分类图标色 */
+.notif-card[data-type="dependencies"] .notif-icon {
+  background: rgba(255, 214, 10, 0.15);
+  color: var(--warning);
+  box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.2) inset,
+              0 0 14px -4px rgba(255, 214, 10, 0.4);
+}
+.notif-card[data-type="environment"] .notif-icon {
+  background: rgba(100, 210, 255, 0.15);
+  color: var(--info);
+  box-shadow: 0 0 0 1px rgba(100, 210, 255, 0.2) inset,
+              0 0 14px -4px rgba(100, 210, 255, 0.4);
+}
+.notif-card[data-type="version"] .notif-icon {
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--success);
+  box-shadow: 0 0 0 1px rgba(48, 209, 88, 0.2) inset,
+              0 0 14px -4px rgba(48, 209, 88, 0.4);
+}
+.notif-card[data-type="system"] .notif-icon {
+  background: rgba(94, 92, 230, 0.15);
+  color: var(--accent-2);
+  box-shadow: 0 0 0 1px rgba(94, 92, 230, 0.2) inset,
+              0 0 14px -4px rgba(94, 92, 230, 0.4);
+}
+.notif-card[data-type="permanent"] .notif-icon {
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.2) inset,
+              0 0 14px -4px rgba(255, 69, 58, 0.4);
+}
+
+/* ---------- NOTIFICATION BODY ---------- */
+.notif-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.notif-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.notif-type-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+}
+
+.notif-card[data-type="dependencies"] .notif-type-badge {
+  color: var(--warning); background: rgba(255, 214, 10, 0.1); border-color: rgba(255, 214, 10, 0.25);
+}
+.notif-card[data-type="environment"] .notif-type-badge {
+  color: var(--info); background: rgba(100, 210, 255, 0.1); border-color: rgba(100, 210, 255, 0.25);
+}
+.notif-card[data-type="version"] .notif-type-badge {
+  color: var(--success); background: rgba(48, 209, 88, 0.1); border-color: rgba(48, 209, 88, 0.25);
+}
+.notif-card[data-type="system"] .notif-type-badge {
+  color: var(--accent-2); background: rgba(94, 92, 230, 0.1); border-color: rgba(94, 92, 230, 0.25);
+}
+.notif-card[data-type="permanent"] .notif-type-badge {
+  color: var(--danger); background: rgba(255, 69, 58, 0.1); border-color: rgba(255, 69, 58, 0.25);
+}
+
+/* 优先级标签（可选显示） */
+.priority-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.priority-badge.critical { color: var(--danger); background: rgba(255,69,58,0.12); border: 1px solid rgba(255,69,58,0.3); }
+.priority-badge.high     { color: var(--warning); background: rgba(255,214,10,0.12); border: 1px solid rgba(255,214,10,0.3); }
+
+.notif-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin-left: auto;
+}
+
+.notif-desc {
+  font-size: 13px;
+  color: var(--text-mute);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- ACTION BUTTONS ---------- */
+.notif-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.notif-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  padding: 5px 10px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-mute);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.notif-action svg {
+  width: 11px; height: 11px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notif-action:hover {
+  background: var(--glass-bg-hi);
+  color: var(--text-primary);
+  border-color: var(--glass-border-hi);
+  transform: translateY(-1px);
+}
+
+.notif-action.primary {
+  background: rgba(10, 132, 255, 0.15);
+  color: var(--accent);
+  border-color: rgba(10, 132, 255, 0.3);
+}
+
+.notif-action.primary:hover {
+  background: rgba(10, 132, 255, 0.25);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 12px -2px rgba(10, 132, 255, 0.5);
+}
+
+.notif-action.danger {
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.25);
+}
+
+.notif-action.danger:hover {
+  background: rgba(255, 69, 58, 0.12);
+  border-color: rgba(255, 69, 58, 0.4);
+}
+
+/* ---------- RIGHT COLUMN ---------- */
+.notif-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.unread-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent),
+              0 0 0 3px rgba(10, 132, 255, 0.15);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+.notif-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+  border: 1px solid transparent;
+}
+
+.notif-close svg {
+  width: 12px; height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notif-close:hover {
+  color: var(--text-primary);
+  background: var(--glass-bg-hi);
+  border-color: var(--glass-border);
+}
+
+/* 永久通知的锁图标（替代关闭按钮） */
+.notif-locked {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  cursor: help;
+  border: 1px solid transparent;
+}
+.notif-locked svg {
+  width: 12px; height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.notif-locked:hover {
+  color: var(--danger);
+}
+
+/* ---------- PREFERENCES CARD ---------- */
+.prefs-card {
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+
+.prefs-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prefs-title svg {
+  width: 18px; height: 18px;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prefs-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  letter-spacing: 0.2px;
+}
+
+.prefs-list { display: flex; flex-direction: column; }
+
+.prefs-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-top: 1px solid var(--glass-border);
+}
+
+.prefs-row:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.prefs-row-info { min-width: 0; }
+
+.prefs-row-label {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.prefs-row-hint {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+/* ---------- TOGGLE ---------- */
+.toggle {
+  width: 44px;
+  height: 24px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s var(--ease);
+  border: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.toggle.on {
+  background: var(--accent);
+  border-color: transparent;
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.4),
+              0 1px 0 rgba(255,255,255,0.2) inset;
+}
+
+.toggle.on::after { transform: translateX(20px); }
+
+/* ---------- STATUS BAR ---------- */
+.status-bar { margin-top: 4px; }
+.status-bar .led-green { width: 7px; height: 7px; }
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 700px) {
+  .main { padding: 24px; }
+  .seg-control { flex-wrap: wrap; }
+  .notif-card {
+    grid-template-columns: 36px 1fr;
+    gap: 10px;
+  }
+  .notif-aside {
+    flex-direction: row;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 0;
+    margin-top: 4px;
+  }
+  .notif-time { margin-left: 0; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .page-actions { width: 100%; flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unread-mark, .unread-badge .dot { animation: none; }
+  .notif-card, .notif-action, .toggle::after, .seg-tab { transition: none; }
+}
+
+/* ---------- SIDEBAR 红点徽章预览 ---------- */
+.nav-item {
+  position: relative;
+}
+.nav-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 8px rgba(255, 69, 58, 0.5),
+              0 0 0 2px var(--bg-base);
+  animation: pulse 2s var(--ease) infinite;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">Lumio</div>
+    <div class="brand-sub">v4.2</div>
+
+    <nav class="nav">
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-home"/></svg></span>
+        <span>Home</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-inbox"/></svg></span>
+        <span>Inbox</span>
+        <!-- Inbox 新内容只走 sidebar 红点（不进通知中心） -->
+        <span class="nav-badge">3</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg></span>
+        <span>Downloads</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-history"/></svg></span>
+        <span>History</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-library"/></svg></span>
+        <span>Library</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-stats"/></svg></span>
+        <span>Stats</span>
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-bell"/></svg></span>
+        <span>Notifications</span>
+        <!-- 通知中心未读数徽章 -->
+        <span class="nav-badge">5</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon"><svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg></span>
+        <span>Settings</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24"><use href="icons.svg#i-moon"/></svg>
+        Dark
+      </div>
+      <div class="version">Build 2026.07.26</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <div class="page-header">
+      <div class="flex" style="gap: 12px; align-items: baseline;">
+        <h1 class="page-title">Notifications</h1>
+        <span class="unread-badge">
+          <span class="dot"></span>
+          5 unread · 12 items
+        </span>
+      </div>
+
+      <div class="page-actions">
+        <button class="btn" id="btn-mark-all">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check"/></svg>
+          Mark All Read
+        </button>
+        <button class="btn" id="btn-clear-read">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-clear"/></svg>
+          Clear Read
+        </button>
+        <button class="btn" id="btn-refresh">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-retry"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ SEGMENTED CONTROL ============ -->
+    <div class="seg-control" data-seg>
+      <div class="seg-tab active" data-cat="all">
+        <span>All</span>
+        <span class="count">12</span>
+      </div>
+      <div class="seg-tab" data-cat="dependencies">
+        <span class="cat-dot"></span>
+        <span>Dependencies</span>
+        <span class="count">3</span>
+      </div>
+      <div class="seg-tab" data-cat="environment">
+        <span class="cat-dot"></span>
+        <span>Environment</span>
+        <span class="count">4</span>
+      </div>
+      <div class="seg-tab" data-cat="version">
+        <span class="cat-dot"></span>
+        <span>Version</span>
+        <span class="count">1</span>
+      </div>
+      <div class="seg-tab" data-cat="system">
+        <span class="cat-dot"></span>
+        <span>System</span>
+        <span class="count">2</span>
+      </div>
+      <div class="seg-tab" data-cat="permanent">
+        <span class="cat-dot"></span>
+        <span>Permanent</span>
+        <span class="count">2</span>
+      </div>
+    </div>
+
+    <!-- ============ NOTIFICATION LIST ============ -->
+    <div class="notif-list" data-list>
+
+      <!-- 1. system · critical · Apify 配额耗尽 -->
+      <div class="card notif-card" data-type="system" data-priority="critical" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Apify 月度配额已耗尽</span>
+            <span class="priority-badge critical">Critical</span>
+            <span class="notif-type-badge">System</span>
+            <span class="notif-time">14:32</span>
+          </div>
+          <div class="notif-desc">Apify Free plan 月度 $5 额度已用完（$5.02/$5.00）。Instagram 解析将失败，请等待下月重置或升级 plan。</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+              升级 Plan
+            </button>
+            <button class="notif-action">稍后提醒</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. environment · high · Cookie 即将过期（新接入） -->
+      <div class="card notif-card" data-type="environment" data-priority="high" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-info"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">X (Twitter) Cookie 将在 3 天内过期</span>
+            <span class="priority-badge high">High</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">14:28</span>
+          </div>
+          <div class="notif-desc">检测到 X cookie 的 auth_token 距过期还有 3 天。过期后图片下载和批量枚举将失败，建议提前更新。</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+              去更新
+            </button>
+            <button class="notif-action">忽略</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. system · high · Apify 配额告警 80% -->
+      <div class="card notif-card" data-type="system" data-priority="high" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-info"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Apify 月度配额使用超过 80%</span>
+            <span class="priority-badge high">High</span>
+            <span class="notif-type-badge">System</span>
+            <span class="notif-time">13:15</span>
+          </div>
+          <div class="notif-desc">当前用量 $4.12 / $5.00（82%）。剩余 $0.88 额度，预计可解析约 30 个 Instagram 帖子。注意控制使用节奏。</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-external"/></svg>
+              查看详情
+            </button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. dependencies · normal · FFmpeg 缺失 -->
+      <div class="card notif-card" data-type="dependencies" data-priority="normal" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">FFmpeg not found</span>
+            <span class="notif-type-badge">Dependency</span>
+            <span class="notif-time">14:15</span>
+          </div>
+          <div class="notif-desc">FFmpeg binary is missing. Video merging will fail for YouTube and X downloads. Imageio-ffmpeg bundle may be corrupted.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-download"/></svg>
+              Install
+            </button>
+            <button class="notif-action">Dismiss</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. environment · normal · Cookie 已过期 -->
+      <div class="card notif-card" data-type="environment" data-priority="normal" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-info"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Instagram Cookie expired</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">14:08</span>
+          </div>
+          <div class="notif-desc">Your Instagram cookie has expired. Re-import to continue downloading. Mobile API calls will fail until refreshed.</div>
+          <div class="notif-actions">
+            <button class="notif-action primary">
+              <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+              Open Settings
+            </button>
+            <button class="notif-action">Dismiss</button>
+          </div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. permanent · 永久通知（不可关闭） -->
+      <div class="card notif-card permanent" data-type="permanent" data-priority="normal" data-unread>
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Instagram API Risk Notice</span>
+            <span class="notif-type-badge">Permanent</span>
+            <span class="notif-time">—</span>
+          </div>
+          <div class="notif-desc">Frequent Instagram API calls may lead to account restrictions. Use browser extension for safer downloads. This notice cannot be dismissed.</div>
+        </div>
+        <div class="notif-aside">
+          <span class="unread-mark" title="Unread"></span>
+          <!-- 锁图标替代关闭按钮，鼠标悬停提示"不可关闭" -->
+          <div class="notif-locked" title="永久通知，无法关闭">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-lock"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. system · low · 缓存清理完成 -->
+      <div class="card notif-card read" data-type="system" data-priority="low">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">缓存清理完成</span>
+            <span class="notif-type-badge">System</span>
+            <span class="notif-time">12:30</span>
+          </div>
+          <div class="notif-desc">已清理 inbox_media / thumbs / provider_cache / preview 共 4 个目录，释放 248.6 MB 空间。保留最近 7 天的缓存文件。</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. version · normal · 版本检查结果 -->
+      <div class="card notif-card read" data-type="version" data-priority="normal">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">已是最新版本</span>
+            <span class="notif-type-badge">Version</span>
+            <span class="notif-time">11:15</span>
+          </div>
+          <div class="notif-desc">当前版本 v4.2.0，已是最新。下次检查将在 24 小时后自动执行。</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. environment · read -->
+      <div class="card notif-card read" data-type="environment" data-priority="normal">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">X (Twitter) Cookie configured</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">10:42</span>
+          </div>
+          <div class="notif-desc">Your X cookie is valid. Auth token + ct0 detected. Image downloads and batch enumeration enabled.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10. dependencies · read -->
+      <div class="card notif-card read" data-type="dependencies" data-priority="normal">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Browser extension connected</span>
+            <span class="notif-type-badge">Dependency</span>
+            <span class="notif-time">10:30</span>
+          </div>
+          <div class="notif-desc">Chrome/Edge extension is connected and ready. Capture endpoint responding on 127.0.0.1:38900.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 11. permanent · read -->
+      <div class="card notif-card permanent read" data-type="permanent" data-priority="normal">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-alert"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">YouTube download policy</span>
+            <span class="notif-type-badge">Permanent</span>
+            <span class="notif-time">—</span>
+          </div>
+          <div class="notif-desc">YouTube downloads may be subject to copyright restrictions. Please respect content creators and applicable terms of service.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-locked" title="永久通知，无法关闭">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-lock"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 12. environment · read · low -->
+      <div class="card notif-card read" data-type="environment" data-priority="low">
+        <div class="notif-icon">
+          <svg viewBox="0 0 24 24"><use href="icons.svg#i-check-circle"/></svg>
+        </div>
+        <div class="notif-body">
+          <div class="notif-head">
+            <span class="notif-title">Local API server started</span>
+            <span class="notif-type-badge">Environment</span>
+            <span class="notif-time">10:28</span>
+          </div>
+          <div class="notif-desc">Flask API server running on 127.0.0.1:38900. Health check passing. Browser extension capture endpoint active.</div>
+        </div>
+        <div class="notif-aside">
+          <div class="notif-close" title="Dismiss">
+            <svg viewBox="0 0 24 24"><use href="icons.svg#i-cancel"/></svg>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============ PREFERENCES CARD ============ -->
+    <div class="card prefs-card">
+      <div class="prefs-title">
+        <svg viewBox="0 0 24 24"><use href="icons.svg#i-settings"/></svg>
+        Notification Preferences
+      </div>
+      <div class="prefs-subtitle">配置哪些事件触发通知（重构后新增项已标注）</div>
+
+      <div class="prefs-list">
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Enable Desktop Notifications</div>
+            <div class="prefs-row-hint">Show system notifications for important events</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Auto-check Updates</div>
+            <div class="prefs-row-hint">Check for new versions on app startup</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Cookie Expiry <span style="color: var(--accent-2); font-size: 10px; font-weight: 700;">NEW</span></div>
+            <div class="prefs-row-hint">Cookie 已过期 <strong>和即将过期（7天内）</strong>时通知</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Apify Quota <span style="color: var(--accent-2); font-size: 10px; font-weight: 700;">NEW</span></div>
+            <div class="prefs-row-hint">Apify 月度配额 &gt;80% 告警 / 耗尽时通知</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Notify on Cache Cleanup <span style="color: var(--accent-2); font-size: 10px; font-weight: 700;">NEW</span></div>
+            <div class="prefs-row-hint">缓存清理完成时通知（含释放空间统计）</div>
+          </div>
+          <div class="toggle" data-toggle></div>
+        </div>
+
+        <div class="prefs-row">
+          <div class="prefs-row-info">
+            <div class="prefs-row-label">Inbox 新内容红点</div>
+            <div class="prefs-row-hint">Inbox 收到新内容时仅在 sidebar 显示红点（不进通知中心）</div>
+          </div>
+          <div class="toggle on" data-toggle></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ STATUS BAR ============ -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item">
+          <span class="led led-green"></span>
+          API Online
+        </span>
+        <span class="status-item">5 unread</span>
+        <span class="status-item">7 read</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item mono">~/.lumio/notifications.json</span>
+        <span class="status-item">Last updated 14:32</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   NOTIFICATIONS PAGE — interactions
+   ============================================================ */
+
+// ---------- CATEGORY TAB SWITCHING ----------
+const segTabs = document.querySelectorAll('.seg-tab');
+const notifCards = document.querySelectorAll('.notif-card[data-type]');
+
+segTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    segTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    const cat = tab.dataset.cat;
+    notifCards.forEach(card => {
+      if (cat === 'all') {
+        card.style.display = '';
+      } else if (cat === 'permanent') {
+        // permanent 筛选 = 所有 dismissable=false 的通知
+        card.style.display = card.classList.contains('permanent') ? '' : 'none';
+      } else {
+        card.style.display = (card.dataset.type === cat && !card.classList.contains('permanent')) ? '' : 'none';
+      }
+    });
+  });
+});
+
+// ---------- TOGGLE ----------
+document.querySelectorAll('[data-toggle]').forEach(toggle => {
+  toggle.addEventListener('click', () => toggle.classList.toggle('on'));
+});
+
+// ---------- 整卡点击标记已读（修复：QML 版原本不支持单条已读） ----------
+notifCards.forEach(card => {
+  card.addEventListener('click', (e) => {
+    // 不要在 action 按钮或关闭按钮上触发
+    if (e.target.closest('.notif-action') || e.target.closest('.notif-close') || e.target.closest('.notif-locked')) return;
+    if (card.hasAttribute('data-unread')) {
+      card.removeAttribute('data-unread');
+      card.classList.add('read');
+      const mark = card.querySelector('.unread-mark');
+      if (mark) mark.remove();
+      updateBadge();
+    }
+  });
+});
+
+// ---------- 关闭通知（永久通知不可关闭） ----------
+document.querySelectorAll('.notif-close').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const card = btn.closest('.notif-card');
+    if (!card || card.classList.contains('permanent')) return; // 防护
+    animateRemove(card);
+  });
+});
+
+// ---------- MARK ALL READ ----------
+document.getElementById('btn-mark-all').addEventListener('click', () => {
+  document.querySelectorAll('.notif-card[data-unread]').forEach(card => {
+    card.removeAttribute('data-unread');
+    card.classList.add('read');
+    const mark = card.querySelector('.unread-mark');
+    if (mark) mark.remove();
+  });
+  updateBadge();
+});
+
+// ---------- CLEAR READ（修复：原 QML 版逻辑错误，改为只清理"已读且非永久"） ----------
+document.getElementById('btn-clear-read').addEventListener('click', () => {
+  document.querySelectorAll('.notif-card.read').forEach(card => {
+    if (card.classList.contains('permanent')) return; // 永久通知保留
+    animateRemove(card);
+  });
+});
+
+// ---------- REFRESH ----------
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  const icon = document.querySelector('#btn-refresh svg');
+  if (!icon) return;
+  icon.style.transition = 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+  icon.style.transform = 'rotate(360deg)';
+  setTimeout(() => {
+    icon.style.transition = 'none';
+    icon.style.transform = 'rotate(0deg)';
+  }, 600);
+});
+
+// ---------- HELPERS ----------
+function animateRemove(card) {
+  card.style.transition = 'opacity 0.2s, transform 0.2s, max-height 0.25s, margin 0.25s, padding 0.25s';
+  card.style.opacity = '0';
+  card.style.transform = 'translateX(20px)';
+  card.style.maxHeight = card.offsetHeight + 'px';
+  requestAnimationFrame(() => {
+    card.style.maxHeight = '0';
+    card.style.marginTop = '0';
+    card.style.marginBottom = '0';
+    card.style.paddingTop = '0';
+    card.style.paddingBottom = '0';
+    card.style.overflow = 'hidden';
+  });
+  setTimeout(() => {
+    card.remove();
+    updateBadge();
+  }, 260);
+}
+
+function updateBadge() {
+  const unread = document.querySelectorAll('.notif-card[data-unread]').length;
+  const total = document.querySelectorAll('.notif-card').length;
+  const badge = document.querySelector('.unread-badge');
+  if (badge) {
+    badge.innerHTML = `<span class="dot"></span>${unread} unread · ${total} items`;
+  }
+  // 更新 sidebar 红点
+  const navBadge = document.querySelector('.nav-item.active .nav-badge');
+  if (navBadge) {
+    if (unread > 0) {
+      navBadge.textContent = unread;
+      navBadge.style.display = '';
+    } else {
+      navBadge.style.display = 'none';
+    }
+  }
+}
+</script>
+
+</body>
+</html>

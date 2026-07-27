@@ -1,4 +1,4 @@
-﻿import re
+import re
 from dataclasses import dataclass
 
 from ..providers.base import Platform
@@ -96,3 +96,48 @@ def parse_url(raw: str) -> ParsedURL:
         return ParsedURL(url=text, platform=platform, kind=kind)
 
     return ParsedURL(url=text, platform=Platform.UNSUPPORTED, kind="unknown")
+
+
+# ============================================================
+# 从混合文本中提取纯 URL
+# ============================================================
+
+# URL 提取正则：匹配 http(s):// 开头直到遇到中文/空格/反引号/引号/全角字符为止
+# 覆盖场景：
+#   - 纯 URL：https://www.xiaohongshu.com/explore/xxx
+#   - 微信分享混合文本：64 【描述】 😆 xxx 😆 `https://...`
+#   - QQ 分享：描述 https://... 描述
+#   - 多行文本：第一行 URL，第二行描述
+_URL_EXTRACT_RE = re.compile(
+    r"https?://[^\s\u4e00-\u9fff\u3000-\u303f\uff00-\uffef`'\"<>]+",
+    re.IGNORECASE,
+)
+
+
+def extract_url_from_text(text: str) -> str:
+    """从混合文本中提取纯 URL。
+
+    处理用户从微信/QQ/小红书分享按钮复制的混合文本：
+    - 中文描述 + 反引号包裹的 URL
+    - 多行文本中的 URL
+    - 纯 URL 直接返回
+
+    Returns:
+        提取出的 URL 字符串；无 URL 时返回空字符串。
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    # 快速路径：纯 URL（无中文/空格）
+    if text.startswith(("http://", "https://")) and " " not in text and "\n" not in text:
+        # 仍需检查无中文/全角字符
+        if not re.search(r"[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]", text):
+            return text
+    # 提取第一个匹配的 URL
+    m = _URL_EXTRACT_RE.search(text)
+    if m:
+        url = m.group(0)
+        # 去掉末尾可能粘连的标点（中文标点已被正则排除，但英文标点可能粘在末尾）
+        url = url.rstrip(".,;:!?)")
+        return url
+    return ""
