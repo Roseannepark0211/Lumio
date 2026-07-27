@@ -20,7 +20,7 @@
  *   - 颜色用 Tailwind class 替代 Theme.xxx
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   api,
   subscribeEvents,
@@ -33,53 +33,54 @@ import {
   type CheckUpdateResult,
 } from "../api";
 import { useToast } from "../App";
+import { useI18n } from "../i18n";
 
 // ============================================================
 // 常量
 // ============================================================
 
-// 8 个平台 cookie 状态展示
-const PLATFORM_COOKIE_LIST: { key: string; label: string }[] = [
-  { key: "instagram", label: "Instagram" },
-  { key: "x", label: "X" },
-  { key: "youtube", label: "YouTube" },
-  { key: "weibo", label: "微博" },
-  { key: "douyin", label: "抖音" },
-  { key: "xiaohongshu", label: "小红书" },
-  { key: "bilibili", label: "B站" },
-  { key: "kuaishou", label: "快手" },
+// 8 个平台 cookie 状态展示（label 通过 tr(labelKey) 渲染）
+const PLATFORM_COOKIE_KEYS: { key: string; labelKey: string }[] = [
+  { key: "instagram", labelKey: "cookie_status_ig" },
+  { key: "x", labelKey: "cookie_status_x" },
+  { key: "youtube", labelKey: "cookie_status_yt" },
+  { key: "weibo", labelKey: "cookie_status_wb" },
+  { key: "douyin", labelKey: "cookie_status_dy" },
+  { key: "xiaohongshu", labelKey: "cookie_status_xhs" },
+  { key: "bilibili", labelKey: "cookie_status_bili" },
+  { key: "kuaishou", labelKey: "cookie_status_ks" },
 ];
 
-// 存储模式
-const STORAGE_MODES = [
-  { value: "simple", label: "简单（直接平铺）" },
-  { value: "organized", label: "结构化（按平台分目录）" },
+// 存储模式（labelKey → tr() 渲染）
+const STORAGE_MODE_VALUES = [
+  { value: "simple", labelKey: "storage_simple" },
+  { value: "organized", labelKey: "storage_organized" },
 ];
 
 // 文件冲突策略
-const CONFLICT_POLICIES = [
-  { value: "rename", label: "重命名（添加 (1) 后缀）" },
-  { value: "skip", label: "跳过已存在文件" },
-  { value: "overwrite", label: "覆盖原文件" },
-  { value: "ask", label: "每次询问" },
+const CONFLICT_POLICY_VALUES = [
+  { value: "rename", labelKey: "conflict_rename" },
+  { value: "skip", labelKey: "conflict_skip" },
+  { value: "overwrite", labelKey: "conflict_overwrite" },
+  { value: "ask", labelKey: "conflict_ask" },
 ];
 
 // 自动清理模式
-const AUTO_CLEAN_MODES = [
-  { value: "off", label: "关闭" },
-  { value: "startup", label: "每次启动" },
-  { value: "daily", label: "每天" },
-  { value: "weekly", label: "每周" },
+const AUTO_CLEAN_MODE_VALUES = [
+  { value: "off", labelKey: "auto_clean_off" },
+  { value: "startup", labelKey: "auto_clean_startup" },
+  { value: "daily", labelKey: "auto_clean_daily" },
+  { value: "weekly", labelKey: "auto_clean_weekly" },
 ];
 
-const LANGS = [
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+const LANG_VALUES = [
+  { value: "zh", labelKey: "language_zh" },
+  { value: "en", labelKey: "language_en" },
 ];
 
-const THEMES = [
-  { value: "dark", label: "深色" },
-  { value: "light", label: "浅色" },
+const THEME_VALUES = [
+  { value: "dark", labelKey: "theme_dark" },
+  { value: "light", labelKey: "theme_light" },
 ];
 
 const COOKIE_FILTER = [{ name: "Cookie Files", extensions: ["txt"] }];
@@ -89,6 +90,31 @@ const COOKIE_FILTER = [{ name: "Cookie Files", extensions: ["txt"] }];
 // ============================================================
 
 export function SettingsPage() {
+  // —— i18n ——
+  const { tr, lang, setLang: setI18nLang } = useI18n();
+
+  // —— 派生：i18n 选项（tr 变化时重新生成） ——
+  const storageModes = useMemo(
+    () => STORAGE_MODE_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+  const conflictPolicies = useMemo(
+    () => CONFLICT_POLICY_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+  const autoCleanModes = useMemo(
+    () => AUTO_CLEAN_MODE_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+  const langs = useMemo(
+    () => LANG_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+  const themes = useMemo(
+    () => THEME_VALUES.map((m) => ({ value: m.value, label: tr(m.labelKey) })),
+    [tr]
+  );
+
   // —— 配置 / 状态 ——
   const [config, setConfig] = useState<Record<string, any>>({});
   const [cookieStatus, setCookieStatus] = useState<CookieStatusResponse | null>(null);
@@ -240,7 +266,7 @@ export function SettingsPage() {
     try {
       const r = await api.clearCookie();
       if (r.ok) {
-        showToast("已清除 cookie");
+        showToast(tr("cookie_cleared"));
         const cs = await api.getCookieStatus();
         setCookieStatus(cs);
       } else {
@@ -249,7 +275,7 @@ export function SettingsPage() {
     } catch (e) {
       showToast(`清除失败: ${e}`);
     }
-  }, [showToast]);
+  }, [showToast, tr]);
 
   // —— Telegram 操作 ——
   const onValidateTelegram = useCallback(async () => {
@@ -259,15 +285,15 @@ export function SettingsPage() {
     // 用户必须输入新 token 才能验证（占位符 ••• 或空都视为未输入）。
     const token = tokenInput === "••••••••••••••••" ? "" : tokenInput.trim();
     if (!token) {
-      setTgValidateMsg("请先输入 Token");
+      setTgValidateMsg(tr("telegram_token_empty"));
       return;
     }
     setTgValidating(true);
-    setTgValidateMsg("验证中...");
+    setTgValidateMsg(tr("telegram_validating"));
     try {
       const r = await api.validateTelegram(token, config.http_proxy || "");
       if (r.ok) {
-        setTgValidateMsg(`✅ 验证成功：@${r.username || ""}`);
+        setTgValidateMsg(tr("telegram_validate_ok", { username: r.username || "" }));
         // 验证成功才保存 token（失败不保存，避免覆盖旧的有效 token）
         await saveConfig("telegram_bot_token", token);
         // 重新生成配对码
@@ -275,25 +301,25 @@ export function SettingsPage() {
         const ts = await api.getTelegramState();
         setTgState(ts);
       } else {
-        setTgValidateMsg(`❌ 验证失败：${r.error || ""}`);
+        setTgValidateMsg(`❌ ${tr("telegram_validate_fail")}：${r.error || ""}`);
       }
     } catch (e) {
-      setTgValidateMsg(`❌ 验证失败：${e}`);
+      setTgValidateMsg(`❌ ${tr("telegram_validate_fail")}：${e}`);
     } finally {
       setTgValidating(false);
     }
-  }, [tgValidating, config.http_proxy, saveConfig]);
+  }, [tgValidating, config.http_proxy, saveConfig, tr]);
 
   const onCopyPairCode = useCallback(async () => {
     const code = tgState?.pair_code || "";
     if (!code) return;
     try {
       await api.copyToClipboard(code);
-      showToast("配对码已复制");
+      showToast(tr("telegram_copied"));
     } catch (e) {
       console.warn("copy failed:", e);
     }
-  }, [tgState, showToast]);
+  }, [tgState, showToast, tr]);
 
   const onRegenPairCode = useCallback(async () => {
     try {
@@ -310,7 +336,7 @@ export function SettingsPage() {
     try {
       const r = await api.unlinkTelegram();
       if (r.ok) {
-        showToast("已解除 Telegram 绑定");
+        showToast(tr("telegram_unlinked"));
         const ts = await api.getTelegramState();
         setTgState(ts);
       } else {
@@ -319,7 +345,7 @@ export function SettingsPage() {
     } catch (e) {
       showToast(`解绑失败: ${e}`);
     }
-  }, [showToast]);
+  }, [showToast, tr]);
 
   // —— Apify 操作 ——
   const onValidateApify = useCallback(async () => {
@@ -331,25 +357,25 @@ export function SettingsPage() {
     const actorInput = (document.getElementById("apify-actor-input") as HTMLInputElement)?.value || "";
     const actor = actorInput.trim() || (config.apify_ig_actor || "");
     if (!token) {
-      setApifyValidateMsg("请先输入 Token");
+      setApifyValidateMsg(tr("apify_token_empty"));
       return;
     }
     if (!actor) {
-      setApifyValidateMsg("请先输入 Actor ID");
+      setApifyValidateMsg(tr("apify_actor_empty"));
       return;
     }
     setApifyValidating(true);
-    setApifyValidateMsg("验证中...");
+    setApifyValidateMsg(tr("apify_validating"));
     try {
       const r = await api.validateApify(token, actor);
       if (r.ok) {
-        setApifyValidateMsg("✅ 已连接");
+        setApifyValidateMsg(`✅ ${tr("apify_connected")}`);
         const as = await api.getApifyStatus();
         setApifyState(as);
         // 强制刷新用量
         api.forceRefreshApifyUsage().catch(() => {});
       } else {
-        setApifyValidateMsg(`❌ ${r.error || "验证失败"}`);
+        setApifyValidateMsg(`❌ ${r.error || tr("apify_validate_fail")}`);
         // 验证失败也刷新状态（后端可能已清除 apify_verified）
         const as = await api.getApifyStatus();
         setApifyState(as);
@@ -361,7 +387,7 @@ export function SettingsPage() {
     } finally {
       setApifyValidating(false);
     }
-  }, [apifyValidating, config.apify_ig_actor, showToast]);
+  }, [apifyValidating, config.apify_ig_actor, showToast, tr]);
 
   const onForceRefreshApify = useCallback(async () => {
     setApifyUsage({});
@@ -411,20 +437,20 @@ export function SettingsPage() {
 
   // —— 检查更新 ——
   const onCheckUpdate = useCallback(async () => {
-    setUpdateStatus("检查中...");
+    setUpdateStatus(tr("settings_update_checking"));
     try {
       const r: CheckUpdateResult = await api.checkUpdate();
       if (r.error) {
-        setUpdateStatus(`❌ 检查失败：${r.error}`);
+        setUpdateStatus(`❌ ${tr("settings_update_error", { err: r.error })}`);
       } else if (r.has_update) {
-        setUpdateStatus(`🆕 发现新版本：v${r.latest}（当前 v${r.current}）`);
+        setUpdateStatus(`🆕 ${tr("settings_update_found", { ver: `v${r.latest}` })}（当前 v${r.current}）`);
       } else {
-        setUpdateStatus(`✅ 已是最新版本 v${r.current}`);
+        setUpdateStatus(`✅ ${tr("settings_update_latest")} v${r.current}`);
       }
     } catch (e) {
-      setUpdateStatus(`❌ 检查失败：${e}`);
+      setUpdateStatus(`❌ ${tr("settings_update_error", { err: String(e) })}`);
     }
-  }, []);
+  }, [tr]);
 
   // —— 主题 / 语言切换 ——
   const onSetTheme = useCallback(
@@ -439,21 +465,24 @@ export function SettingsPage() {
   );
 
   const onSetLang = useCallback(
-    async (lang: string) => {
+    async (next: string) => {
       try {
-        await api.setLang(lang);
+        // 调后端 setLang → 后端发 lang_changed 事件 → I18nProvider 自动更新 lang
+        // 这里同时调 i18n 的 setLang（语义相同，保留以防 WS 事件丢失）
+        await api.setLang(next);
+        await setI18nLang(next as "zh" | "en");
       } catch (e) {
         showToast(`语言切换失败: ${e}`);
       }
     },
-    [showToast]
+    [showToast, setI18nLang]
   );
 
   // —— 渲染 ——
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -462,7 +491,7 @@ export function SettingsPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -493,38 +522,38 @@ export function SettingsPage() {
         {/* PageHeader */}
         {/* ============================================================ */}
         <header className="animate-slide-up">
-          <h1 className="text-xl font-bold text-text">设置</h1>
+          <h1 className="text-xl font-bold text-text">{tr("settings")}</h1>
           <p className="mt-0.5 text-xs text-text-muted">
-            账号 / 下载 / 系统 — 调整 Lumio 行为
+            {tr("settings_subtitle")}
           </p>
         </header>
 
         {/* ============================================================ */}
         {/* 分组：账号 */}
         {/* ============================================================ */}
-        <SectionLabel>账号</SectionLabel>
+        <SectionLabel>{tr("settings_group_account")}</SectionLabel>
 
         {/* ---------- Cookie 管理 ---------- */}
         <SettingsCard
           icon="🍪"
           iconColor="text-warning"
-          title="Cookie 管理"
+          title={tr("cookie_mgmt")}
           desc="IG / X / 微博等平台访问凭证"
         >
-          <Row label="状态">
+          <Row label={tr("cookie_status")}>
             <StatusBadge status={cookieStatus?.overall || "missing"} />
             <div className="flex-1" />
             <button
               onClick={() => setConfirmCookieClear(true)}
               className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
             >
-              🗑 清除
+              🗑 {tr("cookie_clear_btn")}
             </button>
             <button
               onClick={onImportCookie}
               className="rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/25"
             >
-              ↓ 导入
+              ↓ {tr("cookie_import_btn")}
             </button>
           </Row>
 
@@ -535,10 +564,10 @@ export function SettingsPage() {
 
           {/* 各平台单独状态 */}
           <div className="mt-2 text-[10px] uppercase tracking-wider text-text-muted">
-            各平台状态
+            {tr("cookie_per_platform")}
           </div>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            {PLATFORM_COOKIE_LIST.map((p) => {
+            {PLATFORM_COOKIE_KEYS.map((p) => {
               const s =
                 (cookieStatus?.platforms?.[p.key] as string) || "missing";
               const color =
@@ -567,7 +596,7 @@ export function SettingsPage() {
                         : "bg-white/30"
                     }`}
                   />
-                  <span className="flex-1 text-[11px] text-text">{p.label}</span>
+                  <span className="flex-1 text-[11px] text-text">{tr(p.labelKey)}</span>
                   <span className={`text-xs font-bold ${color}`}>{icon}</span>
                 </div>
               );
@@ -579,10 +608,10 @@ export function SettingsPage() {
         <SettingsCard
           icon="✨"
           iconColor="text-pink-400"
-          title="Apify 代理（Instagram API）"
-          desc="通过 Apify Actor 代理提取 IG 数据，避免账号风控"
+          title={tr("settings_apify_section")}
+          desc={tr("apify_section_desc")}
         >
-          <Row label="启用">
+          <Row label={tr("apify_enable")}>
             <Switch
               checked={config.instagram_mode === "api"}
               onChange={(v) => saveConfig("instagram_mode", v ? "api" : "cookie")}
@@ -594,17 +623,17 @@ export function SettingsPage() {
                   : "border-white/10 bg-white/5 text-text-muted"
               }`}
             >
-              {config.instagram_mode === "api" ? "已启用" : "未启用"}
+              {config.instagram_mode === "api" ? tr("apify_status_on") : tr("apify_status_off")}
             </span>
           </Row>
           <p className="text-[10px] text-text-dim">
-            启用后 Instagram 走 Apify 代理路径；不启用则使用本地 Cookie 模式调移动 API
+            {tr("apify_enable_hint")}
           </p>
 
           {/* —— 折叠区：仅在启用时展开 —— */}
           {config.instagram_mode === "api" && (
             <>
-              <Row label="Apify Token">
+              <Row label={tr("apify_token")}>
                 <input
                   id="apify-token-input"
                   type="password"
@@ -619,11 +648,11 @@ export function SettingsPage() {
                   disabled={apifyValidating}
                   className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
                 >
-                  {apifyValidating ? "验证中..." : "验证"}
+                  {apifyValidating ? tr("apify_validating") : tr("apify_validate")}
                 </button>
               </Row>
 
-              <Row label="Actor ID">
+              <Row label={tr("apify_actor_id")}>
                 <input
                   id="apify-actor-input"
                   type="text"
@@ -660,7 +689,7 @@ export function SettingsPage() {
                         : "border-warning/30 bg-warning/10 text-warning"
                     }`}
                   >
-                    ● {apifyState.connected ? "已连接" : "待验证"}
+                    ● {apifyState.connected ? tr("apify_connected") : tr("apify_pending_verify")}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-muted">
@@ -673,13 +702,13 @@ export function SettingsPage() {
               {apifyState?.connected && (
             <div className="rounded-lg border border-pink-500/20 bg-pink-500/[0.08] p-3">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-pink-400">月度用量</span>
+                <span className="text-[11px] font-semibold text-pink-400">{tr("apify_quota_label")}</span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={onForceRefreshApify}
                     className="rounded px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-white/5 hover:text-text"
                   >
-                    ↻ 刷新
+                    ↻ {tr("apify_quota_refresh")}
                   </button>
                   {apifyUsage.plan_credits_usd != null && !apifyUsage.error && (
                     <span className="font-mono text-[11px] font-semibold text-text">
@@ -712,17 +741,17 @@ export function SettingsPage() {
                 </div>
               )}
               {apifyUsage.plan_credits_usd == null && !apifyUsage.error && (
-                <p className="mt-1 text-[10px] text-text-dim">加载中...</p>
+                <p className="mt-1 text-[10px] text-text-dim">{tr("apify_quota_loading")}</p>
               )}
               {apifyUsage.error && (
                 <p className="mt-1 text-[10px] text-danger">
-                  用量查询失败：{apifyUsage.error}
+                  {tr("apify_quota_error", { err: apifyUsage.error })}
                 </p>
               )}
               <p className="mt-1 text-[9px] text-text-dim">
-                国内代理可能需要科学上网
+                {tr("apify_proxy_hint")}
                 {apifyUsage.usage_updated
-                  ? `  ·  更新于 ${apifyUsage.usage_updated}`
+                  ? `  ·  ${tr("apify_quota_updated")} ${apifyUsage.usage_updated}`
                   : ""}
               </p>
             </div>
@@ -735,10 +764,10 @@ export function SettingsPage() {
         <SettingsCard
           icon="✈"
           iconColor="text-cyan-400"
-          title="Telegram Bot"
+          title={tr("telegram_settings")}
           desc="Bot Token + 本地 API Server"
         >
-          <Row label="启用">
+          <Row label={tr("telegram_enable")}>
             <Switch
               checked={config.telegram_enabled === true}
               onChange={(v) => saveConfig("telegram_enabled", v)}
@@ -754,13 +783,13 @@ export function SettingsPage() {
             </span>
           </Row>
           <p className="text-[10px] text-text-dim">
-            启用后启动 Bot 轮询服务，接收用户发送的链接/媒体写入 Inbox
+            {tr("telegram_enable_hint")}
           </p>
 
           {/* —— 折叠区：仅在启用时展开 —— */}
           {config.telegram_enabled && (
             <>
-              <Row label="Bot Token">
+              <Row label={tr("bot_token")}>
                 <input
                   id="tg-token-input"
                   type="password"
@@ -777,21 +806,21 @@ export function SettingsPage() {
                   disabled={tgValidating}
                   className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15 disabled:opacity-40"
                 >
-                  {tgValidating ? "验证中..." : "验证"}
+                  {tgValidating ? tr("telegram_validating") : tr("telegram_validate_btn")}
                 </button>
               </Row>
 
               {tgValidateMsg && (
                 <p
                   className={`text-xs ${
-                    tgValidateMsg.startsWith("✅") ? "text-success" : "text-danger"
+                    tgValidateMsg.startsWith("✅") || tgValidateMsg.startsWith("🟢") ? "text-success" : "text-danger"
                   }`}
                 >
                   {tgValidateMsg}
                 </p>
               )}
 
-              <Row label="API 地址">
+              <Row label={tr("api_address")}>
                 <input
                   type="text"
                   placeholder="https://api.telegram.org"
@@ -806,7 +835,7 @@ export function SettingsPage() {
 
               {/* 配对码区域 */}
               {!tgState?.bound_device && (
-                <Row label="配对码">
+                <Row label={tr("telegram_pair_code_label")}>
                   <span className="flex-1 font-mono text-lg font-bold text-accent">
                     {tgState?.pair_code || "—"}
                   </span>
@@ -815,26 +844,26 @@ export function SettingsPage() {
                       onClick={onCopyPairCode}
                       className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
                     >
-                      📋 复制
+                      📋 {tr("telegram_copy_btn")}
                     </button>
                   )}
                   <button
                     onClick={onRegenPairCode}
                     className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
                   >
-                    ↻ 重新生成
+                    ↻ {tr("telegram_regen_btn")}
                   </button>
                 </Row>
               )}
               {!tgState?.bound_device && tgState?.pair_code && (
                 <p className="text-[10px] text-text-dim">
-                  在 Telegram 中给 @YourBot 发送此配对码即可绑定设备
+                  {tr("telegram_pair_hint")}
                 </p>
               )}
 
               {/* 已绑定设备区域 */}
               {tgState?.bound_device && (
-                <Row label="已绑定">
+                <Row label={tr("telegram_bound_label")}>
                   <span className="flex-1 font-semibold text-success">
                     @{tgState.bound_device.username ||
                       tgState.bound_device.first_name ||
@@ -844,7 +873,7 @@ export function SettingsPage() {
                     onClick={() => setConfirmTgUnlink(true)}
                     className="rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/20"
                   >
-                    解除绑定
+                    {tr("telegram_unlink_btn")}
                   </button>
                 </Row>
               )}
@@ -855,16 +884,16 @@ export function SettingsPage() {
         {/* ============================================================ */}
         {/* 分组：下载 */}
         {/* ============================================================ */}
-        <SectionLabel>下载</SectionLabel>
+        <SectionLabel>{tr("download_settings")}</SectionLabel>
 
         {/* ---------- 下载设置 ---------- */}
         <SettingsCard
           icon="↓"
           iconColor="text-accent"
-          title="下载设置"
+          title={tr("settings_download_section")}
           desc="下载目录、存储模式、并发与冲突策略"
         >
-          <Row label="下载目录">
+          <Row label={tr("download_dir")}>
             <span className="flex-1 truncate font-mono text-[11px] text-text-dim">
               {(config.download_dir as string) || "—"}
             </span>
@@ -872,27 +901,27 @@ export function SettingsPage() {
               onClick={onBrowseDownloadDir}
               className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-white/5 hover:text-text"
             >
-              📁 浏览
+              📁 {tr("browse")}
             </button>
           </Row>
 
-          <Row label="存储模式">
+          <Row label={tr("storage_mode")}>
             <Select
               value={(config.storage_mode as string) || "simple"}
-              options={STORAGE_MODES}
+              options={storageModes}
               onChange={(v) => saveConfig("storage_mode", v)}
             />
           </Row>
 
-          <Row label="文件冲突">
+          <Row label={tr("file_conflict")}>
             <Select
               value={(config.file_conflict_policy as string) || "rename"}
-              options={CONFLICT_POLICIES}
+              options={conflictPolicies}
               onChange={(v) => saveConfig("file_conflict_policy", v)}
             />
           </Row>
 
-          <Row label="最大并发">
+          <Row label={tr("max_concurrent")}>
             <SpinBox
               min={1}
               max={10}
@@ -901,7 +930,7 @@ export function SettingsPage() {
             />
           </Row>
 
-          <Row label="最大重试">
+          <Row label={tr("max_retries")}>
             <SpinBox
               min={0}
               max={10}
@@ -915,7 +944,7 @@ export function SettingsPage() {
         <SettingsCard
           icon="💾"
           iconColor="text-success"
-          title="缓存管理"
+          title={tr("settings_cache")}
           desc={`总大小: ${formatSize(totalCacheSize)}${
             cacheRootPath ? `  ·  ${cacheRootPath}` : ""
           }`}
@@ -925,23 +954,23 @@ export function SettingsPage() {
               onClick={onCleanByRules}
               className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-text hover:bg-white/15"
             >
-              ↻ 立即清理
+              ↻ {tr("clean_now")}
             </button>
             <button
               onClick={() => setConfirmForceClear(true)}
               className="rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20"
             >
-              🗑 强制清空
+              🗑 {tr("force_clear_all")}
             </button>
           </div>
 
           {/* 4 个缓存目录统计 */}
           <div className="grid grid-cols-2 gap-2">
             {[
-              { label: "Inbox Media", key: "inbox_media" },
-              { label: "Thumbnails", key: "thumbs" },
-              { label: "Provider Cache", key: "provider_cache" },
-              { label: "Preview", key: "preview" },
+              { labelKey: "cache_inbox", key: "inbox_media" },
+              { labelKey: "cache_thumbs", key: "thumbs" },
+              { labelKey: "cache_provider", key: "provider_cache" },
+              { labelKey: "cache_preview", key: "preview" },
             ].map((c) => {
               const s = (cacheStats as any)?.[c.key] as
                 | { size_bytes?: number; file_count?: number; path?: string }
@@ -953,7 +982,7 @@ export function SettingsPage() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-[11px] text-text-muted">{c.label}</div>
+                      <div className="text-[11px] text-text-muted">{tr(c.labelKey)}</div>
                       <div className="truncate font-mono text-[9px] text-text-dim">
                         {s?.path || ""}
                       </div>
@@ -963,7 +992,7 @@ export function SettingsPage() {
                         {formatSize(s?.size_bytes || 0)}
                       </div>
                       <div className="font-mono text-[9px] text-text-dim">
-                        {s?.file_count || 0} 文件
+                        {s?.file_count || 0} {tr("cache_files")}
                       </div>
                     </div>
                   </div>
@@ -972,15 +1001,15 @@ export function SettingsPage() {
             })}
           </div>
 
-          <Row label="自动清理">
+          <Row label={tr("auto_clean")}>
             <Select
               value={(cacheMgmt.auto_clean as string) || "off"}
-              options={AUTO_CLEAN_MODES}
+              options={autoCleanModes}
               onChange={(v) => saveNestedConfig("cache_management", { auto_clean: v })}
             />
           </Row>
 
-          <Row label="保留天数">
+          <Row label={tr("retain_days")}>
             <SpinBox
               min={1}
               max={365}
@@ -989,7 +1018,7 @@ export function SettingsPage() {
             />
           </Row>
 
-          <Row label="单目录上限 (MB)">
+          <Row label={tr("max_size_mb")}>
             <SpinBox
               min={50}
               max={10000}
@@ -999,10 +1028,10 @@ export function SettingsPage() {
             />
           </Row>
 
-          <Row label="上次清理">
+          <Row label={tr("last_cleaned")}>
             <span className="font-mono text-[11px] text-text-dim">
               {(cacheMgmt.last_cleaned as string)?.replace("T", " ").substring(0, 19) ||
-                "从未"}
+                tr("never")}
             </span>
           </Row>
         </SettingsCard>
@@ -1010,36 +1039,36 @@ export function SettingsPage() {
         {/* ============================================================ */}
         {/* 分组：系统 */}
         {/* ============================================================ */}
-        <SectionLabel>系统</SectionLabel>
+        <SectionLabel>{tr("settings_group_system")}</SectionLabel>
 
         {/* ---------- 通用 ---------- */}
         <SettingsCard
           icon="⚙"
           iconColor="text-purple-400"
-          title="通用"
+          title={tr("general")}
           desc="语言、主题、自动下载、X-Sou 搜索"
         >
-          <Row label="语言">
+          <Row label={tr("language")}>
             <Select
-              value={(config.lang as string) || "zh"}
-              options={LANGS}
+              value={lang}
+              options={langs}
               onChange={(v) => onSetLang(v)}
             />
           </Row>
 
-          <Row label="主题">
+          <Row label={tr("theme_light") + " / " + tr("theme_dark")}>
             <Select
               value={(config.theme as string) || "dark"}
-              options={THEMES}
+              options={themes}
               onChange={(v) => onSetTheme(v)}
             />
           </Row>
 
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] text-text-muted">自动下载 Inbox</div>
+              <div className="text-[13px] text-text-muted">{tr("auto_download_inbox")}</div>
               <p className="text-[10px] text-text-dim">
-                新内容到达 Inbox 时自动入队下载
+                {tr("auto_download_inbox_desc")}
               </p>
             </div>
             <Switch
@@ -1050,13 +1079,13 @@ export function SettingsPage() {
 
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] text-text-muted">启用 X-Sou 搜索</div>
+              <div className="text-[13px] text-text-muted">{tr("enable_xsou")}</div>
               <p className="text-[10px] text-text-dim">
-                Home 页面显示搜索按钮（含 18+ 内容警告）
+                {tr("enable_xsou_desc")}
               </p>
               {config.enable_xsou !== true && (
                 <div className="mt-1 inline-block rounded-full border border-orange-400/30 bg-orange-400/10 px-2 py-0.5 text-[9px] font-medium text-orange-400">
-                  ⚠ 含 18+ 内容
+                  {tr("enable_xsou_warning")}
                 </div>
               )}
             </div>
@@ -1068,8 +1097,8 @@ export function SettingsPage() {
         </SettingsCard>
 
         {/* ---------- 关于 ---------- */}
-        <SettingsCard icon="ℹ" iconColor="text-info" title="关于" desc="Lumio © 2026">
-          <Row label="版本">
+        <SettingsCard icon="ℹ" iconColor="text-info" title={tr("about")} desc="Lumio © 2026">
+          <Row label={tr("version")}>
             <span className="font-mono text-sm font-bold text-text">
               v{(config.version as string) || "4.2"}
             </span>
@@ -1078,7 +1107,7 @@ export function SettingsPage() {
               onClick={onCheckUpdate}
               className="rounded-lg bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/25"
             >
-              ↻ 检查更新
+              ↻ {tr("settings_check_update")}
             </button>
           </Row>
 
@@ -1096,42 +1125,42 @@ export function SettingsPage() {
       {/* 对话框 */}
       {/* ============================================================ */}
       {confirmCookieClear && (
-        <ModalDialog title="清除 Cookie" onClose={() => setConfirmCookieClear(false)}>
+        <ModalDialog title={tr("cookie_clear_btn")} onClose={() => setConfirmCookieClear(false)}>
           <p className="text-sm text-text">
-            确定清除所有 cookie？所有平台凭证将被删除，需要重新导入。
+            {tr("cookie_clear_confirm")}
           </p>
           <DialogActions
             onCancel={() => setConfirmCookieClear(false)}
             onConfirm={onClearCookie}
-            confirmText="清除"
+            confirmText={tr("clear")}
             danger
           />
         </ModalDialog>
       )}
 
       {confirmForceClear && (
-        <ModalDialog title="强制清空缓存" onClose={() => setConfirmForceClear(false)}>
+        <ModalDialog title={tr("force_clear_all")} onClose={() => setConfirmForceClear(false)}>
           <p className="text-sm text-text">
-            确定强制清空全部缓存？所有 4 个缓存目录下的文件都将被删除（仅保留最近 1 天）。
+            {tr("cache_force_confirm")}
           </p>
           <DialogActions
             onCancel={() => setConfirmForceClear(false)}
             onConfirm={onForceClear}
-            confirmText="强制清空"
+            confirmText={tr("force_clear_all")}
             danger
           />
         </ModalDialog>
       )}
 
       {confirmTgUnlink && (
-        <ModalDialog title="解除 Telegram 绑定" onClose={() => setConfirmTgUnlink(false)}>
+        <ModalDialog title={tr("telegram_unlink_btn")} onClose={() => setConfirmTgUnlink(false)}>
           <p className="text-sm text-text">
             确定解除 Telegram 设备绑定？解除后需重新生成配对码并重新绑定。
           </p>
           <DialogActions
             onCancel={() => setConfirmTgUnlink(false)}
             onConfirm={onUnlinkTelegram}
-            confirmText="解除绑定"
+            confirmText={tr("telegram_unlink_btn")}
             danger
           />
         </ModalDialog>
@@ -1185,6 +1214,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { tr } = useI18n();
   const cls =
     status === "valid"
       ? "border-success/30 bg-success/10 text-success"
@@ -1195,12 +1225,12 @@ function StatusBadge({ status }: { status: string }) {
       : "border-white/10 bg-white/5 text-text-muted";
   const label =
     status === "valid"
-      ? "正常"
+      ? tr("cookie_status_valid")
       : status === "warning"
-      ? "警告"
+      ? tr("cookie_status_warning")
       : status === "expired"
-      ? "已过期"
-      : "未导入";
+      ? tr("cookie_status_expired")
+      : tr("cookie_status_missing");
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
 }
 
@@ -1337,13 +1367,14 @@ function DialogActions({
   confirmText: string;
   danger?: boolean;
 }) {
+  const { tr } = useI18n();
   return (
     <div className="mt-5 flex justify-end gap-2">
       <button
         onClick={onCancel}
         className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
       >
-        取消
+        {tr("cancel")}
       </button>
       <button
         onClick={onConfirm}

@@ -19,10 +19,10 @@
 import { memo } from "react";
 import type { QueueTask } from "../../api";
 import { thumbProxyUrl } from "../../api";
+import { useI18n } from "../../i18n";
 import { LaserProgressBar } from "../../components/LaserProgressBar";
 import {
   normStatus,
-  statusText,
   statusPillClass,
   formatPct,
 } from "../../utils/downloads";
@@ -46,6 +46,7 @@ function TaskCardImpl({
   onCancel,
   onDelete,
 }: TaskCardProps) {
+  const { tr } = useI18n();
   const n = normStatus(task.status);
   const hasThumb = !!task.thumbnail_url && task.thumbnail_url.length > 0;
   // QML 用 format_type 判断 audio/video 占位图标，但 _task_to_dict 未返回此字段
@@ -121,7 +122,7 @@ function TaskCardImpl({
 
       {/* 状态 Badge */}
       <div className={`shrink-0 ${statusPillClass(task.status)}`}>
-        {statusText(task.status)}
+        {tr(`status_${n}`)}
       </div>
 
       {/* 操作按钮组 */}
@@ -131,7 +132,7 @@ function TaskCardImpl({
           onClick={onToggleClick}
           disabled={!toggleEnabled}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title={n === "downloading" ? "暂停" : "开始/继续"}
+          title={n === "downloading" ? tr("pause") : tr("start")}
         >
           {toggleIcon}
         </button>
@@ -141,7 +142,7 @@ function TaskCardImpl({
           <button
             onClick={() => onRetry(task.task_id)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-            title="重试"
+            title={tr("retry")}
           >
             ↻
           </button>
@@ -152,7 +153,7 @@ function TaskCardImpl({
           onClick={() => onCancel(task.task_id)}
           disabled={!cancelEnabled}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title="取消"
+          title={tr("cancel")}
         >
           ✕
         </button>
@@ -161,7 +162,7 @@ function TaskCardImpl({
         <button
           onClick={() => onDelete(task.task_id)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
-          title="删除"
+          title={tr("delete")}
         >
           🗑
         </button>

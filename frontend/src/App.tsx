@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { api, subscribeEvents, type AppEvent, type HealthResponse, type QueueTask, type LibraryItem } from "./api";
 import { getPageSwitch } from "./config";
 import { Sidebar, type PageKey } from "./Sidebar";
+import { useI18n } from "./i18n";
 import { HomePage } from "./pages/HomePage";
 import { DownloadsPage } from "./pages/DownloadsPage";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -172,6 +173,7 @@ function PageSwitcher({
  * 后续每个页面会按 design_preview/ 下的设计稿单独迁移。
  */
 function PocPage() {
+  const { tr } = useI18n();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [queue, setQueue] = useState<QueueTask[]>([]);
   const [library, setLibrary] = useState<LibraryItem[]>([]);
@@ -211,7 +213,7 @@ function PocPage() {
   if (!health) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -255,11 +257,11 @@ function PocPage() {
       {/* 队列 */}
       <section className="mb-8 animate-slide-up">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-          下载队列 ({queue.length})
+          {tr("downloads")} ({queue.length})
         </h2>
         <div className="space-y-2">
           {queue.length === 0 ? (
-            <div className="glass-card p-4 text-sm text-text-muted">队列为空</div>
+            <div className="glass-card p-4 text-sm text-text-muted">{tr("downloads_empty")}</div>
           ) : (
             queue.map((t) => (
               <div key={t.task_id} className="glass-card p-4">
@@ -289,7 +291,7 @@ function PocPage() {
       {/* 素材库 */}
       <section className="mb-8 animate-slide-up">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-          素材库 ({library.length})
+          {tr("library")} ({library.length})
         </h2>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-4">
           {library.slice(0, 12).map((it) => (
@@ -299,7 +301,7 @@ function PocPage() {
                 {it.platform} · {formatSize(it.file_size)}
               </div>
               {it.is_favorite && (
-                <span className="pill-danger mt-2">★ 收藏</span>
+                <span className="pill-danger mt-2">★ {tr("library_toggle_fav")}</span>
               )}
             </div>
           ))}

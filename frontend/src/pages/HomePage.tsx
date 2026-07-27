@@ -27,13 +27,29 @@ import {
   type ParseCompletedPayload,
   type PreviewProgressPayload,
 } from "../api";
+import { useI18n } from "../i18n";
 import { MediaItemsList, type SortedMediaItem } from "./home/MediaItemsList";
 import { PreviewArea } from "./home/PreviewArea";
 import { XSouSearchPanel } from "./home/XSouSearchPanel";
 import { VideoPreviewDialog } from "./home/VideoPreviewDialog";
 import { PreviewProgressDialog } from "./home/PreviewProgressDialog";
 
+// 8 个平台徽章配置（与老版本 QML HomePage.qml 对齐）
+const PLATFORM_PILLS: { plat: string; labelKey: string; defaultLabel: string; color: string }[] = [
+  { plat: "youtube", labelKey: "", defaultLabel: "YouTube", color: "#ff3b5c" },
+  { plat: "instagram", labelKey: "", defaultLabel: "Instagram", color: "#e1306c" },
+  { plat: "x", labelKey: "", defaultLabel: "X", color: "#1d9bf0" },
+  { plat: "bilibili", labelKey: "platform_bilibili", defaultLabel: "B站", color: "#fb7299" },
+  { plat: "douyin", labelKey: "platform_douyin", defaultLabel: "抖音", color: "#25f4ee" },
+  { plat: "kuaishou", labelKey: "platform_kuaishou", defaultLabel: "快手", color: "#ff6a00" },
+  { plat: "weibo", labelKey: "platform_weibo", defaultLabel: "微博", color: "#e6162d" },
+  { plat: "xiaohongshu", labelKey: "platform_xiaohongshu", defaultLabel: "小红书", color: "#ff2442" },
+];
+
 export function HomePage() {
+  // —— i18n ——
+  const { tr } = useI18n();
+
   // —— URL 输入状态 ——
   const [urlText, setUrlText] = useState("");
   const [isParsing, setIsParsing] = useState(false);
@@ -184,9 +200,9 @@ export function HomePage() {
       case "preview_failed": {
         setPreviewProgressDialogOpen(false);
         setPreviewProgress(null);
-        const err = (e.data as { error?: string })?.error || "预览失败";
+        const err = (e.data as { error?: string })?.error || tr("x_sou_preview_failed", { err: "" });
         if (err === "cancelled") {
-          showToast("已取消预览");
+          showToast(tr("x_sou_preview_cancelled"));
         } else {
           setPreviewError(err);
           setPreviewDialogOpen(true);
@@ -203,7 +219,7 @@ export function HomePage() {
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tr]);
 
   // —— URL 解析 ——
   const parseUrl = useCallback(async () => {
@@ -222,9 +238,9 @@ export function HomePage() {
       await api.parseUrl(url);
     } catch (e) {
       setIsParsing(false);
-      setParseError(`请求失败: ${e}`);
+      setParseError(tr("parse_failed") + `: ${e}`);
     }
-  }, [urlText, isParsing]);
+  }, [urlText, isParsing, tr]);
 
   // —— 粘贴 ——
   const pasteFromClipboard = useCallback(async () => {
@@ -232,9 +248,9 @@ export function HomePage() {
       const { text } = await api.getClipboardText();
       if (text) setUrlText(text);
     } catch (e) {
-      showToast(`粘贴失败: ${e}`);
+      showToast(tr("paste_failed", { err: String(e) }));
     }
-  }, [showToast]);
+  }, [showToast, tr]);
 
   // —— 清空 ——
   const clearInput = useCallback(() => {
@@ -249,7 +265,7 @@ export function HomePage() {
     if (!previewInfo) return;
     const item = previewInfo.items[origIdx];
     if (!item || !item.url) {
-      showToast("视频地址无效");
+      showToast(tr("video_url_invalid"));
       return;
     }
     if (addedItemIndices[origIdx]) return;
@@ -266,11 +282,11 @@ export function HomePage() {
         author: previewInfo.author,
       });
       setAddedItemIndices((prev) => ({ ...prev, [origIdx]: true }));
-      showToast("已加入队列");
+      showToast(tr("item_added"));
     } catch (e) {
-      showToast(`入队失败: ${e}`);
+      showToast(tr("enqueue_failed", { err: String(e) }));
     }
-  }, [previewInfo, customName, addedItemIndices, showToast]);
+  }, [previewInfo, customName, addedItemIndices, showToast, tr]);
 
   // —— 整帖入队（带格式选择 + 非阻断去重）——
   const enqueue = useCallback(async () => {
@@ -279,7 +295,7 @@ export function HomePage() {
       // 去重检查（非阻断）
       const dup = await api.checkUrlDuplicate(previewInfo.url);
       if (dup.duplicate) {
-        showToast("URL 已存在，仍然继续下载");
+        showToast(tr("dup_continue"));
       }
       await api.addDownloadTask({
         info: previewInfo,
@@ -287,11 +303,11 @@ export function HomePage() {
         format_type: selectedFormatType,
         custom_name: customName,
       });
-      showToast("已加入队列");
+      showToast(tr("item_added"));
     } catch (e) {
-      showToast(`入队失败: ${e}`);
+      showToast(tr("enqueue_failed", { err: String(e) }));
     }
-  }, [previewInfo, customName, selectedFormatId, selectedFormatType, showToast]);
+  }, [previewInfo, customName, selectedFormatId, selectedFormatType, showToast, tr]);
 
   // —— X-Sou 搜索 ——
   const runSearch = useCallback(async (q: string, page: number) => {
@@ -303,9 +319,9 @@ export function HomePage() {
       await api.searchXSou(q, page, searchLimit);
     } catch (e) {
       setIsSearching(false);
-      showToast(`搜索失败: ${e}`);
+      showToast(tr("search_error", { err: String(e) }));
     }
-  }, [isSearching, searchLimit, showToast]);
+  }, [isSearching, searchLimit, showToast, tr]);
 
   // —— X-Sou 多选 ——
   const toggleSearchItem = useCallback((idx: number, checked: boolean) => {
@@ -339,14 +355,14 @@ export function HomePage() {
         console.warn("enqueue search item failed:", e);
       }
     }
-    showToast(`已加入队列 (${count})`);
+    showToast(tr("item_added_count", { n: count }));
     setSelectedSearchItems({});
-  }, [selectedSearchItems, searchResults, showToast]);
+  }, [selectedSearchItems, searchResults, showToast, tr]);
 
   // —— X-Sou 视频预览 ——
   const previewXVideo = useCallback(async (videoUrl: string) => {
     if (!videoUrl) {
-      showToast("视频地址无效");
+      showToast(tr("video_url_invalid"));
       return;
     }
     setPreviewProgress(null);
@@ -357,9 +373,9 @@ export function HomePage() {
       await api.previewXVideo(videoUrl);
     } catch (e) {
       setPreviewProgressDialogOpen(false);
-      showToast(`预览请求失败: ${e}`);
+      showToast(tr("preview_request_failed", { err: String(e) }));
     }
-  }, [showToast]);
+  }, [showToast, tr]);
 
   // —— 取消预览 ——
   const cancelPreview = useCallback(async () => {
@@ -381,23 +397,80 @@ export function HomePage() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
+      {/* ============================================================ */}
+      {/* HERO 区 — 复刻老版本 QML HomePage.qml 顶部（标签+大标题+副标题+平台徽章） */}
+      {/* ============================================================ */}
+      <section className="mb-6 flex flex-col items-center pt-4 animate-slide-up">
+        {/* Hero tag — 小胶囊标签 */}
+        <div
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1"
+          style={{
+            backgroundColor: "rgba(10, 132, 255, 0.12)",
+            borderColor: "rgba(10, 132, 255, 0.35)",
+          }}
+        >
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: "#0a84ff" }}
+          />
+          <span
+            className="font-mono text-[10px] font-semibold tracking-wide"
+            style={{ color: "#0a84ff" }}
+          >
+            {tr("neural_capture")}
+          </span>
+        </div>
+
+        {/* Hero title — 两行大标题 */}
+        <h1 className="text-center text-4xl font-extrabold tracking-tight text-text">
+          <span className="block">{tr("hero_line1")}</span>
+          <span className="block bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">
+            {tr("hero_line2")}
+          </span>
+        </h1>
+
+        {/* Subtitle */}
+        <p className="mt-3.5 text-center text-sm text-text-muted">
+          {tr("hero_sub")}
+        </p>
+
+        {/* Platform pills — 8 个平台徽章 */}
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {PLATFORM_PILLS.map((p) => {
+            const label = p.labelKey ? tr(p.labelKey) : p.defaultLabel;
+            return (
+              <span
+                key={p.plat}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-text-muted transition-all hover:-translate-y-0.5 hover:border-white/20 hover:text-text"
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: p.color }}
+                />
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      </section>
+
       {/* URL 输入卡片 */}
       <div className="glass-card mb-4 p-5 animate-slide-up">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-text">URL 输入</h2>
+          <h2 className="text-sm font-semibold text-text">{tr("url_input")}</h2>
           <div className="flex gap-1.5">
             <button
               onClick={pasteFromClipboard}
               className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              粘贴
+              {tr("paste")}
             </button>
             <button
               onClick={clearInput}
               disabled={!urlText}
               className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
             >
-              清空
+              {tr("reset")}
             </button>
           </div>
         </div>
@@ -410,20 +483,20 @@ export function HomePage() {
               parseUrl();
             }
           }}
-          placeholder="粘贴分享链接（YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书）"
+          placeholder={tr("url_placeholder")}
           rows={3}
           className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
         />
         <div className="mt-3 flex items-center justify-between">
           <span className="text-xs text-text-muted">
-            {isParsing ? "解析中..." : "Ctrl+Enter 解析"}
+            {isParsing ? tr("parsing") : "Ctrl+Enter"}
           </span>
           <button
             onClick={parseUrl}
             disabled={!urlText.trim() || isParsing}
             className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {isParsing ? "解析中..." : "解析"}
+            {isParsing ? tr("parsing") : tr("parse")}
           </button>
         </div>
       </div>
@@ -469,7 +542,7 @@ export function HomePage() {
                 type="text"
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
-                placeholder="文件名（默认作者_发布时间）"
+                placeholder={tr("leave_empty")}
                 className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text placeholder:text-text-muted/60 focus:border-accent focus:outline-none"
               />
               {previewInfo.formats.length > 1 && (
@@ -495,7 +568,7 @@ export function HomePage() {
                 onClick={enqueue}
                 className="rounded-xl bg-accent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-glow"
               >
-                加入队列
+                {tr("add_to_queue")}
               </button>
             </div>
           </div>

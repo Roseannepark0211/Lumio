@@ -22,34 +22,39 @@ import {
   type AppEvent,
   type HistoryRecord,
 } from "../api";
+import { useI18n } from "../i18n";
 
 // 平台筛选选项（与 QML HistoryPage.qml model 对齐）
-const PLATFORM_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "全部平台" },
+// translate=true 表示 label 字段是 i18n key，需在渲染时用 tr() 解析
+const PLATFORM_OPTIONS: { value: string; label: string; translate?: boolean }[] = [
+  { value: "all", label: "history_filter_all", translate: true },
   { value: "youtube", label: "YouTube" },
   { value: "instagram", label: "Instagram" },
   { value: "x", label: "X" },
-  { value: "bilibili", label: "B站" },
-  { value: "douyin", label: "抖音" },
-  { value: "kuaishou", label: "快手" },
-  { value: "weibo", label: "微博" },
-  { value: "xiaohongshu", label: "小红书" },
+  { value: "bilibili", label: "platform_bilibili", translate: true },
+  { value: "douyin", label: "platform_douyin", translate: true },
+  { value: "kuaishou", label: "platform_kuaishou", translate: true },
+  { value: "weibo", label: "platform_weibo", translate: true },
+  { value: "xiaohongshu", label: "platform_xiaohongshu", translate: true },
 ];
 
-// 平台展示名（平台 key → 用户可见名）
-const PLATFORM_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "Instagram",
-  x: "X",
-  bilibili: "B站",
-  douyin: "抖音",
-  kuaishou: "快手",
-  weibo: "微博",
-  xiaohongshu: "小红书",
+// 平台展示名（平台 key → i18n key 或英文原名）
+const PLATFORM_LABEL: Record<string, { text: string; translate?: boolean }> = {
+  youtube: { text: "YouTube" },
+  instagram: { text: "Instagram" },
+  x: { text: "X" },
+  bilibili: { text: "platform_bilibili", translate: true },
+  douyin: { text: "platform_douyin", translate: true },
+  kuaishou: { text: "platform_kuaishou", translate: true },
+  weibo: { text: "platform_weibo", translate: true },
+  xiaohongshu: { text: "platform_xiaohongshu", translate: true },
 };
 
-function platformLabel(p: string): string {
-  return PLATFORM_LABEL[p] || (p ? p.toUpperCase() : "—");
+function platformLabel(p: string, tr: (k: string) => string): string {
+  if (!p) return "—";
+  const entry = PLATFORM_LABEL[p];
+  if (!entry) return p.toUpperCase();
+  return entry.translate ? tr(entry.text) : entry.text;
 }
 
 function formatSize(bytes: number): string {
@@ -67,6 +72,7 @@ function formatTime(t: string): string {
 }
 
 export function HistoryPage() {
+  const { tr } = useI18n();
   // —— 数据状态 ——
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [searchText, setSearchText] = useState("");
@@ -209,7 +215,7 @@ export function HistoryPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -218,7 +224,7 @@ export function HistoryPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -231,7 +237,7 @@ export function HistoryPage() {
         {/* PageHeader */}
         <header className="flex animate-slide-up items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-text">下载历史</h1>
+            <h1 className="text-xl font-bold text-text">{tr("history_title")}</h1>
             <p className="mt-0.5 text-xs text-text-muted">
               查看历史下载记录、打开文件、清理记录
             </p>
@@ -248,7 +254,7 @@ export function HistoryPage() {
               className="flex items-center gap-1.5 rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-40 disabled:hover:bg-danger/10"
               title="清空全部记录"
             >
-              🗑 清空
+              🗑 {tr("history_clear")}
             </button>
           </div>
         </header>
@@ -257,7 +263,7 @@ export function HistoryPage() {
         <div className="glass-card flex items-center gap-2.5 px-3.5 py-2.5">
           <input
             type="text"
-            placeholder="搜索标题/作者/URL/文件路径..."
+            placeholder={tr("history_search")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className="flex-1 rounded-lg border border-white/5 bg-white/5 px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
@@ -269,7 +275,7 @@ export function HistoryPage() {
           >
             {PLATFORM_OPTIONS.map((o) => (
               <option key={o.value} value={o.value} className="bg-zinc-900">
-                {o.label}
+                {o.translate ? tr(o.label) : o.label}
               </option>
             ))}
           </select>
@@ -278,7 +284,7 @@ export function HistoryPage() {
         {/* 空状态 */}
         {records.length === 0 && (
           <div className="mt-20 text-center text-sm text-text-muted">
-            暂无下载记录
+            {tr("history_empty")}
           </div>
         )}
 
@@ -315,7 +321,7 @@ export function HistoryPage() {
           onClose={() => setConfirmClearOpen(false)}
         >
           <p className="text-sm text-text">
-            确定要清空所有下载历史记录吗？此操作不可撤销。
+            {tr("history_confirm_clear")}
           </p>
           <p className="mt-1 text-xs text-text-muted">
             注意：仅删除历史记录，不会删除已下载的文件。
@@ -325,13 +331,13 @@ export function HistoryPage() {
               onClick={() => setConfirmClearOpen(false)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={onClear}
               className="rounded-lg bg-danger px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-glow"
             >
-              清空
+              {tr("history_clear")}
             </button>
           </div>
         </ModalDialog>
@@ -340,14 +346,11 @@ export function HistoryPage() {
       {/* 文件缺失对话框 */}
       {fileMissing && (
         <ModalDialog
-          title="文件缺失"
+          title={tr("file_missing_title")}
           onClose={() => setFileMissing(null)}
         >
-          <p className="text-sm font-semibold text-danger">
-            文件已被外部删除或移动
-          </p>
-          <p className="mt-2 text-xs text-text">
-            是否删除这条历史记录？
+          <p className="text-sm text-text">
+            {tr("file_missing_msg")}
           </p>
           <p
             className="mt-2 break-all rounded-md bg-white/5 px-2 py-1.5 font-mono text-[10px] text-text-dim"
@@ -359,14 +362,14 @@ export function HistoryPage() {
               onClick={() => setFileMissing(null)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={onConfirmFileMissingDelete}
               disabled={!fileMissing.recordId}
               className="rounded-lg bg-danger px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-glow disabled:opacity-40"
             >
-              删除记录
+              {tr("file_missing_delete")}
             </button>
           </div>
         </ModalDialog>
@@ -392,6 +395,7 @@ function RecordCard({
   onOpenFile,
   onOpenFolder,
 }: RecordCardProps) {
+  const { tr } = useI18n();
   const hasThumb = !!record.thumbnail_url && record.thumbnail_url.length > 0;
   const hasFile = !!record.file_path && record.file_path.length > 0;
 
@@ -423,7 +427,7 @@ function RecordCard({
         <div className="truncate font-mono text-xs text-text-muted">
           {record.author || ""}
           {record.author ? " · " : ""}
-          {platformLabel(record.platform)}
+          {platformLabel(record.platform, tr)}
           {" · "}
           <span className="text-[#a8c7ff]">{formatSize(record.file_size)}</span>
           {" · "}
@@ -445,7 +449,7 @@ function RecordCard({
             : "border-danger/30 bg-danger/10 text-danger"
         }`}
       >
-        {record.success ? "完成" : "失败"}
+        {record.success ? tr("status_completed") : tr("status_failed")}
       </div>
 
       {/* Actions */}
@@ -454,7 +458,7 @@ function RecordCard({
           onClick={() => onOpenFile(record.file_path)}
           disabled={!hasFile}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title="打开文件"
+          title={tr("history_open_file")}
         >
           ▶
         </button>
@@ -462,14 +466,14 @@ function RecordCard({
           onClick={() => onOpenFolder(record.file_path)}
           disabled={!hasFile}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title="打开所在目录"
+          title={tr("history_open_dir")}
         >
           📂
         </button>
         <button
           onClick={() => onDelete(record.id)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
-          title="删除记录"
+          title={tr("history_delete")}
         >
           🗑
         </button>

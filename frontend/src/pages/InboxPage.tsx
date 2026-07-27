@@ -24,52 +24,40 @@ import {
   type AppEvent,
   type InboxItem,
 } from "../api";
+import { useI18n } from "../i18n";
 
 // ============================================================
 // 常量
 // ============================================================
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "全部状态" },
-  { value: "new", label: "新内容" },
-  { value: "queued", label: "已入队" },
-  { value: "downloaded", label: "已下载" },
-  { value: "archived", label: "已归档" },
-  { value: "failed", label: "失败" },
-];
+// STATUS_OPTIONS / SOURCE_OPTIONS 移入组件内部（依赖 tr()）
+type LabelFn = (key: string, params?: Record<string, string | number>) => string;
 
-const SOURCE_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "全部来源" },
-  { value: "browser", label: "浏览器扩展" },
-  { value: "telegram", label: "Telegram" },
-  { value: "manual", label: "手动添加" },
-];
-
-function sourceLabel(s: string): string {
+function sourceLabel(s: string, tr: LabelFn): string {
   switch (s) {
     case "browser":
-      return "浏览器扩展";
+      return tr("inbox_source_browser");
     case "telegram":
-      return "Telegram";
+      return tr("inbox_source_telegram");
     case "manual":
-      return "手动添加";
+      return tr("inbox_source_manual");
     default:
       return s || "—";
   }
 }
 
-function statusLabel(s: string): string {
+function statusLabel(s: string, tr: LabelFn): string {
   switch (s) {
     case "new":
-      return "新内容";
+      return tr("inbox_status_new");
     case "queued":
-      return "已入队";
+      return tr("inbox_status_queued");
     case "downloaded":
-      return "已下载";
+      return tr("inbox_status_downloaded");
     case "archived":
-      return "已归档";
+      return tr("inbox_status_archived");
     case "failed":
-      return "失败";
+      return tr("inbox_status_failed");
     default:
       return s;
   }
@@ -112,7 +100,7 @@ function statusBadgeClass(s: string): { bg: string; text: string; border: string
   }
 }
 
-function platformLabel(p: string): string {
+function platformLabel(p: string, tr: LabelFn): string {
   if (!p) return "—";
   switch (p) {
     case "youtube":
@@ -122,15 +110,15 @@ function platformLabel(p: string): string {
     case "x":
       return "X";
     case "bilibili":
-      return "B站";
+      return tr("platform_bilibili");
     case "douyin":
-      return "抖音";
+      return tr("platform_douyin");
     case "kuaishou":
-      return "快手";
+      return tr("platform_kuaishou");
     case "weibo":
-      return "微博";
+      return tr("platform_weibo");
     case "xiaohongshu":
-      return "小红书";
+      return tr("platform_xiaohongshu");
     case "telegram":
       return "Telegram";
     default:
@@ -175,6 +163,9 @@ function formatTime(t: string): string {
 // ============================================================
 
 export function InboxPage() {
+  // —— i18n ——
+  const { tr } = useI18n();
+
   // —— 数据状态 ——
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,6 +182,29 @@ export function InboxPage() {
   // —— 对话框 ——
   const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+
+  // —— 筛选选项（依赖 tr，语言切换时刷新） ——
+  const STATUS_OPTIONS = useMemo(
+    () => [
+      { value: "all", label: tr("inbox_filter_all") },
+      { value: "new", label: tr("inbox_status_new") },
+      { value: "queued", label: tr("inbox_status_queued") },
+      { value: "downloaded", label: tr("inbox_status_downloaded") },
+      { value: "archived", label: tr("inbox_status_archived") },
+      { value: "failed", label: tr("inbox_status_failed") },
+    ],
+    [tr]
+  );
+
+  const SOURCE_OPTIONS = useMemo(
+    () => [
+      { value: "all", label: "全部来源" },
+      { value: "browser", label: tr("inbox_source_browser") },
+      { value: "telegram", label: tr("inbox_source_telegram") },
+      { value: "manual", label: tr("inbox_source_manual") },
+    ],
+    [tr]
+  );
 
   // —— 拉取数据 ——
   const reload = useCallback(async () => {
@@ -328,7 +342,7 @@ export function InboxPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">加载中...</div>
+        <div className="text-text-muted">{tr("loading")}</div>
       </div>
     );
   }
@@ -337,7 +351,7 @@ export function InboxPage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">加载失败</h2>
+          <h2 className="text-lg font-semibold text-danger">{tr("load_failed")}</h2>
           <p className="mt-2 text-sm text-text-muted">{error}</p>
         </div>
       </div>
@@ -350,9 +364,9 @@ export function InboxPage() {
         {/* PageHeader */}
         <header className="flex animate-slide-up items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-text">收件箱</h1>
+            <h1 className="text-xl font-bold text-text">{tr("inbox_page")}</h1>
             <p className="mt-0.5 text-xs text-text-muted">
-              浏览器扩展 / Telegram Bot 采集的内容，可批量下载或归档
+              {tr("inbox_subtitle")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -364,9 +378,9 @@ export function InboxPage() {
             <button
               onClick={() => reload()}
               className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title="刷新"
+              title={tr("inbox_refresh")}
             >
-              ↻ 刷新
+              ↻ {tr("inbox_refresh")}
             </button>
             {/* 批量选择切换 */}
             <button
@@ -381,7 +395,7 @@ export function InboxPage() {
               }`}
               title={selectMode ? "退出批量选择" : "批量选择"}
             >
-              {selectMode ? "✕ 取消选择" : "☑ 批量选择"}
+              {selectMode ? "✕ " + tr("library_batch_cancel") : "☑ 批量选择"}
             </button>
             {/* 清空已完成 */}
             <button
@@ -390,7 +404,7 @@ export function InboxPage() {
               className="flex items-center gap-1.5 rounded-lg bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-40 disabled:hover:bg-danger/10"
               title="清空已下载/已归档"
             >
-              🗑 清空已完成
+              🗑 {tr("inbox_clear_completed")}
             </button>
           </div>
         </header>
@@ -400,7 +414,7 @@ export function InboxPage() {
           <div className="glass-card flex animate-slide-up items-center gap-3 px-3.5 py-2.5">
             <span className="text-xs text-text-muted">
               {selectedIds.length > 0
-                ? `已选 ${selectedIds.length} 项`
+                ? tr("library_batch_selected", { n: selectedIds.length })
                 : "未选择任何项"}
             </span>
             <div className="flex-1" />
@@ -408,28 +422,28 @@ export function InboxPage() {
               onClick={selectAll}
               className="rounded-lg bg-white/5 px-2.5 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              全选
+              {tr("select_all")}
             </button>
             <button
               onClick={deselectAll}
               disabled={selectedIds.length === 0}
               className="rounded-lg bg-white/5 px-2.5 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-40"
             >
-              取消全选
+              {tr("library_batch_deselect_all")}
             </button>
             <button
               onClick={onBatchDownload}
               disabled={selectedIds.length === 0}
               className="flex items-center gap-1 rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-40 disabled:hover:bg-accent/15"
             >
-              ↓ 批量下载
+              ↓ {tr("inbox_download_selected")}
             </button>
             <button
               onClick={onBatchDelete}
               disabled={selectedIds.length === 0}
               className="flex items-center gap-1 rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-40 disabled:hover:bg-danger/10"
             >
-              🗑 批量删除
+              🗑 {tr("batch_delete")}
             </button>
           </div>
         )}
@@ -466,7 +480,7 @@ export function InboxPage() {
         {/* 空状态 */}
         {items.length === 0 && (
           <div className="mt-20 text-center text-sm text-text-muted">
-            收件箱为空
+            {tr("no_inbox_items")}
           </div>
         )}
 
@@ -507,20 +521,20 @@ export function InboxPage() {
           onClose={() => setDeleteDialogIds(null)}
         >
           <p className="text-sm text-text">
-            确定要删除 {deleteDialogIds.length} 条收件箱条目吗？此操作不可撤销。
+            {tr("inbox_confirm_delete", { n: deleteDialogIds.length })}
           </p>
           <div className="mt-5 flex justify-end gap-2">
             <button
               onClick={() => setDeleteDialogIds(null)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={onConfirmDelete}
               className="rounded-lg bg-danger px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-glow"
             >
-              删除
+              {tr("inbox_delete")}
             </button>
           </div>
         </ModalDialog>
@@ -533,8 +547,7 @@ export function InboxPage() {
           onClose={() => setClearDialogOpen(false)}
         >
           <p className="text-sm text-text">
-            确定要清空所有 <span className="font-semibold text-success">已下载</span> 和{" "}
-            <span className="font-semibold text-text-muted">已归档</span> 的收件箱条目吗？
+            {tr("inbox_confirm_clear")}
           </p>
           <p className="mt-1 text-xs text-text-muted">
             注意：仅清理收件箱记录，不会删除已下载的文件。
@@ -544,13 +557,13 @@ export function InboxPage() {
               onClick={() => setClearDialogOpen(false)}
               className="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
             >
-              取消
+              {tr("cancel")}
             </button>
             <button
               onClick={onConfirmClear}
               className="rounded-lg bg-danger px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-danger-glow"
             >
-              清空
+              {tr("clear")}
             </button>
           </div>
         </ModalDialog>
@@ -584,6 +597,7 @@ function InboxCard({
   onOpenExternalUrl,
   onDelete,
 }: InboxCardProps) {
+  const { tr } = useI18n();
   const hasThumb = !!item.thumbnail_url && item.thumbnail_url.length > 0;
   const canDownload = item.status === "new" || item.status === "failed";
   const canArchive = item.status !== "archived";
@@ -602,7 +616,7 @@ function InboxCard({
               ? "border-accent bg-accent text-white"
               : "border-white/15 bg-transparent text-transparent hover:border-accent/50"
           }`}
-          title={selected ? "取消选择" : "选择"}
+          title={selected ? tr("library_batch_cancel") : "选择"}
         >
           ✓
         </button>
@@ -640,9 +654,9 @@ function InboxCard({
         <div className="truncate font-mono text-xs text-text-muted">
           {item.author || "—"}
           {" · "}
-          {platformLabel(item.platform)}
+          {platformLabel(item.platform, tr)}
           {" · "}
-          {sourceLabel(item.source)}
+          {sourceLabel(item.source, tr)}
           {" · "}
           {formatTime(item.captured_at)}
         </div>
@@ -658,7 +672,7 @@ function InboxCard({
       <div
         className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badge.bg} ${badge.text} ${badge.border}`}
       >
-        {statusLabel(item.status)}
+        {statusLabel(item.status, tr)}
       </div>
 
       {/* Actions */}
@@ -667,7 +681,7 @@ function InboxCard({
           onClick={() => onDownload(item.id)}
           disabled={!canDownload}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-30 disabled:hover:bg-transparent"
-          title={canDownload ? "下载" : "当前状态不可下载"}
+          title={canDownload ? tr("inbox_download") : "当前状态不可下载"}
         >
           ↓
         </button>
@@ -675,7 +689,7 @@ function InboxCard({
           onClick={() => onOpenExternalUrl(item.url)}
           disabled={!item.url}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title="打开原网页"
+          title={tr("inbox_open_link")}
         >
           ↗
         </button>
@@ -683,14 +697,14 @@ function InboxCard({
           onClick={() => onArchive(item.id)}
           disabled={!canArchive}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
-          title={canArchive ? "归档" : "已归档"}
+          title={canArchive ? tr("inbox_archive") : tr("inbox_status_archived")}
         >
           📦
         </button>
         <button
           onClick={() => onDelete(item.id)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-danger/10 hover:text-danger"
-          title="删除"
+          title={tr("inbox_delete")}
         >
           🗑
         </button>
