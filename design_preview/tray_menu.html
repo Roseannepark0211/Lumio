@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LUMIO // Tray Menu Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+/* ============================================================
+   TRAY MENU PREVIEW
+   设计目标：把"系统托盘右键菜单"做成 Liquid Glass 风格
+   实现路径：QML 自定义 frameless Window（QMenu 在 Windows 上
+            无法做 backdrop-filter，所以走 QML popup 方案）
+   尺寸：宽 280px，最高 480px（超出滚动）
+   ============================================================ */
+
+body { overflow: hidden; }
+
+/* ---------- 演示画布 ---------- */
+.canvas {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  z-index: 2;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 32px 24px 0;
+  overflow: hidden;
+}
+
+.panel-dark  { background:
+  radial-gradient(ellipse 80% 60% at 15% 0%,   rgba(94, 92, 230, 0.28) 0%, transparent 60%),
+  radial-gradient(ellipse 70% 50% at 85% 20%,  rgba(255, 55, 92, 0.18) 0%, transparent 55%),
+  radial-gradient(ellipse 60% 80% at 80% 100%, rgba(10, 132, 255, 0.22) 0%, transparent 60%),
+  linear-gradient(180deg, #0a0a1a 0%, #14141f 100%);
+}
+
+.panel-light { background:
+  radial-gradient(ellipse 80% 60% at 15% 0%,   rgba(94, 92, 230, 0.15) 0%, transparent 60%),
+  radial-gradient(ellipse 70% 50% at 85% 20%,  rgba(255, 55, 92, 0.10) 0%, transparent 55%),
+  radial-gradient(ellipse 60% 80% at 80% 100%, rgba(10, 132, 255, 0.14) 0%, transparent 60%),
+  linear-gradient(180deg, #ffffff 0%, #ececf2 100%);
+  color: rgba(0,0,0,0.92);
+}
+
+.panel-label {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  z-index: 5;
+}
+
+.panel-light .panel-label { color: rgba(0,0,0,0.35); }
+
+/* ---------- Windows 任务栏 mock ---------- */
+.taskbar {
+  width: 100%;
+  height: 40px;
+  background: rgba(10, 10, 20, 0.78);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.panel-light .taskbar {
+  background: rgba(255, 255, 255, 0.82);
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.taskbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.taskbar-icon {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.taskbar-tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.tray-icon {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.7;
+  cursor: pointer;
+  position: relative;
+}
+
+.tray-icon:hover { opacity: 1; }
+
+/* Lumio 托盘图标 */
+.tray-lumio {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 11px;
+  color: white;
+  letter-spacing: -0.5px;
+  box-shadow: 0 0 8px rgba(10, 132, 255, 0.5);
+  cursor: pointer;
+  position: relative;
+}
+
+.tray-lumio.has-active::after {
+  content: '';
+  position: absolute;
+  top: -2px; right: -2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 1.5px solid #0a0a1a;
+  box-shadow: 0 0 6px var(--success);
+  animation: pulse 2s var(--ease) infinite;
+}
+
+.panel-light .tray-lumio.has-active::after { border-color: #fff; }
+
+.tray-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  letter-spacing: 0.5px;
+}
+
+.panel-light .tray-time { color: rgba(0,0,0,0.65); }
+
+/* ---------- 托盘菜单 ---------- */
+.tray-menu {
+  position: absolute;
+  bottom: 52px;
+  right: 18px;
+  width: 280px;
+  background: rgba(20, 20, 30, 0.72);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.15) inset,
+    0 30px 80px -20px rgba(0,0,0,0.7),
+    0 8px 24px -8px rgba(0,0,0,0.5);
+  overflow: hidden;
+  z-index: 10;
+  font-family: var(--font-body);
+  animation: menuIn 0.18s var(--ease-out);
+}
+
+.panel-light .tray-menu {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: rgba(0,0,0,0.92);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 30px 80px -20px rgba(0,0,0,0.25),
+    0 8px 24px -8px rgba(0,0,0,0.15);
+}
+
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* 顶部高光条 */
+.tray-menu::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4) 50%, transparent);
+  pointer-events: none;
+}
+
+/* ---------- 菜单 Header ---------- */
+.tray-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: relative;
+}
+
+.panel-light .tray-header { border-bottom: 1px solid rgba(0,0,0,0.05); }
+
+.tray-logo {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  color: white;
+  letter-spacing: -0.5px;
+  box-shadow: 0 4px 12px -2px rgba(10, 132, 255, 0.5),
+              0 1px 0 rgba(255,255,255,0.3) inset;
+  flex-shrink: 0;
+}
+
+.tray-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tray-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.panel-light .tray-title { color: rgba(0,0,0,0.92); }
+
+.tray-subtitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.panel-light .tray-subtitle { color: rgba(0,0,0,0.4); }
+
+/* 状态徽章 */
+.tray-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.tray-status.idle {
+  color: var(--text-mute);
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.1);
+}
+
+.panel-light .tray-status.idle {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.08);
+}
+
+.tray-status.active {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.12);
+  border-color: rgba(48, 209, 88, 0.3);
+}
+
+.tray-status .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tray-status.active .dot {
+  box-shadow: 0 0 6px currentColor;
+  animation: pulse 2s var(--ease) infinite;
+}
+
+/* ---------- 菜单项 ---------- */
+.tray-list {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tray-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+  user-select: none;
+}
+
+.panel-light .tray-item { color: rgba(0,0,0,0.85); }
+
+.tray-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.panel-light .tray-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tray-item-icon {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-mute);
+  flex-shrink: 0;
+}
+
+.panel-light .tray-item-icon { color: rgba(0,0,0,0.55); }
+
+.tray-item:hover .tray-item-icon { color: var(--text-primary); }
+.panel-light .tray-item:hover .tray-item-icon { color: rgba(0,0,0,0.92); }
+
+.tray-item-icon svg {
+  width: 16px; height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tray-item-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-item-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+.panel-light .tray-item-meta { color: rgba(0,0,0,0.35); }
+
+/* 主操作（显示主窗口）— accent 高亮 */
+.tray-item.primary {
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.18) 0%, rgba(10, 132, 255, 0.08) 100%);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset;
+}
+
+.tray-item.primary .tray-item-icon { color: var(--accent); }
+
+.tray-item.primary:hover {
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.28) 0%, rgba(10, 132, 255, 0.15) 100%);
+  border-color: rgba(10, 132, 255, 0.45);
+}
+
+/* 危险项（退出） */
+.tray-item.danger { color: var(--danger); }
+.tray-item.danger .tray-item-icon { color: var(--danger); }
+
+.tray-item.danger:hover {
+  background: rgba(255, 69, 58, 0.12);
+}
+
+/* 分隔线 */
+.tray-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 4px 8px;
+}
+
+.panel-light .tray-sep { background: rgba(0, 0, 0, 0.06); }
+
+/* 小节标签 */
+.tray-section {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 8px 14px 4px;
+  line-height: 1;
+}
+
+.panel-light .tray-section { color: rgba(0,0,0,0.35); }
+
+/* ---------- 下载进度小卡（active 状态时显示）---------- */
+.tray-active-card {
+  margin: 4px 8px 6px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--r-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-light .tray-active-card {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.06);
+}
+
+.tray-active-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.tray-active-row .led {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tray-active-name {
+  flex: 1;
+  color: var(--text-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-light .tray-active-name { color: rgba(0,0,0,0.65); }
+
+.tray-active-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tray-active-bar {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel-light .tray-active-bar { background: rgba(0,0,0,0.06); }
+
+.tray-active-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--accent-soft);
+  transition: width 0.3s var(--ease);
+}
+
+/* ---------- Tooltip 预览 ---------- */
+.tray-tooltip {
+  position: absolute;
+  bottom: 52px;
+  right: 60px;
+  padding: 6px 12px;
+  background: rgba(20, 20, 30, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--r-xs);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  z-index: 9;
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.5);
+  pointer-events: none;
+  animation: menuIn 0.15s var(--ease-out);
+}
+
+.panel-light .tray-tooltip {
+  background: rgba(255,255,255,0.95);
+  border-color: rgba(0,0,0,0.08);
+  color: rgba(0,0,0,0.85);
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.2);
+}
+
+.tray-tooltip-title {
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.tray-tooltip-sub {
+  color: var(--text-mute);
+  font-size: 10px;
+}
+
+.panel-light .tray-tooltip-sub { color: rgba(0,0,0,0.55); }
+
+/* ---------- 关闭弹窗（closeEvent 三选）---------- */
+.close-dialog {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 360px;
+  background: rgba(20, 20, 30, 0.85);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-pop);
+  padding: 28px;
+  z-index: 20;
+  animation: menuIn 0.2s var(--ease-out);
+}
+
+.panel-light .close-dialog {
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(0,0,0,0.08);
+  color: rgba(0,0,0,0.92);
+}
+
+.close-dialog-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.close-dialog-text {
+  font-size: var(--fs-small);
+  color: var(--text-mute);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.panel-light .close-dialog-text { color: rgba(0,0,0,0.6); }
+
+.close-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.close-dialog-actions .btn {
+  min-width: 88px;
+  justify-content: center;
+}
+
+/* ---------- 状态徽章变体（演示） ---------- */
+.tray-status.paused {
+  color: var(--warning);
+  background: rgba(255, 214, 10, 0.12);
+  border-color: rgba(255, 214, 10, 0.3);
+}
+
+/* ---------- 切换标签 ---------- */
+.scene-tabs {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(20,20,30,0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--r-pill);
+  z-index: 50;
+}
+
+.panel-light .scene-tabs {
+  background: rgba(255,255,255,0.7);
+  border-color: rgba(0,0,0,0.06);
+}
+
+.scene-tab {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-mute);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+  letter-spacing: 0.3px;
+}
+
+.panel-light .scene-tab { color: rgba(0,0,0,0.55); }
+
+.scene-tab:hover { color: var(--text-primary); }
+.panel-light .scene-tab:hover { color: rgba(0,0,0,0.92); }
+
+.scene-tab.active {
+  background: rgba(255,255,255,0.12);
+  color: var(--text-primary);
+}
+
+.panel-light .scene-tab.active {
+  background: rgba(0,0,0,0.06);
+  color: rgba(0,0,0,0.92);
+}
+</style>
+</head>
+<body>
+
+<div class="canvas">
+
+  <!-- ============================================================
+       DARK THEME PANEL
+       ============================================================ -->
+  <div class="panel panel-dark" id="panel-dark">
+    <div class="panel-label">DARK // TRAY MENU</div>
+
+    <div class="scene-tabs">
+      <div class="scene-tab active" data-scene="idle">空闲</div>
+      <div class="scene-tab" data-scene="active">下载中</div>
+      <div class="scene-tab" data-scene="close">关闭确认</div>
+    </div>
+
+    <!-- 托盘菜单 -->
+    <div class="tray-menu" id="menu-dark-idle">
+      <div class="tray-header">
+        <div class="tray-logo">L</div>
+        <div class="tray-title-block">
+          <div class="tray-title">Lumio</div>
+          <div class="tray-subtitle">v4.2.0</div>
+        </div>
+        <div class="tray-status idle">
+          <span class="dot"></span>
+          空闲
+        </div>
+      </div>
+
+      <div class="tray-list">
+        <div class="tray-item primary">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          </div>
+          <div class="tray-item-label">显示主窗口</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </div>
+          <div class="tray-item-label">打开下载目录</div>
+        </div>
+
+        <div class="tray-section">导航</div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          </div>
+          <div class="tray-item-label">主页</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+          </div>
+          <div class="tray-item-label">收件箱</div>
+          <div class="tray-item-meta">3</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </div>
+          <div class="tray-item-label">素材库</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          </div>
+          <div class="tray-item-label">下载历史</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          </div>
+          <div class="tray-item-label">切换主题</div>
+          <div class="tray-item-meta">深色</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </div>
+          <div class="tray-item-label">设置</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item danger">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </div>
+          <div class="tray-item-label">退出 Lumio</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 托盘菜单（active 状态） -->
+    <div class="tray-menu" id="menu-dark-active" style="display: none;">
+      <div class="tray-header">
+        <div class="tray-logo">L</div>
+        <div class="tray-title-block">
+          <div class="tray-title">Lumio</div>
+          <div class="tray-subtitle">v4.2.0</div>
+        </div>
+        <div class="tray-status active">
+          <span class="dot"></span>
+          下载中 2
+        </div>
+      </div>
+
+      <div class="tray-list">
+        <div class="tray-item primary">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          </div>
+          <div class="tray-item-label">显示主窗口</div>
+        </div>
+
+        <!-- 进行中的任务卡 -->
+        <div class="tray-active-card">
+          <div class="tray-active-row">
+            <span class="led led-pink"></span>
+            <span class="tray-active-name">国家地理 · 阿尔卑斯山</span>
+            <span class="tray-active-pct">68%</span>
+          </div>
+          <div class="tray-active-bar">
+            <div class="tray-active-bar-fill" style="width: 68%;"></div>
+          </div>
+
+          <div class="tray-active-row">
+            <span class="led led-blue"></span>
+            <span class="tray-active-name">Travel Vlog · Tokyo 2026</span>
+            <span class="tray-active-pct">23%</span>
+          </div>
+          <div class="tray-active-bar">
+            <div class="tray-active-bar-fill" style="width: 23%;"></div>
+          </div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          </div>
+          <div class="tray-item-label">暂停所有下载</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </div>
+          <div class="tray-item-label">打开下载目录</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          </div>
+          <div class="tray-item-label">切换主题</div>
+          <div class="tray-item-meta">深色</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </div>
+          <div class="tray-item-label">设置</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item danger">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </div>
+          <div class="tray-item-label">退出 Lumio</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 关闭确认弹窗 -->
+    <div class="close-dialog" id="dialog-dark-close" style="display: none;">
+      <div class="close-dialog-title">关闭 Lumio？</div>
+      <div class="close-dialog-text">主窗口将关闭，但下载任务会继续在后台进行。可选择最小化到托盘或完全退出程序。</div>
+      <div class="close-dialog-actions">
+        <button class="btn">取消</button>
+        <button class="btn btn-danger">退出程序</button>
+        <button class="btn btn-primary">最小化到托盘</button>
+      </div>
+    </div>
+
+    <!-- 任务栏 -->
+    <div class="taskbar">
+      <div class="taskbar-left">
+        <div class="taskbar-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </div>
+        <div class="taskbar-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        </div>
+      </div>
+      <div class="taskbar-tray">
+        <div class="tray-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.8"><path d="M5 12a7 7 0 0114 0M2 12a10 10 0 0120 0"/></svg>
+        </div>
+        <div class="tray-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.8"><path d="M3 18h18M3 12h12M3 6h18"/></svg>
+        </div>
+        <div class="tray-lumio has-active">L</div>
+        <div class="tray-time">14:32</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       LIGHT THEME PANEL
+       ============================================================ -->
+  <div class="panel panel-light" id="panel-light">
+    <div class="panel-label">LIGHT // TRAY MENU</div>
+
+    <!-- 托盘菜单 -->
+    <div class="tray-menu">
+      <div class="tray-header">
+        <div class="tray-logo">L</div>
+        <div class="tray-title-block">
+          <div class="tray-title">Lumio</div>
+          <div class="tray-subtitle">v4.2.0</div>
+        </div>
+        <div class="tray-status active">
+          <span class="dot"></span>
+          下载中 2
+        </div>
+      </div>
+
+      <div class="tray-list">
+        <div class="tray-item primary">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          </div>
+          <div class="tray-item-label">显示主窗口</div>
+        </div>
+
+        <div class="tray-active-card">
+          <div class="tray-active-row">
+            <span class="led led-pink"></span>
+            <span class="tray-active-name">国家地理 · 阿尔卑斯山</span>
+            <span class="tray-active-pct">68%</span>
+          </div>
+          <div class="tray-active-bar">
+            <div class="tray-active-bar-fill" style="width: 68%;"></div>
+          </div>
+
+          <div class="tray-active-row">
+            <span class="led led-blue"></span>
+            <span class="tray-active-name">Travel Vlog · Tokyo 2026</span>
+            <span class="tray-active-pct">23%</span>
+          </div>
+          <div class="tray-active-bar">
+            <div class="tray-active-bar-fill" style="width: 23%;"></div>
+          </div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          </div>
+          <div class="tray-item-label">暂停所有下载</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </div>
+          <div class="tray-item-label">打开下载目录</div>
+        </div>
+
+        <div class="tray-section">导航</div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          </div>
+          <div class="tray-item-label">主页</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+          </div>
+          <div class="tray-item-label">收件箱</div>
+          <div class="tray-item-meta">3</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </div>
+          <div class="tray-item-label">素材库</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          </div>
+          <div class="tray-item-label">下载历史</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          </div>
+          <div class="tray-item-label">切换主题</div>
+          <div class="tray-item-meta">浅色</div>
+        </div>
+
+        <div class="tray-item">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </div>
+          <div class="tray-item-label">设置</div>
+        </div>
+
+        <div class="tray-sep"></div>
+
+        <div class="tray-item danger">
+          <div class="tray-item-icon">
+            <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </div>
+          <div class="tray-item-label">退出 Lumio</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务栏 -->
+    <div class="taskbar">
+      <div class="taskbar-left">
+        <div class="taskbar-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.65)" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </div>
+        <div class="taskbar-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.65)" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+        </div>
+      </div>
+      <div class="taskbar-tray">
+        <div class="tray-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.65)" stroke-width="1.8"><path d="M5 12a7 7 0 0114 0M2 12a10 10 0 0120 0"/></svg>
+        </div>
+        <div class="tray-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.65)" stroke-width="1.8"><path d="M3 18h18M3 12h12M3 6h18"/></svg>
+        </div>
+        <div class="tray-lumio has-active">L</div>
+        <div class="tray-time">14:32</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // 深色面板场景切换：空闲 / 下载中 / 关闭确认
+  const panel = document.getElementById('panel-dark');
+  const tabs = panel.querySelectorAll('.scene-tab');
+  const menuIdle = document.getElementById('menu-dark-idle');
+  const menuActive = document.getElementById('menu-dark-active');
+  const dialogClose = document.getElementById('dialog-dark-close');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const scene = tab.dataset.scene;
+      menuIdle.style.display = scene === 'idle' ? 'block' : 'none';
+      menuActive.style.display = scene === 'active' ? 'block' : 'none';
+      dialogClose.style.display = scene === 'close' ? 'block' : 'none';
+    });
+  });
+</script>
+
+</body>
+</html>
