@@ -357,7 +357,7 @@ class NotificationManager(QObject):
         重构后增加 warning 状态检测，提前 7 天预警。
         """
         try:
-            from .gui.cookie_checker import (
+            from .utils.cookie_checker import (
                 check_ig_cookie_status,
                 check_x_cookie_status,
                 check_yt_cookie_status,

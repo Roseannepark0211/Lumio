@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ..utils.signal import QThread, Signal
+from .signal import QThread, Signal
 
-from ..utils.config import get_cookie_path
+from .config import get_cookie_path
 
 # Seconds in 7 days
 _WARNING_THRESHOLD = 7 * 24 * 3600
@@ -115,7 +115,7 @@ def check_apify_token_status() -> str:
     Returns: 'missing' (no token) | 'valid' (token set).
     Actual connectivity validation is done via ApifyIGClient.test_connection().
     """
-    from ..utils.config import get_apify_token
+    from .config import get_apify_token
     return "valid" if get_apify_token() else "missing"
 
 

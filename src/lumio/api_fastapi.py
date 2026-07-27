@@ -1089,7 +1089,7 @@ def create_app() -> FastAPI:
     @app.get("/api/cookie/status")
     async def cookie_status() -> dict:
         try:
-            from .gui.cookie_checker import check_all_cookies
+            from .utils.cookie_checker import check_all_cookies
             statuses = check_all_cookies()
             if "expired" in statuses.values():
                 overall = "expired"
