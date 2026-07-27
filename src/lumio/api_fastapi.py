@@ -237,7 +237,7 @@ class AppContext:
         self.inbox_manager = InboxManager()
         self.notification_manager = NotificationManager()
         set_notification_manager(self.notification_manager)
-        # X-Sou 视频预览的 _PreviewCacheWorker 引用（由 /api/preview-x-video 设置，
+        # X-Sou 视频预览的 PreviewWorker 引用（由 /api/preview-x-video 设置，
         # /api/preview-cancel 读取，worker 结束后清空）
         self.preview_worker = None
 
@@ -695,11 +695,11 @@ def create_app() -> FastAPI:
     @app.post("/api/parse-url")
     async def parse_url(req: ParseUrlRequest) -> dict:
         """异步解析 URL，结果通过 WS 事件 parse_completed / parse_failed 推送。"""
-        from .gui.qml_bridge import _extract_url_from_text
+        from .utils.url_parser import extract_url_from_text
         url = (req.url or "").strip()
         if not url:
             return {"ok": False, "error": "empty"}
-        url = _extract_url_from_text(url) or url
+        url = extract_url_from_text(url) or url
         rid = req.request_id or f"parse_{int(time.time()*1000)}"
 
         async def _run() -> None:
@@ -762,43 +762,25 @@ def create_app() -> FastAPI:
 
         async def _run() -> None:
             try:
-                from .gui.qml_bridge import _PreviewCacheWorker
+                from .utils.preview_worker import PreviewWorker
                 from .utils.cache_manager import get_preview_cache_path
-                # _PreviewCacheWorker 是 QThread，需要 QApplication（已创建）
-                worker = _PreviewCacheWorker(req.video_url)
-                # 维护 worker 引用，供 /api/preview-cancel 取消
-                _ctx().preview_worker = worker
-                # progress = Signal(int, int) → (downloaded_bytes, total_bytes)
-                # 旧代码 lambda p 单参数会抛 TypeError
-                worker.progress.connect(
-                    lambda d, t: _bus().publish(
+                # PreviewWorker 用 threading.Thread，不依赖 QApplication
+                worker = PreviewWorker(
+                    req.video_url,
+                    on_progress=lambda d, t: _bus().publish(
                         "preview_progress",
                         {"downloaded": d, "total": t},
                     ),
-                    Qt.DirectConnection,
+                    on_finished=lambda path: _bus().publish("preview_ready", {"path": path}),
+                    on_failed=lambda err: _bus().publish("preview_failed", {"error": err}),
                 )
-                worker.finished_ok.connect(
-                    lambda path: _bus().publish("preview_ready", {"path": path}),
-                    Qt.DirectConnection,
-                )
-                worker.failed.connect(
-                    lambda err: _bus().publish("preview_failed", {"error": err}),
-                    Qt.DirectConnection,
-                )
-                # worker 结束后清理引用
-                worker.finished_ok.connect(
-                    lambda _: _cleanup_preview_worker(),
-                    Qt.DirectConnection,
-                )
-                worker.failed.connect(
-                    lambda _: _cleanup_preview_worker(),
-                    Qt.DirectConnection,
-                )
+                # 维护 worker 引用，供 /api/preview-cancel 取消
+                _ctx().preview_worker = worker
                 worker.start()
                 # 不阻塞当前协程；在线程池等待 worker 退出，退出后用 dest 文件存在性兜底
-                # publish preview_ready/preview_failed，避免 signal 丢失导致前端卡住
+                # publish preview_ready/preview_failed，避免回调丢失导致前端卡住
                 await asyncio.to_thread(worker.wait)
-                # worker 退出后检查 dest 文件是否存在（不依赖 signal 是否触发）
+                # worker 退出后检查 dest 文件是否存在（不依赖回调是否触发）
                 # 仅在前端还没收到 preview_ready/preview_failed 时兜底
                 # 这里没有简单方法判断"是否已 publish"，所以直接 publish 一次，
                 # 前端收到重复 preview_ready 时 setPreviewDialogOpen(true) 是幂等的
@@ -808,16 +790,11 @@ def create_app() -> FastAPI:
                 else:
                     # 文件不存在 → 下载失败或被取消
                     _bus().publish("preview_failed", {"error": "download failed"})
+                # worker 退出后清理引用
+                _ctx().preview_worker = None
             except Exception as e:
                 _bus().publish("preview_failed", {"error": str(e)})
-
-        def _cleanup_preview_worker() -> None:
-            """worker 结束后清理 _ctx().preview_worker 引用。
-
-            finished_ok/failed 信号在 worker 线程内 emit，此时 run() 即将返回，
-            isRunning() 可能仍为 True，但已无实际工作，直接清空引用让 Python GC 处理。
-            """
-            _ctx().preview_worker = None
+                _ctx().preview_worker = None
 
         asyncio.create_task(_run())
         return {"ok": True}
@@ -826,7 +803,7 @@ def create_app() -> FastAPI:
     async def preview_cancel() -> dict:
         """取消 X-Sou 视频预览下载。"""
         worker = getattr(_ctx(), "preview_worker", None)
-        if worker is not None and worker.isRunning():
+        if worker is not None and worker.is_alive():
             worker.cancel()
             return {"ok": True}
         return {"ok": False, "error": "no active preview"}
@@ -1477,42 +1454,15 @@ def create_app() -> FastAPI:
         返回原始图片字节，前端用 <img src="/api/thumb-proxy?url=..."> 直接渲染。
         """
         try:
-            from .gui.qml_bridge import ThumbnailProvider
-            # 复用现有 ThumbnailProvider 的下载逻辑（带 Referer/Cookie）
-            provider = ThumbnailProvider.__new__(ThumbnailProvider)
-            provider._cache: dict = {}
-            provider._cache_lock = threading.Lock()
-            # 调用 requestPixmap 内部的下载逻辑
-            from PySide6.QtCore import QUrl, QSize
-            from PySide6.QtGui import QImage
-            # 简化实现：直接用 requests 下载，附加通用 Referer
-            import requests
-            headers = {"User-Agent": "Mozilla/5.0 Lumio"}
-            if "sinaimg" in url:
-                headers["Referer"] = "https://weibo.com/"
-            elif "twimg" in url or "x.com" in url:
-                headers["Referer"] = "https://x.com/"
-            elif "instagram" in url or "cdninstagram" in url:
-                headers["Referer"] = "https://www.instagram.com/"
-            # 加 cookie
-            cookie_path = get_cookie_path()
-            if cookie_path and cookie_path.exists():
-                try:
-                    from .providers.network.cookie import load_cookie_string
-                    headers["Cookie"] = load_cookie_string(str(cookie_path))
-                except Exception:
-                    pass
-            session = requests.Session()
-            session.trust_env = True  # 读取系统代理（HTTP_PROXY/HTTPS_PROXY/Windows 注册表）
-            r = session.get(url, headers=headers, timeout=15, stream=False)
-            r.raise_for_status()
+            from .utils.thumb_proxy import fetch_thumbnail_bytes
+            content, content_type = fetch_thumbnail_bytes(url, timeout=15)
             # 设置长缓存（7 天）：缩略图 URL 通常带版本 hash，URL 不变则内容不变
             # 浏览器缓存命中后不再请求后端，切换页面/滚动都不会重新加载
             headers_out = {
                 "Cache-Control": "public, max-age=604800, immutable",
-                "Content-Type": r.headers.get("Content-Type", "image/jpeg"),
+                "Content-Type": content_type,
             }
-            return Response(content=r.content, headers=headers_out)
+            return Response(content=content, headers=headers_out)
         except requests.HTTPError as e:
             # 远程 CDN 返回 4xx/5xx — 把具体状态码透出来便于排查
             status = e.response.status_code if e.response is not None else 0
