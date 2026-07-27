@@ -177,6 +177,13 @@ export function LibraryPage() {
     anchor: { x: number; y: number };
   } | null>(null);
 
+  // —— Collection 右键菜单（重命名 / 删除）——
+  const [collectionContext, setCollectionContext] = useState<{
+    id: number;
+    name: string;
+    anchor: { x: number; y: number };
+  } | null>(null);
+
   // 在事件回调中引用最新 items，用于 file_missing 反查 item_id
   const itemsRef = useRef<LibraryItem[]>([]);
   itemsRef.current = items;
@@ -534,7 +541,12 @@ export function LibraryPage() {
               onClick={() => setActiveCollectionId(c.id)}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setRenameCollection({ id: c.id, name: c.name });
+                // 弹出右键菜单（重命名 / 删除），由 collectionContext 状态驱动渲染
+                setCollectionContext({
+                  id: c.id,
+                  name: c.name,
+                  anchor: { x: e.clientX, y: e.clientY },
+                });
               }}
             />
           ))
@@ -625,6 +637,7 @@ export function LibraryPage() {
             onOpenFolder={onOpenFolder}
             onShowCollectionMenu={onShowCollectionMenu}
             onPreview={onPreview}
+            onRefresh={reload}
           />
         )}
       </main>
@@ -728,6 +741,28 @@ export function LibraryPage() {
         />
       )}
 
+      {/* Collection 右键菜单（重命名 / 删除） */}
+      {collectionContext && (
+        <CollectionContextMenu
+          ctx={collectionContext}
+          onRename={() => {
+            setRenameCollection({
+              id: collectionContext.id,
+              name: collectionContext.name,
+            });
+            setCollectionContext(null);
+          }}
+          onDelete={() => {
+            setConfirmDeleteCollection({
+              id: collectionContext.id,
+              name: collectionContext.name,
+            });
+            setCollectionContext(null);
+          }}
+          onClose={() => setCollectionContext(null)}
+        />
+      )}
+
       {/* 内部预览对话框（播放图标 ▶ 点击打开） */}
       {previewItem && (
         <MediaPreviewDialog
@@ -802,6 +837,8 @@ interface LibraryCardProps {
     anchor: { x: number; y: number }
   ) => void;
   onPreview: (item: LibraryItem) => void;
+  /** 从 Collection 移除后刷新列表（让被移除的卡片立即消失） */
+  onRefresh?: () => void;
 }
 
 function LibraryCardInner({
@@ -812,6 +849,7 @@ function LibraryCardInner({
   onOpenFolder,
   onShowCollectionMenu,
   onPreview,
+  onRefresh,
 }: LibraryCardProps) {
   const { tr } = useI18n();
 
@@ -941,12 +979,23 @@ function LibraryCardInner({
           📂
         </button>
         <button
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            onShowCollectionMenu(item.id, {
-              x: rect.left + rect.width / 2,
-              y: rect.bottom + 4,
-            });
+          onClick={async (e) => {
+            if (isInActiveCollection && activeCollectionId > 0) {
+              // 当前在某个 Collection 视图中：✕ 直接从该分类移除
+              try {
+                await api.removeItemFromCollection(item.id, activeCollectionId);
+                onRefresh?.();
+              } catch (err) {
+                console.warn("remove from collection failed:", err);
+              }
+            } else {
+              // 否则：弹出「添加到分类」菜单
+              const rect = e.currentTarget.getBoundingClientRect();
+              onShowCollectionMenu(item.id, {
+                x: rect.left + rect.width / 2,
+                y: rect.bottom + 4,
+              });
+            }
           }}
           className="flex h-7 w-9 items-center justify-center rounded text-text-muted transition-colors hover:bg-white/10 hover:text-text"
           title={isInActiveCollection ? tr("collection_remove") : tr("collection_add_to")}
@@ -1058,6 +1107,60 @@ function CollectionMenu({
 }
 
 // ============================================================
+// 子组件：Collection 右键菜单（重命名 / 删除）
+// ============================================================
+
+interface CollectionContextMenuProps {
+  ctx: { id: number; name: string; anchor: { x: number; y: number } };
+  onRename: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+function CollectionContextMenu({
+  ctx,
+  onRename,
+  onDelete,
+  onClose,
+}: CollectionContextMenuProps) {
+  const { tr } = useI18n();
+
+  // 菜单宽度 168px，右下偏移 4px 留出阴影空间
+  const MENU_WIDTH = 168;
+  const left = Math.max(8, Math.min(ctx.anchor.x, window.innerWidth - MENU_WIDTH - 8));
+  const top = Math.max(8, Math.min(ctx.anchor.y, window.innerHeight - 100));
+
+  return (
+    <>
+      {/* 背景遮罩（点击关闭） */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+
+      {/* 菜单 */}
+      <div
+        className="glass-card fixed z-50 w-[168px] p-1.5"
+        style={{ left, top }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onRename}
+          className="flex h-8 w-full items-center gap-2 rounded px-3 text-xs text-text transition-colors hover:bg-accent/15 hover:text-accent"
+        >
+          <span className="w-4 text-center">✎</span>
+          <span className="flex-1 text-left">{tr("collection_rename")}</span>
+        </button>
+        <button
+          onClick={onDelete}
+          className="flex h-8 w-full items-center gap-2 rounded px-3 text-xs text-text transition-colors hover:bg-danger/15 hover:text-danger"
+        >
+          <span className="w-4 text-center">🗑</span>
+          <span className="flex-1 text-left">{tr("collection_delete")}</span>
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
 // 虚拟列表网格 — react-window FixedSizeGrid
 // ============================================================
 
@@ -1080,6 +1183,7 @@ type VirtualGridProps = {
     anchor: { x: number; y: number }
   ) => void;
   onPreview: (item: LibraryItem) => void;
+  onRefresh?: () => void;
 };
 
 function VirtualizedLibraryGrid({
@@ -1090,6 +1194,7 @@ function VirtualizedLibraryGrid({
   onOpenFolder,
   onShowCollectionMenu,
   onPreview,
+  onRefresh,
 }: VirtualGridProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(800);
@@ -1153,11 +1258,12 @@ function VirtualizedLibraryGrid({
             onOpenFolder={onOpenFolder}
             onShowCollectionMenu={onShowCollectionMenu}
             onPreview={onPreview}
+            onRefresh={onRefresh}
           />
         </div>
       );
     },
-    [colCount, onToggleFavorite, onDelete, onOpenFolder, onShowCollectionMenu, onPreview]
+    [colCount, onToggleFavorite, onDelete, onOpenFolder, onShowCollectionMenu, onPreview, onRefresh]
   );
 
   return (

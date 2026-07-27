@@ -307,6 +307,10 @@ python -m lumio.main
 - **缩略图补生成**：启动时 `backfill_thumbnails()` 自动为缺失缩略图的素材后台生成 + `thumbnail_updated` 信号刷新 UI
 - **Collection sidebar**：显示每个 Collection 的素材数量；右键菜单支持重命名/删除；`collection_changed` 信号驱动统计刷新；菜单用 `btn.mapToGlobal(pos)` 而非 `self.sender().mapToGlobal(pos)`
 - **Library 批量全选**：「全选/取消全选」按钮通过 `LibraryPanelCard.setChecked()` 程序化触发 checkbox
+- **React Collection 卡片操作**：素材卡片右下角按钮根据当前视图智能切换 ——
+  - 当前位于「全部/收藏」视图（`activeCollectionId <= 0`）：按钮显示「📁+」，点击弹出「加入 Collection」菜单（选择目标分类切换加入/移除）
+  - 当前位于某个具体 Collection 视图（`activeCollectionId > 0`）且素材已在该分类：按钮显示「✕」，点击直接调 `removeItemFromCollection` 从当前分类移除（不弹菜单），完成后 `onRefresh` 全量刷新列表
+- **React Collection 右键菜单**：在 `CollectionSidebarItem` 上 `onContextMenu` 触发，由 `collectionContext` 状态（`{id, name, anchor}`）驱动渲染 `CollectionContextMenu` 浮层，提供「✎ 重命名」「🗑 删除分类」两个选项；重命名走 `CollectionNameDialog` 输入框，删除走 `ModalDialog` 二次确认（仅删除分类本身，不删除分类下的素材文件）
 - **content_hash**：入库时自动计算文件内容 hash（图片全 MD5 / 视频音频首 1MB+size）；启动时 `backfill_hashes()` 补算历史记录
 - **搜索范围**：History 和 Library 搜索均覆盖 title/author/url/file_path/post_time，大小写不敏感（ILIKE / .lower()）
 - **Library 日期过滤**：需兼容空 `post_time`（`OR post_time == ""`），否则 X 等平台下载被过滤掉
