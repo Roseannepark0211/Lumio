@@ -71,7 +71,7 @@ export default function App() {
     return unsub;
   }, [triggerToast]);
 
-  // —— 全局页面导航（通知页 action 按钮 "open_page:settings" 用） ——
+  // —— 全局页面导航（通知页 action 按钮 "open_page:settings" 用 + 托盘菜单导航） ——
   const [currentPage, setCurrentPage] = useState<PageKey | null>(null);
   const navigate = useCallback((page: string) => {
     const valid: PageKey[] = ["home", "downloads", "history", "library", "inbox", "stats", "notifications", "settings"];
@@ -79,6 +79,14 @@ export default function App() {
       setCurrentPage(page as PageKey);
     }
   }, []);
+
+  // 监听 Electron 托盘菜单导航事件（window.lumio.onNavigate 由 preload 暴露）
+  useEffect(() => {
+    const lumioGlobal = (window as unknown as { lumio?: { onNavigate?: (cb: (page: string) => void) => void } }).lumio;
+    if (lumioGlobal?.onNavigate) {
+      lumioGlobal.onNavigate((page: string) => navigate(page));
+    }
+  }, [navigate]);
 
   // 没有任何 React 页面启用 → 显示 POC 验证页
   if (enabledPages.length === 0) {

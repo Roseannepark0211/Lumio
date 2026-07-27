@@ -50,4 +50,22 @@ contextBridge.exposeInMainWorld("lumio", {
   /** 打开文件选择对话框（支持多选），返回路径数组 */
   pickFiles: (filters?: ElectronFileFilter[]): Promise<string[]> =>
     ipcRenderer.invoke("dialog:open-files", filters),
+  /** 托盘菜单 IPC 桥接 — tray-menu.html / close-dialog.html 调用 */
+  tray: {
+    showWindow: () => ipcRenderer.send("tray:action", "showWindow"),
+    openDir: () => ipcRenderer.send("tray:action", "openDir"),
+    navigate: (page: string) => ipcRenderer.send("tray:action", "navigate", page),
+    toggleTheme: () => ipcRenderer.send("tray:action", "toggleTheme"),
+    pauseAll: () => ipcRenderer.send("tray:action", "pauseAll"),
+    quit: () => ipcRenderer.send("tray:action", "quit"),
+    close: () => ipcRenderer.send("tray:action", "close"),
+    // 关闭确认弹窗
+    cancelClose: () => ipcRenderer.send("tray:close-dialog", "cancel"),
+    minimizeToTray: () => ipcRenderer.send("tray:close-dialog", "minimize"),
+    quitApp: () => ipcRenderer.send("tray:close-dialog", "quit"),
+  },
+  /** 监听托盘菜单导航事件（主进程 → 渲染进程） */
+  onNavigate: (callback: (page: string) => void) => {
+    ipcRenderer.on("navigate", (_e, page: string) => callback(page));
+  },
 });

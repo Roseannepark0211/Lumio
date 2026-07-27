@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lumio Close</title>
+<style>
+:root {
+  --accent: #0a84ff;
+  --danger: #ff453a;
+  --font-display: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root {
+  --bg: rgba(20, 20, 30, 0.88);
+  --border: rgba(255, 255, 255, 0.14);
+  --text-primary: rgba(255, 255, 255, 0.96);
+  --text-mute: rgba(235, 235, 245, 0.6);
+  --btn-bg: rgba(255, 255, 255, 0.08);
+  --btn-bg-hi: rgba(255, 255, 255, 0.14);
+  --inset-hi: rgba(255, 255, 255, 0.15);
+}
+:root.light {
+  --bg: rgba(255, 255, 255, 0.94);
+  --border: rgba(0, 0, 0, 0.1);
+  --text-primary: rgba(0, 0, 0, 0.92);
+  --text-mute: rgba(0, 0, 0, 0.6);
+  --btn-bg: rgba(0, 0, 0, 0.04);
+  --btn-bg-hi: rgba(0, 0, 0, 0.08);
+  --inset-hi: rgba(255, 255, 255, 0.6);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+.dialog {
+  width: 360px;
+  background: var(--bg);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow:
+    0 1px 0 var(--inset-hi) inset,
+    0 30px 80px -20px rgba(0,0,0,0.7),
+    0 8px 24px -8px rgba(0,0,0,0.5);
+  padding: 28px;
+  animation: dlgIn 0.2s var(--ease-out);
+}
+@keyframes dlgIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+.dialog::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--inset-hi) 50%, transparent);
+  pointer-events: none;
+  border-radius: 24px 24px 0 0;
+}
+.title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.text {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.btn {
+  min-width: 88px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.btn:hover {
+  background: var(--btn-bg-hi);
+}
+.btn-primary {
+  background: linear-gradient(180deg, var(--accent) 0%, #006edc 100%);
+  border-color: var(--accent);
+  color: white;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset;
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, #0a94ff 0%, #0076ec 100%);
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.3);
+}
+.btn-danger:hover {
+  background: rgba(255, 69, 58, 0.12);
+}
+</style>
+</head>
+<body>
+<div class="dialog" id="dlg">
+  <div class="title" id="title">关闭 Lumio？</div>
+  <div class="text" id="text">主窗口将关闭，但下载任务会继续在后台进行。可选择最小化到托盘或完全退出程序。</div>
+  <div class="actions">
+    <button class="btn" id="btn-cancel">取消</button>
+    <button class="btn btn-danger" id="btn-quit">退出程序</button>
+    <button class="btn btn-primary" id="btn-tray">最小化到托盘</button>
+  </div>
+</div>
+<script>
+(function () {
+  var TRAY = (window.lumio && window.lumio.tray) || {};
+  var BASE = (window.lumio && window.lumio.fastapiBase) || '';
+  var TOKEN = (window.lumio && window.lumio.fastapiToken) || '';
+  // 读取主题 + 语言
+  fetch(BASE + '/api/config', {
+    headers: TOKEN ? { 'X-Lumio-Token': TOKEN } : {}
+  })
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg.theme === 'light') document.documentElement.classList.add('light');
+      if (cfg.lang === 'en') {
+        document.getElementById('title').textContent = 'Close Lumio?';
+        document.getElementById('text').textContent = 'The main window will close, but downloads continue in the background. Choose to minimize to tray or fully quit.';
+        document.getElementById('btn-cancel').textContent = 'Cancel';
+        document.getElementById('btn-quit').textContent = 'Quit';
+        document.getElementById('btn-tray').textContent = 'Minimize to Tray';
+      }
+    })
+    .catch(function () {});
+
+  document.getElementById('btn-cancel').onclick = function () {
+    if (TRAY.cancelClose) TRAY.cancelClose();
+  };
+  document.getElementById('btn-quit').onclick = function () {
+    if (TRAY.quitApp) TRAY.quitApp();
+  };
+  document.getElementById('btn-tray').onclick = function () {
+    if (TRAY.minimizeToTray) TRAY.minimizeToTray();
+  };
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && TRAY.cancelClose) TRAY.cancelClose();
+  });
+})();
+</script>
+</body>
+</html>

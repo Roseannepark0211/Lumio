@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Lumio Tray</title>
+<style>
+/* ============================================================
+   LUMIO TRAY MENU — Liquid Glass
+   独立 popup（frameless BrowserWindow），不依赖 React/Vite 构建
+   通过 window.lumio.fastapiBase/Token 访问后端
+   通过 window.lumio.tray.* IPC 调主进程动作
+   尺寸：宽 280px，高度自适应（最高 480px 内滚动）
+   ============================================================ */
+
+:root {
+  --accent: #0a84ff;
+  --accent-2: #5e5ce6;
+  --accent-soft: rgba(10, 132, 255, 0.25);
+  --success: #30d158;
+  --warning: #ffd60a;
+  --danger: #ff453a;
+  --font-display: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --r-pill: 999px;
+  --r-lg: 18px;
+  --r-sm: 10px;
+  --r-xs: 6px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* dark（默认） */
+:root {
+  --bg: rgba(20, 20, 30, 0.72);
+  --border: rgba(255, 255, 255, 0.12);
+  --text-primary: rgba(255, 255, 255, 0.96);
+  --text-mute: rgba(235, 235, 245, 0.6);
+  --text-dim: rgba(235, 235, 245, 0.35);
+  --sep: rgba(255, 255, 255, 0.06);
+  --item-hover: rgba(255, 255, 255, 0.08);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --bar-bg: rgba(255, 255, 255, 0.06);
+  --inset-hi: rgba(255, 255, 255, 0.15);
+}
+:root.light {
+  --bg: rgba(255, 255, 255, 0.85);
+  --border: rgba(0, 0, 0, 0.08);
+  --text-primary: rgba(0, 0, 0, 0.92);
+  --text-mute: rgba(0, 0, 0, 0.55);
+  --text-dim: rgba(0, 0, 0, 0.35);
+  --sep: rgba(0, 0, 0, 0.06);
+  --item-hover: rgba(0, 0, 0, 0.04);
+  --card-bg: rgba(0, 0, 0, 0.03);
+  --card-border: rgba(0, 0, 0, 0.06);
+  --bar-bg: rgba(0, 0, 0, 0.06);
+  --inset-hi: rgba(255, 255, 255, 0.6);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+.tray-menu {
+  width: 280px;
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 0 var(--inset-hi) inset,
+    0 30px 80px -20px rgba(0,0,0,0.7),
+    0 8px 24px -8px rgba(0,0,0,0.5);
+  animation: menuIn 0.16s var(--ease-out);
+}
+.tray-menu::-webkit-scrollbar { width: 4px; }
+.tray-menu::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 2px; }
+
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ---------- Header ---------- */
+.tray-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--sep);
+  position: relative;
+}
+.tray-menu::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--inset-hi) 50%, transparent);
+  pointer-events: none;
+}
+.tray-logo {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  color: white;
+  letter-spacing: -0.5px;
+  box-shadow: 0 4px 12px -2px rgba(10, 132, 255, 0.5),
+              0 1px 0 rgba(255,255,255,0.3) inset;
+  flex-shrink: 0;
+}
+.tray-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.tray-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.tray-subtitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.tray-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+.tray-status .dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tray-status.active {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.12);
+  border-color: rgba(48, 209, 88, 0.3);
+}
+.tray-status.active .dot {
+  box-shadow: 0 0 6px currentColor;
+  animation: pulse 2s var(--ease) infinite;
+}
+.tray-status.idle {
+  color: var(--text-mute);
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.1);
+}
+:root.light .tray-status.idle {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.08);
+}
+.tray-status.paused {
+  color: var(--warning);
+  background: rgba(255, 214, 10, 0.12);
+  border-color: rgba(255, 214, 10, 0.3);
+}
+
+/* ---------- 菜单项 ---------- */
+.tray-list {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tray-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+}
+.tray-item:hover {
+  background: var(--item-hover);
+}
+.tray-item-icon {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-mute);
+  flex-shrink: 0;
+}
+.tray-item:hover .tray-item-icon { color: var(--text-primary); }
+.tray-item-icon svg {
+  width: 16px; height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tray-item-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tray-item-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+/* 主操作高亮 */
+.tray-item.primary {
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.18) 0%, rgba(10, 132, 255, 0.08) 100%);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+  margin-bottom: 4px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset;
+}
+.tray-item.primary .tray-item-icon { color: var(--accent); }
+.tray-item.primary:hover {
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.28) 0%, rgba(10, 132, 255, 0.15) 100%);
+  border-color: rgba(10, 132, 255, 0.45);
+}
+
+/* 危险项 */
+.tray-item.danger { color: var(--danger); }
+.tray-item.danger .tray-item-icon { color: var(--danger); }
+.tray-item.danger:hover { background: rgba(255, 69, 58, 0.12); }
+
+/* 分隔线 + 小节标签 */
+.tray-sep {
+  height: 1px;
+  background: var(--sep);
+  margin: 4px 8px;
+}
+.tray-section {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 8px 14px 4px;
+  line-height: 1;
+}
+
+/* ---------- 下载进度小卡 ---------- */
+.tray-active-card {
+  margin: 4px 8px 6px;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--r-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tray-active-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.tray-active-row .led {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.led-pink { background: #ff3b5c; box-shadow: 0 0 6px rgba(255,59,92,0.6); }
+.led-blue { background: #0a84ff; box-shadow: 0 0 6px rgba(10,132,255,0.6); }
+.led-green { background: var(--success); box-shadow: 0 0 6px rgba(48,209,88,0.6); }
+.led-purple { background: var(--accent-2); box-shadow: 0 0 6px rgba(94,92,230,0.6); }
+.tray-active-name {
+  flex: 1;
+  color: var(--text-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tray-active-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.tray-active-bar {
+  height: 3px;
+  background: var(--bar-bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tray-active-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--accent-soft);
+  transition: width 0.3s var(--ease);
+}
+
+/* 空状态 */
+.tray-empty {
+  padding: 12px 14px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+</style>
+</head>
+<body>
+<div class="tray-menu" id="menu">
+  <!-- 由 JS 动态渲染 -->
+  <div class="tray-empty">加载中…</div>
+</div>
+
+<script>
+/* ============================================================
+   托盘菜单逻辑
+   ============================================================ */
+(function () {
+  const LUMIO = window.lumio || {};
+  const BASE = LUMIO.fastapiBase || "http://127.0.0.1:38910";
+  const TOKEN = LUMIO.fastapiToken || "";
+  const TRAY = LUMIO.tray || {};
+
+  function headers(extra) {
+    const h = { ...(extra || {}) };
+    if (TOKEN) h["X-Lumio-Token"] = TOKEN;
+    return h;
+  }
+  async function api(path) {
+    const r = await fetch(BASE + path, { headers: headers() });
+    if (!r.ok) throw new Error(path + " " + r.status);
+    return r.json();
+  }
+  async function apiPost(path, body) {
+    const r = await fetch(BASE + path, {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return r.json();
+  }
+
+  // —— 状态 ——
+  const state = {
+    theme: "dark",
+    lang: "zh",
+    version: "",
+    tasks: [],
+    inboxCount: 0,
+    i18n: {},
+  };
+
+  // —— i18n ——
+  function t(key) {
+    const table = state.i18n[state.lang] || state.i18n["zh"] || {};
+    return table[key] || key;
+  }
+
+  // —— 图标 SVG ——
+  const ICONS = {
+    home: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
+    inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>',
+    library: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    download: '<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+    folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>',
+    pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+    theme: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
+    quit: '<path d="M18 6L6 18M6 6l12 12"/>',
+    window: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
+  };
+
+  function svg(path) {
+    return '<svg viewBox="0 0 24 24">' + path + '</svg>';
+  }
+
+  // —— LED 颜色按平台 ——
+  const LED_BY_PLATFORM = {
+    youtube: "led-pink", ig: "led-pink", instagram: "led-pink",
+    x: "led-blue", twitter: "led-blue",
+    bilibili: "led-purple", douyin: "led-green",
+    kuaishou: "led-green", weibo: "led-pink",
+    xiaohongshu: "led-pink", telegram: "led-blue",
+  };
+  function ledClass(platform) {
+    const p = (platform || "").toLowerCase();
+    for (const k in LED_BY_PLATFORM) {
+      if (p.includes(k)) return LED_BY_PLATFORM[k];
+    }
+    return "led-blue";
+  }
+
+  // —— 归一化任务状态 ——
+  function isActive(status) {
+    const s = (status || "").toLowerCase();
+    return s === "下载中" || s === "downloading" ||
+           s === "等待中" || s === "queued" ||
+           s === "重试中" || s === "retrying";
+  }
+  function isDownloading(status) {
+    const s = (status || "").toLowerCase();
+    return s === "下载中" || s === "downloading";
+  }
+  function isPaused(status) {
+    const s = (status || "").toLowerCase();
+    return s === "暂停中" || s === "paused";
+  }
+
+  // —— 渲染 ——
+  function render() {
+    const root = document.getElementById("menu");
+    const active = state.tasks.filter(isActive);
+    const downloading = state.tasks.filter(isDownloading);
+    const pausedAll = state.tasks.length > 0 && state.tasks.every(t =>
+      isPaused(t.status) || t.status === "完成" || t.status === "done" || t.status === "失败" || t.status === "failed"
+    );
+
+    let statusBadge;
+    if (downloading.length > 0) {
+      statusBadge = '<div class="tray-status active"><span class="dot"></span>' +
+        t("tray_downloading") + " " + downloading.length + '</div>';
+    } else if (pausedAll && state.tasks.some(t => isPaused(t.status))) {
+      statusBadge = '<div class="tray-status paused"><span class="dot"></span>' + t("tray_paused") + '</div>';
+    } else {
+      statusBadge = '<div class="tray-status idle"><span class="dot"></span>' + t("tray_idle") + '</div>';
+    }
+
+    let html = '';
+
+    // Header
+    html += '<div class="tray-header">';
+    html += '  <div class="tray-logo">L</div>';
+    html += '  <div class="tray-title-block">';
+    html += '    <div class="tray-title">Lumio</div>';
+    html += '    <div class="tray-subtitle">v' + (state.version || "4.2.0") + '</div>';
+    html += '  </div>';
+    html += '  ' + statusBadge;
+    html += '</div>';
+
+    html += '<div class="tray-list">';
+
+    // 显示主窗口（primary）
+    html += item("primary", ICONS.window, t("tray_show_window"), "", "showWindow");
+
+    // 下载进度卡片（downloading 时显示，最多 3 个）
+    if (downloading.length > 0) {
+      html += '<div class="tray-active-card">';
+      downloading.slice(0, 3).forEach(task => {
+        const pct = Math.round((task.progress || 0) * 100);
+        const name = task.title || task.url || "unknown";
+        html += '<div class="tray-active-row">';
+        html += '  <span class="led ' + ledClass(task.platform) + '"></span>';
+        html += '  <span class="tray-active-name">' + esc(name) + '</span>';
+        html += '  <span class="tray-active-pct">' + pct + '%</span>';
+        html += '</div>';
+        html += '<div class="tray-active-bar"><div class="tray-active-bar-fill" style="width:' + pct + '%"></div></div>';
+      });
+      html += '</div>';
+    }
+
+    // 暂停所有下载（仅 downloading 时）
+    if (downloading.length > 0) {
+      html += item("", ICONS.pause, t("tray_pause_all"), "", "pauseAll");
+    }
+
+    // 打开下载目录
+    html += item("", ICONS.folder, t("tray_open_dir"), "", "openDir");
+
+    // 导航 section
+    html += '<div class="tray-section">' + t("tray_nav") + '</div>';
+    html += item("", ICONS.home, t("home"), "", "navigate", "home");
+    html += item("", ICONS.inbox, t("inbox"),
+      state.inboxCount > 0 ? String(state.inboxCount) : "", "navigate", "inbox");
+    html += item("", ICONS.library, t("library"), "", "navigate", "library");
+    html += item("", ICONS.history, t("history"), "", "navigate", "history");
+
+    html += '<div class="tray-sep"></div>';
+
+    // 切换主题
+    const themeLabel = state.theme === "dark" ? t("tray_theme_dark") : t("tray_theme_light");
+    html += item("", ICONS.theme, t("tray_toggle_theme"), themeLabel, "toggleTheme");
+
+    // 设置
+    html += item("", ICONS.settings, t("settings"), "", "navigate", "settings");
+
+    html += '<div class="tray-sep"></div>';
+
+    // 退出（danger）
+    html += item("danger", ICONS.quit, t("tray_quit"), "", "quit");
+
+    html += '</div>';
+
+    root.innerHTML = html;
+
+    // 绑定点击
+    root.querySelectorAll("[data-act]").forEach(el => {
+      el.addEventListener("click", () => {
+        const act = el.getAttribute("data-act");
+        const arg = el.getAttribute("data-arg");
+        if (TRAY[act]) TRAY[act](arg);
+        // 点击后关闭菜单
+        if (TRAY.close) TRAY.close();
+      });
+    });
+  }
+
+  function item(cls, icon, label, meta, act, arg) {
+    return '<div class="tray-item ' + cls + '" data-act="' + act + '"' +
+      (arg ? ' data-arg="' + arg + '"' : '') + '>' +
+      '<div class="tray-item-icon">' + svg(icon) + '</div>' +
+      '<div class="tray-item-label">' + esc(label) + '</div>' +
+      (meta ? '<div class="tray-item-meta">' + esc(meta) + '</div>' : '') +
+      '</div>';
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // —— 数据加载 ——
+  async function loadAll() {
+    try {
+      const [cfg, queue, inbox, i18n] = await Promise.all([
+        api("/api/config"),
+        api("/api/queue"),
+        api("/api/inbox/unread-count"),
+        api("/api/i18n"),
+      ]);
+      state.theme = cfg.theme || "dark";
+      state.lang = cfg.lang || "zh";
+      state.version = cfg.version || "";
+      state.tasks = queue || [];
+      state.inboxCount = (inbox && inbox.count) || 0;
+      state.i18n = i18n || {};
+      applyTheme();
+      render();
+    } catch (e) {
+      document.getElementById("menu").innerHTML =
+        '<div class="tray-empty">连接失败</div>';
+    }
+  }
+
+  function applyTheme() {
+    if (state.theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+  }
+
+  // —— WS 实时更新 ——
+  let ws = null;
+  let wsRetry = 0;
+  function connectWS() {
+    const wsBase = BASE.replace(/^http/, "ws");
+    try {
+      ws = new WebSocket(wsBase + "/ws/events");
+    } catch (e) {
+      setTimeout(connectWS, 2000);
+      return;
+    }
+    ws.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data);
+        handleEvent(evt);
+      } catch {}
+    };
+    ws.onopen = () => { wsRetry = 0; };
+    ws.onclose = () => {
+      wsRetry++;
+      if (wsRetry <= 5) setTimeout(connectWS, Math.min(2000 * wsRetry, 10000));
+    };
+    ws.onerror = () => {};
+  }
+
+  function handleEvent(evt) {
+    if (!evt || !evt.type) return;
+    switch (evt.type) {
+      case "task_progress":
+      case "task_started":
+      case "task_finished":
+      case "task_status_changed":
+      case "queue_changed":
+        refreshQueue();
+        break;
+      case "inbox_changed":
+        refreshInbox();
+        break;
+      case "theme_changed":
+        state.theme = (evt.data && evt.data.theme) || state.theme;
+        applyTheme();
+        render();
+        break;
+      case "lang_changed":
+        state.lang = (evt.data && evt.data.lang) || state.lang;
+        render();
+        break;
+    }
+  }
+
+  let queueTimer = null;
+  function refreshQueue() {
+    // 防抖：短时间多个事件只拉一次
+    if (queueTimer) clearTimeout(queueTimer);
+    queueTimer = setTimeout(async () => {
+      try {
+        state.tasks = await api("/api/queue");
+        render();
+      } catch {}
+    }, 200);
+  }
+
+  async function refreshInbox() {
+    try {
+      const r = await api("/api/inbox/unread-count");
+      state.inboxCount = (r && r.count) || 0;
+      render();
+    } catch {}
+  }
+
+  // —— 初始化 ——
+  loadAll();
+  connectWS();
+})();
+</script>
+</body>
+</html>

@@ -23,6 +23,7 @@ import fs from "node:fs";
 import http from "node:http";
 import crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { TrayManager } from "./tray";
 
 // ============================================================
 // 全局状态
@@ -30,6 +31,7 @@ import { pathToFileURL } from "node:url";
 
 let fastapiProc: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
+let trayManager: TrayManager | null = null;
 
 // FastAPI 连接信息（每次启动随机生成，传给子进程 + 渲染进程）
 const fastapiPort = pickUnusedPort();
@@ -359,6 +361,19 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
 
+  // 关闭窗口 → 弹出关闭确认（最小化到托盘 / 退出 / 取消）
+  // isQuitting=true 时（用户从托盘菜单选"退出"）直接放行
+  mainWindow.on("close", (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    if (trayManager) {
+      trayManager.showCloseDialog();
+    } else {
+      // 无托盘时直接隐藏（兜底）
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -500,14 +515,30 @@ app.whenReady().then(async () => {
   }
   createWindow();
 
+  // 初始化系统托盘（关闭窗口 → 最小化到托盘，右键 → Liquid Glass 菜单）
+  trayManager = new TrayManager({
+    getMainWindow: () => mainWindow,
+    fastapiBase: FASTAPI_BASE,
+    fastapiToken: fastapiToken,
+    onQuit: async () => {
+      isQuitting = true;
+      await stopFastApi();
+      app.quit();
+    },
+    onMinimizeToTray: () => {
+      mainWindow?.hide();
+    },
+  });
+  trayManager.init();
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
+// 窗口全部关闭时不退出（最小化到托盘）；仅在 isQuitting 时真正退出
 app.on("window-all-closed", async () => {
-  if (isQuitting) return;
-  isQuitting = true;
+  if (!isQuitting) return; // 保持在托盘运行
   await stopFastApi();
   if (process.platform !== "darwin") app.quit();
 });

@@ -20,6 +20,21 @@ interface LumioGlobal {
   pickFolder?: () => Promise<string>;
   /** 打开文件选择对话框（Electron 模式可用，支持多选） */
   pickFiles?: (filters?: ElectronFileFilter[]) => Promise<string[]>;
+  /** 托盘菜单 IPC 桥接 */
+  tray?: {
+    showWindow: () => void;
+    openDir: () => void;
+    navigate: (page: string) => void;
+    toggleTheme: () => void;
+    pauseAll: () => void;
+    quit: () => void;
+    close: () => void;
+    cancelClose: () => void;
+    minimizeToTray: () => void;
+    quitApp: () => void;
+  };
+  /** 监听托盘菜单导航事件（主进程 → 渲染进程） */
+  onNavigate?: (callback: (page: string) => void) => void;
 }
 
 const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: LumioGlobal }).lumio : undefined);
