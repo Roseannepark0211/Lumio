@@ -1574,8 +1574,12 @@ def create_app() -> FastAPI:
 # ============================================================
 
 def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
-    """把 DownloadManager 的 Qt Signal 接到 EventBus。
+    """把 DownloadManager / InboxManager 的 Qt Signal 接到 EventBus。
     使用 DirectConnection 强制 callback 在 emit 线程执行，避免依赖 Qt event loop。
+
+    InboxManager 的 item_added/item_updated/items_deleted 必须桥接，
+    否则 Flask /capture 端点写入 inbox 后前端 WS 收不到 inbox_changed 事件，
+    导致用户需要手动刷新页面才能看到新内容。
     """
     m = app_ctx.manager
 
@@ -1626,6 +1630,14 @@ def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
               lambda p: {"file_path": p}),
         Qt.DirectConnection,
     )
+
+    # —— InboxManager signal → inbox_changed 事件 ——
+    # Flask /capture 端点写入 inbox 后通过此桥接推送 WS 事件，
+    # 否则前端需要手动刷新页面才能看到新内容。
+    inbox = app_ctx.inbox_manager
+    inbox.item_added.connect(_wrap("inbox_changed"), Qt.DirectConnection)
+    inbox.item_updated.connect(_wrap("inbox_changed"), Qt.DirectConnection)
+    inbox.items_deleted.connect(_wrap("inbox_changed"), Qt.DirectConnection)
 
     # NotificationManager 的状态变化（它不发 Signal，但 add/dismiss 时需通知前端）
     # 通过包装关键方法实现
