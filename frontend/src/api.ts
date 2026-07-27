@@ -6,11 +6,20 @@
  * 浏览器开发模式（非 Electron）回退到固定 38910。
  */
 
+interface ElectronFileFilter {
+  name: string;
+  extensions: string[];
+}
+
 interface LumioGlobal {
   fastapiBase?: string;
   fastapiToken?: string;
   isElectron?: boolean;
   lumioFileUrl?: (p: string) => string;
+  /** 打开文件夹选择对话框（Electron 模式可用） */
+  pickFolder?: () => Promise<string>;
+  /** 打开文件选择对话框（Electron 模式可用，支持多选） */
+  pickFiles?: (filters?: ElectronFileFilter[]) => Promise<string[]>;
 }
 
 const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: LumioGlobal }).lumio : undefined);
@@ -192,6 +201,99 @@ export interface NotificationItem {
 }
 
 // ============================================================
+// SettingsPage 相关类型（与 api_fastapi.py settings 端点对齐）
+// ============================================================
+
+/** Cookie 总体状态 + 各平台单独状态 */
+export interface CookieStatusResponse {
+  /** overall: missing / valid / warning / expired */
+  overall: string;
+  /** 各平台单独状态：{ "instagram": "valid", "x": "missing", ... } */
+  platforms?: Record<string, string>;
+  error?: string;
+}
+
+/** Telegram 状态（pair_code / bound_device / is_running） */
+export interface TelegramState {
+  pair_code: string;
+  /** 绑定设备信息（无绑定为 null） */
+  bound_device: {
+    telegram_user_id: string;
+    username: string;
+    first_name: string;
+  } | null;
+  is_running: boolean;
+  error?: string;
+}
+
+/** Telegram Token 验证结果 */
+export interface TelegramValidateResult {
+  ok: boolean;
+  username?: string;
+  error?: string;
+}
+
+/** Apify 配置状态（持久） */
+export interface ApifyStatus {
+  token_configured: boolean;
+  actor_configured: boolean;
+  /** connected = token+actor 都配置且已验证有效 */
+  connected: boolean;
+  verified: boolean;
+  /** enabled = instagram_mode == "api" */
+  enabled: boolean;
+  token_preview: string;
+  actor_id: string;
+  usage_usd: number | null;
+  plan_credits_usd: number | null;
+  plan_name: string | null;
+  usage_updated: string | null;
+}
+
+/** Apify 用量数据（apify_usage_updated WS 事件 payload / apify_status 返回） */
+export interface ApifyUsage {
+  usage_usd?: number;
+  plan_credits_usd?: number;
+  plan_name?: string;
+  usage_updated?: string;
+  error?: string;
+}
+
+/** Apify Token 验证结果 */
+export interface ApifyValidateResult {
+  ok: boolean;
+  error?: string;
+}
+
+/** 缓存目录统计（get_cache_stats 返回） */
+export interface CacheStats {
+  _root?: string;
+  inbox_media?: CacheDirStat;
+  thumbs?: CacheDirStat;
+  provider_cache?: CacheDirStat;
+  preview?: CacheDirStat;
+  error?: string;
+  [k: string]: CacheDirStat | string | undefined;
+}
+
+export interface CacheDirStat {
+  path?: string;
+  size_bytes?: number;
+  file_count?: number;
+  deleted?: number;
+  freed?: number;
+}
+
+/** 版本检查响应（/api/check-update） */
+export interface CheckUpdateResult {
+  current?: string;
+  latest?: string;
+  has_update?: boolean;
+  release_url?: string;
+  error?: string;
+}
+
+// ============================================================
 // HomePage 相关类型（与 QML _video_info_to_json 对齐）
 // ============================================================
 
@@ -268,6 +370,16 @@ async function get<T>(path: string): Promise<T> {
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  return r.json() as Promise<T>;
+}
+
+async function put<T>(path: string, body?: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: "PUT",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -470,6 +582,81 @@ export const api = {
   /** 在系统默认浏览器中打开外部 URL（InboxPage 的"打开原网页"按钮） */
   openExternalUrl: (url: string) =>
     post<{ ok: boolean; error?: string }>("/api/open-external-url", { url }),
+
+  // —— SettingsPage: 配置读写 ——
+  /** 设置单个 config 顶层键 */
+  setConfig: (key: string, value: unknown) =>
+    put<{ ok: boolean }>(`/api/config/${encodeURIComponent(key)}`, { value }),
+  /** 设置嵌套 config（如 cache_management.auto_clean） */
+  setNestedConfig: (parentKey: string, updates: Record<string, unknown>) =>
+    put<{ ok: boolean }>(`/api/config/nested/${encodeURIComponent(parentKey)}`, { updates }),
+
+  // —— SettingsPage: 主题 / 语言 ——
+  setTheme: (theme: string) =>
+    put<{ theme: string }>("/api/theme", { theme }),
+  setLang: (lang: string) =>
+    put<{ lang: string }>("/api/lang", { lang }),
+
+  // —— SettingsPage: Cookie 管理 ——
+  getCookieStatus: () => get<CookieStatusResponse>("/api/cookie/status"),
+  clearCookie: () => post<{ ok: boolean; error?: string }>("/api/cookie/clear"),
+  importCookie: (paths: string[]) =>
+    post<{ ok: boolean; imported?: number; error?: string }>("/api/cookie/import", { paths }),
+
+  // —— SettingsPage: Telegram ——
+  validateTelegram: (token: string, proxy: string = "") =>
+    post<TelegramValidateResult>("/api/telegram/validate", { token, proxy }),
+  getTelegramState: () => get<TelegramState>("/api/telegram/state"),
+  getTelegramPairCode: () =>
+    get<{ pair_code?: string; error?: string }>("/api/telegram/pair-code"),
+  unlinkTelegram: () => post<{ ok: boolean; error?: string }>("/api/telegram/unlink"),
+
+  // —— SettingsPage: Apify ——
+  validateApify: (token: string, actorId: string) =>
+    post<ApifyValidateResult>("/api/apify/validate", { token, actor_id: actorId }),
+  getApifyStatus: () => get<ApifyStatus>("/api/apify/status"),
+  refreshApifyUsage: () => post<{ ok: boolean; cached?: boolean }>("/api/apify/refresh-usage"),
+  forceRefreshApifyUsage: () => post<{ ok: boolean }>("/api/apify/force-refresh-usage"),
+
+  // —— SettingsPage: 缓存管理 ——
+  getCacheStats: () => get<CacheStats>("/api/cache/stats"),
+  cleanCacheByRules: () => post<{ ok: boolean }>("/api/cache/clean-by-rules"),
+  forceClearCache: () => post<{ ok: boolean }>("/api/cache/force-clear"),
+
+  // —— SettingsPage: 剪贴板 / Toast ——
+  copyToClipboard: (text: string) =>
+    post<{ ok: boolean; error?: string }>("/api/clipboard/copy", { text }),
+  showToast: (message: string) => post<{ ok: boolean }>("/api/toast", { message }),
+
+  // —— SettingsPage: 版本检查 ——
+  checkUpdate: () => get<CheckUpdateResult>("/api/check-update"),
+
+  // —— SettingsPage: 文件/文件夹对话框（走 Electron IPC，非 FastAPI） ——
+  /**
+   * 打开文件夹选择对话框。
+   * 仅 Electron 环境可用（依赖 preload.ts 注入的 window.lumio.pickFolder）。
+   * 浏览器开发模式（http://localhost:5173 直接访问）下不可用，会 throw。
+   */
+  pickFolder: async (): Promise<string> => {
+    if (!lumioGlobal?.pickFolder) {
+      throw new Error(
+        "需要 Electron 环境（请运行 npm run dev:electron 启动桌面应用，不要在浏览器标签页里访问 localhost:5173）"
+      );
+    }
+    return lumioGlobal.pickFolder();
+  },
+  /**
+   * 打开文件选择对话框（支持多选）。
+   * 仅 Electron 环境可用。
+   */
+  pickFiles: async (filters?: ElectronFileFilter[]): Promise<string[]> => {
+    if (!lumioGlobal?.pickFiles) {
+      throw new Error(
+        "需要 Electron 环境（请运行 npm run dev:electron 启动桌面应用，不要在浏览器标签页里访问 localhost:5173）"
+      );
+    }
+    return lumioGlobal.pickFiles(filters);
+  },
 };
 
 // ============================================================

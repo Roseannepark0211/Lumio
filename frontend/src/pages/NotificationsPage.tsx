@@ -25,6 +25,7 @@ import {
   type AppEvent,
   type NotificationItem,
 } from "../api";
+import { useNav } from "../App";
 
 // ============================================================
 // 常量
@@ -114,6 +115,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 // ============================================================
 
 export function NotificationsPage() {
+  const navigate = useNav();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -219,11 +221,14 @@ export function NotificationsPage() {
         api.openExternalUrl(url).catch((e) =>
           console.warn("open external url failed:", e)
         );
+      } else if (action.startsWith("open_page:")) {
+        // 切换到对应页面（如 "open_page:settings" → 切到 Settings tab）
+        const page = action.substring("open_page:".length);
+        navigate(page);
       }
-      // open_page: 在 React 版中无路由对应，暂时忽略
-      // （Electron 单页应用，页面切换由 PageSwitcher 控制，不支持外部命令）
+      // retry_task: 等其他 action 暂未实现
     },
-    []
+    [navigate]
   );
 
   // —— 渲染 ——
