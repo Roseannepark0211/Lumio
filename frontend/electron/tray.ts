@@ -46,8 +46,9 @@ export interface TrayManagerDeps {
   onMinimizeToTray: () => void;
 }
 
-const MENU_WIDTH = 280;
-const MENU_MAX_HEIGHT = 480;
+const MENU_WIDTH = 240;        // 280 → 240 同比例缩小约 15%
+// 移除任务卡片后菜单内容减少，max-height 同比例缩到 400
+const MENU_MAX_HEIGHT = 400;
 const CLOSE_DIALOG_WIDTH = 360;
 const CLOSE_DIALOG_HEIGHT = 200;
 
@@ -57,6 +58,17 @@ export class TrayManager {
   private closeWin: BrowserWindow | null = null;
   private deps: TrayManagerDeps;
   private tooltipTimer: NodeJS.Timeout | null = null;
+  /** 首次打开菜单时等 HTML 加载 + render 完成后再 show，
+   *  避免 400px 高的窗口立即显示而内容只有 300px → 底部 100px 空白 */
+  private menuPendingShow: boolean = false;
+  /** 首次打开时右键位置的 bounds，等 reportHeight 触发 show 时用 */
+  private pendingBounds?: Electron.Rectangle;
+  /** 菜单锚点（首次打开时记录，后续 reportHeight 触发重新定位时复用，
+   *  避免鼠标移动后 cursor 实时位置变化导致菜单跳动）。
+   *  - anchor.x: 首次点击的水平位置（菜单水平居中对齐此点）
+   *  - anchor.y: 任务栏顶部 Y（菜单底部对齐此点，贴任务栏弹出）
+   *  - anchor.taskbarSide: 任务栏位置（bottom/top/left/right） */
+  private menuAnchor: { x: number; y: number; taskbarSide: "bottom" | "top" | "left" | "right" } | null = null;
 
   constructor(deps: TrayManagerDeps) {
     this.deps = deps;
@@ -88,8 +100,11 @@ export class TrayManager {
       }
     });
 
-    this.tray.on("right-click", () => {
-      this.toggleMenu();
+    this.tray.on("right-click", (_e, bounds) => {
+      // 右键不再 toggle 开关，而是一直打开：
+      // 已打开时重新定位到最新鼠标位置，未打开时打开。
+      // 这样用户连点右键不会闪关闪开，符合 Win10 系统托盘行为。
+      this.showMenu(bounds);
     });
 
     // 双击托盘图标 → 显示主窗口（Windows 约定）
@@ -130,13 +145,34 @@ export class TrayManager {
     }
   }
 
-  /** 显示托盘菜单弹窗 */
-  private showMenu(): void {
+  /** 显示托盘菜单弹窗。
+   *  bounds 参数：右键点击的位置（Electron right-click 事件第二参数）。
+   *  不传则用托盘图标位置（macOS 左键点击场景）。
+   *  水平定位以鼠标 x 为中心，菜单跟随鼠标位置而非托盘图标中心。
+   *
+   *  关键时序设计：
+   *  - 首次打开：先创建窗口（不显示）→ 等 HTML 加载完 + render 完成 →
+   *    前端调 reportHeight IPC 报告实际内容高度 → 主进程 setSize 调整窗口高度 →
+   *    positionMenu 用实际窗口高度贴合任务栏 → show 显示
+   *  - 这样用户看到的菜单窗口高度 = 内容高度，底部直接贴合任务栏，无空白间距
+   *  - 二次打开（窗口已加载过）：直接 positionMenu + show
+   */
+  private showMenu(bounds?: Electron.Rectangle): void {
+    // 每次打开（含二次打开）都重新计算锚点：
+    // - 水平锚点 = 鼠标当前 x（菜单水平居中对齐此点）
+    // - 垂直锚点 = 任务栏顶部 Y（菜单底部对齐此点，贴任务栏弹出）
+    //
+    // 关键：垂直锚点用 workArea 底部（任务栏顶部）而非 cursor.y。
+    // 用户从隐藏图标展开面板点击时 cursor.y 在面板里（比任务栏顶部高 ~40-80px），
+    // 如果菜单底部贴 cursor.y 会让菜单底部悬空在任务栏上方，菜单和任务栏之间出现空白。
+    // 用 workArea 底部作锚点保证菜单始终贴任务栏顶部弹出，符合 Windows 系统原生菜单行为。
+    this.menuAnchor = this.computeMenuAnchor();
+
     if (!this.menuWin) {
       this.menuWin = new BrowserWindow({
         width: MENU_WIDTH,
         height: MENU_MAX_HEIGHT,
-        show: false,
+        show: false,           // 关键：不在创建时显示，等 reportHeight 后再显示
         frame: false,
         resizable: false,
         maximizable: false,
@@ -144,12 +180,21 @@ export class TrayManager {
         fullscreenable: false,
         skipTaskbar: true,
         transparent: true,
+        // 显式声明透明背景色：默认 #00000000（ARGB）。
+        // 不写 backgroundColor 时，某些 Windows 版本会用系统主题色填充 transparent 窗口，
+        // 看起来像菜单周围有一圈暗色"阴影背景"。
+        backgroundColor: "#00000000",
         alwaysOnTop: true,
         focusable: true,
         webPreferences: {
           preload: path.join(__dirname, "preload.js"),
           contextIsolation: true,
           nodeIntegration: false,
+          // 关键：托盘菜单 hide() 后默认会被节流到 10fps，
+          // setTimeout 被 throttled 到 1000ms+，WS onmessage 虽触发但
+          // refreshQueue 里的防抖 setTimeout 会被延迟执行，
+          // 导致下载状态变化监测不到。关闭后台节流保持实时性。
+          backgroundThrottling: false,
         },
       });
 
@@ -168,11 +213,28 @@ export class TrayManager {
         if (input.key === "Escape") this.hideMenu();
       });
 
+      // 标记：首次打开需要等 HTML 加载完 + render 完成后才显示
+      // reportHeight IPC 触发后会调 setVisibilityReady(true) → positionMenu + show
+      this.menuPendingShow = true;
+      this.pendingBounds = bounds;
       this.loadTrayHtml(this.menuWin, "tray-menu.html");
+
+      // 兜底：如果 HTML 加载失败或 reportHeight 没触发，
+      // 2 秒后强制显示（避免右键点了完全没反应）
+      setTimeout(() => {
+        if (this.menuWin && !this.menuWin.isDestroyed() &&
+            this.menuPendingShow && !this.menuWin.isVisible()) {
+          this.menuPendingShow = false;
+          this.positionMenu(bounds);
+          this.menuWin.show();
+          this.menuWin.focus();
+        }
+      }, 2000);
+      return;
     }
 
-    // 定位到托盘图标上方
-    this.positionMenu();
+    // 窗口已存在：定位 + 显示
+    this.positionMenu(bounds);
     this.menuWin.show();
     this.menuWin.focus();
   }
@@ -184,30 +246,122 @@ export class TrayManager {
     }
   }
 
-  /** 定位菜单弹窗到托盘图标上方 */
-  private positionMenu(): void {
-    if (!this.menuWin || !this.tray) return;
+  /** 计算菜单锚点（首次打开时调用，记录水平点击位置 + 任务栏顶部 Y）。
+   *
+   *  关键设计：
+   *  - 水平锚点 = 鼠标当前 x（菜单水平居中对齐此点，符合"在点击位置上方弹出"直觉）
+   *  - 垂直锚点 = workArea 底部 Y（任务栏顶部），菜单底部对齐此点
+   *
+   *  为什么垂直锚点不用 cursor.y：
+   *  - 用户从隐藏图标展开面板点击 Lumio 时，cursor.y 在展开面板里
+   *    （比任务栏顶部高约 40-80px，展开面板浮在任务栏上方）
+   *  - 如果菜单底部对齐 cursor.y，菜单底部会悬空在任务栏上方
+   *  - 菜单底部和任务栏之间出现 40-80px 空白，看起来像"菜单被抬高"
+   *  - Windows 系统原生菜单行为是贴任务栏顶部弹出，无论点击位置在哪
+   *
+   *  为什么不用 tray.getBounds()：
+   *  - Windows 高 DPI（125%/150%缩放）+ 多屏 + 隐藏图标展开面板场景下
+   *    tray.getBounds() 返回错误坐标是 Electron 已知 bug
+   *
+   *  适配任务栏位置（底部/顶部/左侧/右侧）：
+   *  - 底部任务栏：菜单底部对齐 workArea 底部（任务栏顶部），向上展开
+   *  - 顶部任务栏：菜单顶部对齐 workArea 顶部（任务栏底部），向下展开
+   *  - 左/右侧任务栏：水平贴合 workArea 侧边，垂直对齐鼠标 y
+   *
+   *  所有坐标均使用 DIP（设备无关像素），DPI 无关。
+   */
+  private computeMenuAnchor(): { x: number; y: number; taskbarSide: "bottom" | "top" | "left" | "right" } | null {
+    const cursor = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursor);
+    const { workArea, bounds: screenBounds } = display;
 
-    const trayBounds = this.tray.getBounds();
+    // 任务栏位置判定（workArea 比 screenBounds 小的那一侧）
+    const taskbarBottom = workArea.y + workArea.height < screenBounds.height - 1;
+    const taskbarTop = workArea.y > 1;
+    const taskbarLeft = workArea.x > 1;
+    const taskbarRight = workArea.x + workArea.width < screenBounds.width - 1;
+
+    let taskbarSide: "bottom" | "top" | "left" | "right";
+    let anchorY: number;
+
+    if (taskbarBottom) {
+      // 底部任务栏：菜单底部对齐 workArea 底部（任务栏顶部）
+      taskbarSide = "bottom";
+      anchorY = workArea.y + workArea.height;
+    } else if (taskbarTop) {
+      // 顶部任务栏：菜单顶部对齐 workArea 顶部（任务栏底部）
+      taskbarSide = "top";
+      anchorY = workArea.y;
+    } else if (taskbarLeft) {
+      // 左侧任务栏：垂直用 cursor.y（侧边任务栏场景菜单水平贴边，垂直跟随鼠标）
+      taskbarSide = "left";
+      anchorY = cursor.y;
+    } else if (taskbarRight) {
+      // 右侧任务栏：垂直用 cursor.y
+      taskbarSide = "right";
+      anchorY = cursor.y;
+    } else {
+      // 兜底：按底部任务栏处理
+      taskbarSide = "bottom";
+      anchorY = workArea.y + workArea.height;
+    }
+
+    return { x: cursor.x, y: anchorY, taskbarSide };
+  }
+
+  /** 定位菜单弹窗（基于已记录的锚点 this.menuAnchor）。
+   *
+   *  重要：使用首次 showMenu 时记录的锚点，不实时取 cursor。
+   *  原因：reportHeight 触发 setSize 后会再次调 positionMenu 重新对齐，
+   *  如果用实时 cursor，鼠标可能已移动到别处，菜单会"跳"到新位置。
+   *
+   *  winBounds.height 是当前窗口实际高度（首次打开时刚 setSize 过，
+   *  二次打开时是上次 setSize 后的高度）。
+   *  - 底部任务栏：y = anchorY - winBounds.height（菜单底部对齐任务栏顶部）
+   *  - 顶部任务栏：y = anchorY（菜单顶部对齐任务栏底部）
+   *  - 左/右侧任务栏：水平贴 workArea 边，垂直对齐 cursor.y（anchorY = cursor.y）
+   */
+  private positionMenu(_bounds?: Electron.Rectangle): void {
+    if (!this.menuWin || !this.tray) return;
+    if (!this.menuAnchor) return;
+
     const winBounds = this.menuWin.getBounds();
-    const display = screen.getDisplayNearestPoint({
-      x: trayBounds.x,
-      y: trayBounds.y,
-    });
+    const display = screen.getDisplayNearestPoint({ x: this.menuAnchor.x, y: this.menuAnchor.y });
     const { workArea } = display;
 
-    // X: 居中对齐托盘图标，但不超出屏幕
-    let x = trayBounds.x + trayBounds.width / 2 - winBounds.width / 2;
+    const { x: anchorX, y: anchorY, taskbarSide } = this.menuAnchor;
+
+    let x: number;
+    let y: number;
+
+    if (taskbarSide === "bottom") {
+      // 底部任务栏：菜单底部对齐任务栏顶部，水平居中对齐点击位置
+      x = anchorX - winBounds.width / 2;
+      y = anchorY - winBounds.height;
+    } else if (taskbarSide === "top") {
+      // 顶部任务栏：菜单顶部对齐任务栏底部，水平居中对齐点击位置
+      x = anchorX - winBounds.width / 2;
+      y = anchorY;
+    } else if (taskbarSide === "left") {
+      // 左侧任务栏：水平左边界贴合 workArea 左，垂直居中对齐点击 y
+      x = workArea.x;
+      y = anchorY - winBounds.height / 2;
+    } else {
+      // 右侧任务栏：水平右边界贴合 workArea 右，垂直居中对齐点击 y
+      x = workArea.x + workArea.width - winBounds.width;
+      y = anchorY - winBounds.height / 2;
+    }
+
+    // 水平方向不超出 workArea 边界（与屏幕边缘留 8px 余量）
     x = Math.max(workArea.x + 8, Math.min(x, workArea.x + workArea.width - winBounds.width - 8));
 
-    // Y: 托盘图标上方（Windows 任务栏在底部）
-    let y = trayBounds.y - winBounds.height - 4;
-    // 如果上方空间不够（任务栏在顶部），放下方
-    if (y < workArea.y + 8) {
-      y = trayBounds.y + trayBounds.height + 4;
+    // 垂直方向：菜单必须完整可见，不能超出 workArea 顶部/底部
+    if (y < workArea.y) {
+      y = workArea.y;
     }
-    // 不超出屏幕底部
-    y = Math.min(y, workArea.y + workArea.height - winBounds.height - 8);
+    if (y + winBounds.height > workArea.y + workArea.height) {
+      y = workArea.y + workArea.height - winBounds.height;
+    }
 
     this.menuWin.setPosition(Math.round(x), Math.round(y));
   }
@@ -282,6 +436,25 @@ export class TrayManager {
     // 关闭对话框动作
     ipcMain.on("tray:close-dialog", (_evt, action: string) => {
       this.handleCloseDialogAction(action);
+    });
+
+    // 前端 render() 后报告菜单实际内容高度
+    // 关键时序：首次打开时窗口还未显示（showMenu 设了 menuPendingShow=true），
+    // 收到 reportHeight 后才 setSize 调整高度 + positionMenu + show
+    // 这样用户看到的菜单窗口高度 = 内容实际高度，底部直接贴合任务栏，无空白间距
+    ipcMain.on("tray:report-height", (_evt, menuHeight: number) => {
+      if (!this.menuWin || this.menuWin.isDestroyed()) return;
+      if (!Number.isFinite(menuHeight) || menuHeight <= 0) return;
+      const winHeight = Math.max(120, Math.min(MENU_MAX_HEIGHT, Math.round(menuHeight)));
+      this.menuWin.setSize(MENU_WIDTH, winHeight);
+      // 用实际窗口高度重新定位（垂直贴合任务栏）
+      this.positionMenu(this.pendingBounds);
+      // 首次打开：现在窗口高度对了，可以显示
+      if (this.menuPendingShow) {
+        this.menuPendingShow = false;
+        this.menuWin.show();
+        this.menuWin.focus();
+      }
     });
   }
 
@@ -431,23 +604,27 @@ export class TrayManager {
     });
   }
 
-  /** 定时刷新 tooltip（显示下载状态） */
+  /** 定时刷新 tooltip（显示总状态：忙碌中/空闲，按 lang 切换文案） */
   private startTooltipRefresh(): void {
-    const refresh = () => {
-      this.apiGet("/api/queue")
-        .then((tasks: unknown) => {
-          if (!Array.isArray(tasks)) return;
-          const active = tasks.filter((t: any) => {
-            const s = (t.status || "").toLowerCase();
-            return s === "下载中" || s === "downloading";
-          });
-          if (active.length > 0) {
-            this.tray?.setToolTip(`Lumio — 下载中 ${active.length}`);
-          } else {
-            this.tray?.setToolTip("Lumio");
-          }
-        })
-        .catch(() => {});
+    const refresh = async () => {
+      try {
+        const [tasks, cfg] = await Promise.all([
+          this.apiGet("/api/queue") as Promise<unknown[]>,
+          this.apiGet("/api/config") as Promise<Record<string, unknown>>,
+        ]);
+        if (!Array.isArray(tasks)) return;
+        const busy = tasks.some((t: any) => {
+          const s = (t.status || "").toLowerCase();
+          return s === "下载中" || s === "downloading";
+        });
+        const lang = cfg.lang === "en" ? "en" : "zh";
+        const tip = busy
+          ? lang === "en" ? "Lumio — Busy" : "Lumio — 忙碌中"
+          : "Lumio";
+        this.tray?.setToolTip(tip);
+      } catch {
+        // ignore
+      }
     };
 
     refresh();
