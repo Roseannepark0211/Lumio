@@ -1,4 +1,4 @@
-﻿"""Lumio V4 — Bilibili (B站) Provider。
+"""Lumio V4 — Bilibili (B站) Provider。
 
 通过 Bilibili 开放 API 解析视频信息。
 - BV / av 号支持
@@ -85,6 +85,39 @@ def _resolve_b23(url: str) -> Optional[str]:
         return None
 
 
+# 访客 buvid3 cookie 缓存（进程生命周期内复用）
+_buvid3_cache: Optional[str] = None
+
+
+def _ensure_buvid3() -> Optional[str]:
+    """获取 B 站访客 buvid3 cookie，绕过 412 Precondition Failed。
+
+    B 站近期对 api.bilibili.com 强制要求 buvid3 cookie。
+    调 https://api.bilibili.com/x/frontend/finger/spi 拿访客 buvid3 + buvid4，
+    无需鉴权。返回 JSON {data: {b_3: "xxx", b_4: "xxx"}}。
+    """
+    global _buvid3_cache
+    if _buvid3_cache:
+        return _buvid3_cache
+    import requests
+    try:
+        resp = requests.get(
+            "https://api.bilibili.com/x/frontend/finger/spi",
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0 Lumio/4.2"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        b3 = data.get("data", {}).get("b_3", "")
+        if b3:
+            _buvid3_cache = b3
+            logger.info("B站 buvid3 获取成功（访客模式）")
+            return b3
+    except Exception as e:
+        logger.warning("B站 buvid3 获取失败: %s", e)
+    return None
+
+
 @register
 class BilibiliProvider(BaseProvider):
     """Bilibili (B站) 内容解析 Provider。"""
@@ -118,7 +151,11 @@ class BilibiliProvider(BaseProvider):
                 description="Bilibili 个人主页批量下载暂未接入，请使用单条视频 URL。",
             )
 
+        # 注入访客 buvid3 cookie（B 站近期强制要求，否则 api.bilibili.com 返回 412）
+        buvid3 = _ensure_buvid3()
         client = NetworkClient(Platform.BILIBILI)
+        if buvid3:
+            client._session.cookies.set("buvid3", buvid3, domain=".bilibili.com")
 
         # 获取视频基本信息
         if bv:

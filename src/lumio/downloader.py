@@ -1657,6 +1657,17 @@ def _x_download_with_pause(task, pause_event, on_progress):
     task.progress = 100
 
 
+def _ensure_bilibili_buvid3() -> str | None:
+    """获取 B 站访客 buvid3 cookie，绕过 412 Precondition Failed。
+
+    复用 providers.bilibili._ensure_buvid3 实现（已缓存）。
+    yt-dlp 的 BiliBiliIE._real_extract 不会自动获取 buvid3（与
+    BiliBiliSearchIE._search_results 不同），需手动注入。
+    """
+    from .providers.bilibili import _ensure_buvid3
+    return _ensure_buvid3()
+
+
 def _bilibili_download_with_pause(task, pause_event, on_progress):
     """B站视频下载：封面图走直链，视频走 yt-dlp（自动处理 DASH + ffmpeg 合并音视频）。
 
@@ -1731,6 +1742,17 @@ def _bilibili_download_with_pause(task, pause_event, on_progress):
     opts = _yt_opts(cookie)
     opts["outtmpl"] = str(out_dir / f"{resolved_stem}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+    # B站：注入 buvid3 防止 412 Precondition Failed
+    # yt-dlp 的 BiliBiliIE._real_extract 不会自动获取 buvid3（与 BiliBiliSearchIE 不同），
+    # B站近期强制要求 buvid3 才能调 api.bilibili.com/x/web-interface/view。
+    # 这里在 yt-dlp opts 中通过 http_headers.cookies 注入访客 buvid3。
+    buvid3 = _ensure_bilibili_buvid3()
+    if buvid3:
+        # 用 extractor_args 让 yt-dlp 在请求时带 buvid3 cookie
+        opts.setdefault("http_headers", {})
+        opts["http_headers"]["Cookie"] = (
+            opts["http_headers"].get("Cookie", "") + f"; buvid3={buvid3}"
+        ).lstrip("; ")
     # B站：选最高画质，合并音视频为 mp4
     opts["format"] = "bestvideo+bestaudio/best"
     opts["merge_output_format"] = "mp4"
