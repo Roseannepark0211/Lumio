@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 import logging
 
-from PySide6.QtCore import QObject, Signal
+from .utils.signal import QObject, Signal
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

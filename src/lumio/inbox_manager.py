@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from .utils.signal import QObject, Signal
 from sqlalchemy.exc import IntegrityError
 
 from .models import InboxItem

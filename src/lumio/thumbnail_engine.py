@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from .utils.signal import QThread, Signal
 
 from .utils.config import get_thumbs_dir
 
