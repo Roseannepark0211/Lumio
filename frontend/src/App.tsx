@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { api, subscribeEvents, type AppEvent, type HealthResponse, type QueueTask, type LibraryItem } from "./api";
 import { getPageSwitch } from "./config";
+import { Sidebar, type PageKey } from "./Sidebar";
 import { HomePage } from "./pages/HomePage";
 import { DownloadsPage } from "./pages/DownloadsPage";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -104,9 +105,7 @@ export default function App() {
   );
 }
 
-type PageKey = "home" | "downloads" | "history" | "library" | "inbox" | "stats" | "notifications" | "settings";
-
-/** 顶部 tab 切换器：在已启用的 React 页面之间切换。 */
+/** 左右布局：Sidebar + 页面内容区 */
 function PageSwitcher({
   pages,
   current,
@@ -126,29 +125,17 @@ function PageSwitcher({
   const effective = current && pages.includes(current) ? current : pages[0];
 
   return (
-    <div className="flex h-full flex-col">
-      {/* 顶部 tab 栏（仅当多个页面时显示） */}
-      {pages.length > 1 && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-white/5 px-4 py-2">
-          {pages.map((p) => (
-            <button
-              key={p}
-              onClick={() => setCurrent(p)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                effective === p
-                  ? "bg-white/10 text-text"
-                  : "text-text-muted hover:bg-white/5 hover:text-text"
-              }`}
-            >
-              {pageLabel(p)}
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="flex h-full">
+      {/* 左侧固定 Sidebar（AGENTS.md 规定 200px 宽） */}
+      <Sidebar
+        current={effective}
+        onNavigate={setCurrent}
+        enabledPages={pages}
+      />
 
-      {/* 页面内容 — keep-alive 模式：所有页面同时挂载，用 display 切换
+      {/* 右侧页面内容 — keep-alive 模式：所有页面同时挂载，用 display 切换
           避免切换页面时 unmount/remount 导致重新拉数据 + 图片重新加载 */}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1">
         <div style={{ display: effective === "home" ? "contents" : "none" }}>
           <HomePage />
         </div>
@@ -176,27 +163,6 @@ function PageSwitcher({
       </div>
     </div>
   );
-}
-
-function pageLabel(p: PageKey): string {
-  switch (p) {
-    case "home":
-      return "Home";
-    case "downloads":
-      return "Downloads";
-    case "history":
-      return "History";
-    case "library":
-      return "Library";
-    case "inbox":
-      return "Inbox";
-    case "stats":
-      return "Stats";
-    case "notifications":
-      return "Notifications";
-    case "settings":
-      return "Settings";
-  }
 }
 
 /**
