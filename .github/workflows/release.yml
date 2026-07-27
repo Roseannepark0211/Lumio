@@ -58,11 +58,11 @@ jobs:
 
     - name: Package (Windows)
       if: runner.os == 'Windows'
-      run: Compress-Archive -Path dist/Lumio/* -DestinationPath ${{ matrix.artifact_name }}
+      run: Compress-Archive -Path dist/LumioAPI/* -DestinationPath ${{ matrix.artifact_name }}
 
     - name: Package (macOS/Linux)
       if: runner.os != 'Windows'
-      run: cd dist && tar czf ../${{ matrix.artifact_name }} Lumio/
+      run: cd dist && tar czf ../${{ matrix.artifact_name }} LumioAPI/
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
@@ -98,7 +98,7 @@ jobs:
 
           ```
           pip install lumio
-          lumio
+          lumio-api
           ```
 
           ### 从源码运行
@@ -107,7 +107,7 @@ jobs:
           git clone https://github.com/Roseannepark0211/Lumio.git
           cd Lumio
           pip install -e .
-          python -m lumio.main
+          python -m lumio.api_fastapi
           ```
         files: |
           ${{ matrix.artifact_name }}
