@@ -280,11 +280,13 @@ export function HomePage() {
   }, [showToast, tr]);
 
   // —— 清空 ——
+  // 注意：必须重置 isParsing，否则解析卡住时点 reset 后按钮仍是 disabled
   const clearInput = useCallback(() => {
     setUrlText("");
     setPreviewInfo(null);
     setParseError(null);
     setSortedItems([]);
+    setIsParsing(false);
   }, []);
 
   // —— 单项直链入队（多图帖子项）——

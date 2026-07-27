@@ -32,7 +32,6 @@ Lumio 采用 **Electron + React 前端 / Python FastAPI 后端** 双进程架构
 - 暂停/继续/重试/恢复/全部操作；智能退避重试（5s→15s→30s）
 - YouTube/X 断点续传；直链下载支持 Range header + append 模式
 - 错误自动分类：Cookie/网络/限流/内容/解析
-- 批量导入：粘贴多行 URL 一键入队；IG/YouTube/X 主页批量下载
 - 文件冲突策略：重命名/跳过/覆盖/每次询问
 
 ### 素材管理

@@ -807,12 +807,26 @@ def create_app() -> FastAPI:
     @app.post("/api/parse-url")
     async def parse_url(req: ParseUrlRequest) -> dict:
         """异步解析 URL，结果通过 WS 事件 parse_completed / parse_failed 推送。"""
-        from .utils.url_parser import extract_url_from_text
+        from .utils.url_parser import extract_url_from_text, parse_url as _parse_url
         url = (req.url or "").strip()
         if not url:
             return {"ok": False, "error": "empty"}
         url = extract_url_from_text(url) or url
         rid = req.request_id or f"parse_{int(time.time()*1000)}"
+
+        # 主页/频道/播放列表批量导入功能未迁移到 React 前端
+        # 立即返回错误，避免 yt-dlp 在频道 URL 上挂起导致前端一直显示「解析中」
+        try:
+            parsed = _parse_url(url)
+            if parsed.kind in ("profile", "channel", "playlist"):
+                _bus().publish("parse_failed", {
+                    "request_id": rid,
+                    "error": "主页/频道/播放列表批量导入功能暂未实现，请使用单帖链接",
+                })
+                return {"ok": False, "error": "profile_not_supported"}
+        except Exception:
+            # 解析失败时让后续 extract_info 报具体错误
+            pass
 
         async def _run() -> None:
             try:
