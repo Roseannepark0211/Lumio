@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { api, subscribeEvents, type AppEvent, type HealthResponse, type QueueTask, type LibraryItem } from "./api";
+import { subscribeEvents, type AppEvent } from "./api";
 import { getPageSwitch } from "./config";
 import { Sidebar, type PageKey } from "./Sidebar";
-import { useI18n } from "./i18n";
 import { HomePage } from "./pages/HomePage";
 import { DownloadsPage } from "./pages/DownloadsPage";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -11,8 +10,6 @@ import { InboxPage } from "./pages/InboxPage";
 import { StatsPage } from "./pages/StatsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { Logo3DGlow } from "./components/Logo3DGlow";
-import { formatSize as formatSizeRaw } from "./utils/format";
 
 // 全局 Toast 上下文 — 任何页面都能触发 toast
 const ToastContext = React.createContext<(msg: string) => void>(() => {});
@@ -25,11 +22,13 @@ export const useNav = () => React.useContext(NavContext);
 /**
  * 应用根组件。
  *
- * 根据 config.ts 中的页面级开关决定加载哪些 React 页面：
- *   - 启用的页面会出现在顶部 tab 切换栏
- *   - 未启用的页面 fallback 到 QML 版本（由 Electron 主进程处理）
+ * 双窗口架构（main.ts 保证主窗口 show 时 FastAPI 已 ready）：
+ *   1. Electron main.ts 创建 splash 窗口立即显示 loading
+ *   2. main.ts 创建主窗口（show: false）后台加载 React
+ *   3. React 渲染完毕（ready-to-show）+ FastAPI ready → 主窗口 show + splash 销毁
+ *   4. App 挂载时 FastAPI 已 ready，直接渲染主 UI
  *
- * 后续迁移其他页面时同样按开关切换。
+ * App 内不再做 bootState 轮询，避免与 main.ts 双重轮询冲突。
  */
 export default function App() {
   const useReactHome = getPageSwitch("USE_REACT_HOME");
@@ -90,9 +89,13 @@ export default function App() {
     }
   }, [navigate]);
 
-  // 没有任何 React 页面启用 → 显示 POC 验证页
+  // 没有任何 React 页面启用 → 显示简洁兜底（正式版所有页面已启用，此分支理论上不触发）
   if (enabledPages.length === 0) {
-    return <PocPage />;
+    return (
+      <div className="flex h-screen items-center justify-center text-text-muted">
+        No pages enabled. Check frontend/config.ts.
+      </div>
+    );
   }
 
   return (
@@ -177,172 +180,7 @@ function PageSwitcher({
 }
 
 /**
- * POC 验证页面：拉取 FastAPI 真实数据，验证 Electron 渲染进程 → FastAPI 链路。
- *
- * 这不是最终 UI，只是脚手架阶段的连通性验证。
- * 后续每个页面会按 design_preview/ 下的设计稿单独迁移。
+ * POC 验证页面 + StatusPill/formatSize 工具函数已删除
+ * （正式版所有页面已启用，脚手架兜底不再需要）。
+ * 历史版本：commit 之前的 git log 可查 PocPage 实现。
  */
-function PocPage() {
-  const { tr } = useI18n();
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [queue, setQueue] = useState<QueueTask[]>([]);
-  const [library, setLibrary] = useState<LibraryItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [h, q, l] = await Promise.all([
-          api.getHealth(),
-          api.getQueue(),
-          api.getLibrary(),
-        ]);
-        setHealth(h);
-        setQueue(q);
-        setLibrary(l);
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
-  }, []);
-
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="glass-card max-w-md p-6">
-          <h2 className="text-lg font-semibold text-danger">连接失败</h2>
-          <p className="mt-2 text-sm text-text-muted">{error}</p>
-          <p className="mt-4 text-xs text-text-muted">
-            请确认 FastAPI 服务已启动：<code className="font-mono">python -m lumio.api_fastapi</code>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!health) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-text-muted">{tr("loading")}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-full overflow-auto p-8">
-      <header className="mb-8 animate-fade-in flex flex-col items-start gap-3">
-        <Logo3DGlow size="lg" variant="default" />
-        <p className="text-sm text-text-muted">
-          FastAPI 链路验证 · 后端版本 v{health.version}
-        </p>
-      </header>
-
-      {/* Health 卡片 */}
-      <section className="mb-8 animate-slide-up">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-          后端状态
-        </h2>
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-success" />
-            <span className="text-sm font-medium">服务正常</span>
-          </div>
-          <div className="mt-4 grid grid-cols-5 gap-3 text-xs">
-            {Object.entries(health.managers).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2">
-                <div
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    v ? "bg-success" : "bg-danger"
-                  }`}
-                />
-                <span className="text-text-muted">{k}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 队列 */}
-      <section className="mb-8 animate-slide-up">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-          {tr("downloads")} ({queue.length})
-        </h2>
-        <div className="space-y-2">
-          {queue.length === 0 ? (
-            <div className="glass-card p-4 text-sm text-text-muted">{tr("downloads_empty")}</div>
-          ) : (
-            queue.map((t) => (
-              <div key={t.task_id} className="glass-card p-4">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{t.title || t.url}</div>
-                    <div className="mt-0.5 text-xs text-text-muted">
-                      {t.platform} · {t.author || "unknown"}
-                    </div>
-                  </div>
-                  <StatusPill status={t.status} />
-                </div>
-                {t.progress > 0 && t.status === "downloading" && (
-                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/5">
-                    <div
-                      className="h-full bg-accent transition-all"
-                      style={{ width: `${t.progress * 100}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-
-      {/* 素材库 */}
-      <section className="mb-8 animate-slide-up">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-          {tr("library")} ({library.length})
-        </h2>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-4">
-          {library.slice(0, 12).map((it) => (
-            <div key={it.id} className="glass-card p-3">
-              <div className="truncate text-sm font-medium">{it.title || "(无标题)"}</div>
-              <div className="mt-1 text-xs text-text-muted">
-                {it.platform} · {formatSize(it.file_size)}
-              </div>
-              {it.is_favorite && (
-                <span className="pill-danger mt-2">★ {tr("library_toggle_fav")}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const cls =
-    status === "done"
-      ? "pill-success"
-      : status === "downloading"
-      ? "pill-accent"
-      : status === "failed"
-      ? "pill-danger"
-      : "pill bg-white/5 text-text-muted";
-  const label =
-    status === "done"
-      ? "完成"
-      : status === "downloading"
-      ? "下载中"
-      : status === "failed"
-      ? "失败"
-      : status === "paused"
-      ? "已暂停"
-      : status === "queued"
-      ? "排队中"
-      : status;
-  return <span className={cls}>{label}</span>;
-}
-
-function formatSize(bytes: number): string {
-  return formatSizeRaw(bytes, true);
-}

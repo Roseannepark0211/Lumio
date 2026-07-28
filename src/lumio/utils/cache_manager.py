@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Callable
 
 from .config import load_config, save_config
+from .ua import DEFAULT_UA  # M5: 跨平台 UA
 
 logger = logging.getLogger(__name__)
 
@@ -593,7 +594,7 @@ def download_to_preview_cache(
         return dest
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
     }
     if "twimg.com" in url or "x.com" in url:
         headers["Referer"] = "https://x.com/"

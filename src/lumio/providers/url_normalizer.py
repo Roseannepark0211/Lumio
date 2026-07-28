@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from ..utils.ua import DEFAULT_UA  # M5: 跨平台 UA
+
 logger = logging.getLogger(__name__)
 
 # 已知的短域名列表
@@ -76,11 +78,7 @@ def resolve_url(url: str, timeout: int = 10) -> str:
             allow_redirects=True,
             timeout=timeout,
             headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
+                "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
             },
         )
         if resp.status_code < 400 and resp.url != url:
@@ -92,11 +90,7 @@ def resolve_url(url: str, timeout: int = 10) -> str:
             allow_redirects=True,
             timeout=timeout,
             headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
+                "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
             },
         )
         if resp.status_code < 400 and resp.url != url:

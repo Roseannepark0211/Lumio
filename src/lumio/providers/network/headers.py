@@ -5,14 +5,12 @@
 
 from __future__ import annotations
 
+from ...utils.ua import DEFAULT_UA
 from ..base import Platform
 
-# 通用 Chrome UA
-CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+# 通用 Chrome UA（跨平台，运行时按 sys.platform 生成对应平台 token）
+# M5 修复：旧实现硬编码 Windows NT 10.0，macOS/Linux 运行时也伪装 Windows
+CHROME_UA = DEFAULT_UA
 
 DEFAULT_HEADERS: dict[str, str] = {
     "User-Agent": CHROME_UA,
@@ -39,11 +37,7 @@ _PLATFORM_HEADERS: dict[Platform, dict[str, str]] = {
         "Accept": "application/json, text/plain, */*",
     },
     Platform.DOUYIN: {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": CHROME_UA,
         "Referer": "https://www.douyin.com/",
         "Accept": "application/json, text/plain, */*",
     },

@@ -156,12 +156,10 @@ class BaseProvider(ABC):
 
         子类可重写此方法添加 Referer/Cookie/UA 等。
         """
+        # M5 修复：用 utils.ua.DEFAULT_UA 跨平台 UA 替代硬编码 Windows NT 10.0
+        from ..utils.ua import DEFAULT_UA
         return {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": DEFAULT_UA,
         }
 
 

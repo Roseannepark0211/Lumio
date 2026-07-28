@@ -25,6 +25,7 @@ from typing import Optional
 from .base import BaseProvider, MediaInfo, MediaItem, MediaType, Platform
 from .registry import register
 from ..utils.error_types import ErrorCategory, classify_error as _ce
+from ..utils.ua import CHROME_120_UA  # M5: 跨平台 UA
 
 logger = logging.getLogger(__name__)
 
@@ -141,9 +142,7 @@ def _ig_api_session():
                 csrf_token = c.value
                 break
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": CHROME_120_UA,  # M5: 跨平台 Chrome 120（IG 需要 120 版本）
         "X-IG-App-ID": "936619743392459",
         "X-CSRFToken": csrf_token,
         "X-Requested-With": "XMLHttpRequest",

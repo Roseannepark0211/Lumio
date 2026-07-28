@@ -44,11 +44,8 @@ _MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
 )
-# PC UA（aweme detail API 需要 PC UA）
-_PC_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
+# PC UA（aweme detail API 需要 PC UA）—— M5: 跨平台 UA
+from ..utils.ua import DEFAULT_UA as _PC_UA
 
 # ttwid 自动获取 endpoint
 _TTWID_REGISTER_URL = "https://ttwid.bytedance.com/ttwid/union/register/"
@@ -209,6 +206,32 @@ def _map_gear_to_label(gear_name: str, width: int = 0, height: int = 0) -> tuple
     if width >= 540 or height >= 960:
         return "540p", 540
     return "unknown", 0
+
+
+def _detect_codec(code_type: str, bitrate: int, res_num: int) -> str:
+    """识别视频编码格式，用于 FormatOption.label 显示 HEVC 标识。
+
+    抖音 API 的 code_type 字段值（不同版本字段名可能略有差异）：
+    - bytevc1 / bytevc7 / hevc / h265 → H.265 (HEVC，高效编码，同画质文件更小)
+    - h264 / avc / mpeg4              → H.264 (兼容性强，文件较大)
+    - 空值                            → 启发式推断
+
+    启发式规则（code_type 为空时）：
+    - 1440p 及以上且 bitrate < 1500kbps → 大概率是 HEVC
+      (H.264 在 1440p 通常需要 2500kbps+，HEVC 只需 800-1500kbps)
+    - 1080p 及以下默认 H.264（抖音低分辨率档位绝大多数走 H.264 保兼容）
+
+    这能让用户理解为什么 1440p HEVC 文件比 1080p H.264 还小。
+    """
+    ct = (code_type or "").lower()
+    if ct in ("bytevc1", "bytevc7", "hevc", "h265", "libx265"):
+        return "HEVC"
+    if ct in ("h264", "avc", "libx264", "mpeg4", "mp4v"):
+        return "H.264"
+    # 启发式：高分辨率 + 低码率 = HEVC
+    if res_num >= 1440 and 0 < bitrate < 1_500_000:
+        return "HEVC"
+    return "H.264"
 
 
 @register
@@ -445,7 +468,10 @@ class DouyinProvider(BaseProvider):
         # 参考报告第五节：bit_rate[] 每项含 gear_name + play_addr.url_list
         # 按分辨率去重：同分辨率只保留码率最高的 normal 档（跳过 low/adapt 变体）
         bit_rate_list = video_info.get("bit_rate", [])
-        formats_by_label: dict[str, dict] = {}  # label → {url, size, width, height, bitrate}
+        # label → {url, size, width, height, bitrate, codec}
+        # codec: "HEVC" / "H.264"（用于 FormatOption.label 显示，让用户理解
+        # 为什么 1440p HEVC 文件比 1080p H.264 还小）
+        formats_by_label: dict[str, dict] = {}
 
         for br in bit_rate_list:
             gear_name = br.get("gear_name", "")
@@ -464,6 +490,12 @@ class DouyinProvider(BaseProvider):
             if label == "unknown":
                 continue
 
+            # 编码识别：抖音 API 的 code_type 字段
+            # bytevc1 / bytevc7 / hevc / h265 → H.265 (HEVC)
+            # h264 / avc / mpeg4 → H.264
+            # 兜底用码率启发式：1440p+ 且 bitrate < 1500kbps 大概率是 HEVC
+            codec = _detect_codec(br.get("code_type", ""), bitrate, res_num)
+
             # 同分辨率去重：保留码率最高的（normal > low > adapt）
             existing = formats_by_label.get(label)
             if existing is None:
@@ -472,6 +504,7 @@ class DouyinProvider(BaseProvider):
                     "width": width, "height": height,
                     "res_num": res_num,
                     "bitrate": bitrate, "gear": gear_name,
+                    "codec": codec,
                 }
             elif bitrate > existing["bitrate"]:
                 # 码率更高，替换
@@ -480,6 +513,7 @@ class DouyinProvider(BaseProvider):
                     "width": width, "height": height,
                     "res_num": res_num,
                     "bitrate": bitrate, "gear": gear_name,
+                    "codec": codec,
                 })
 
         # 按分辨率降序排列（1440p > 1080p > 720p > 540p > ...）
@@ -520,10 +554,18 @@ class DouyinProvider(BaseProvider):
         for idx, label in enumerate(sorted_labels):
             f = formats_by_label[label]
             res_num = f["res_num"]
+            codec = f.get("codec", "")
             size_str = f"{f['size'] / 1024 / 1024:.1f}MB" if f["size"] else ""
+            # 拼接 label：清晰度 + 编码标识（HEVC/H.264）+ 文件大小
+            # HEVC 标识用 · 分隔，与清晰度区分；H.264 是默认编码不显示（减少噪音）
+            codec_tag = f" · {codec}" if codec == "HEVC" else ""
+            if size_str:
+                display_label = f"{label}{codec_tag} ({size_str})"
+            else:
+                display_label = f"{label}{codec_tag}"
             formats.append(FormatOption(
                 format_id=label,
-                label=f"{label} ({size_str})" if size_str else label,
+                label=display_label,
                 type="video",
                 ext="mp4",
                 width=f["width"],

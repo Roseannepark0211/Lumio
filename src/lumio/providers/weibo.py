@@ -20,6 +20,7 @@ from .registry import register
 import logging
 
 import requests as _requests
+from ..utils.ua import DEFAULT_UA, CHROME_120_UA  # M5: 跨平台 UA
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,7 @@ def _fetch_json(api_url: str, timeout: int = 15) -> Optional[dict]:
     req = urllib.request.Request(
         api_url,
         headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": CHROME_120_UA,  # M5: 跨平台 Chrome 120
             "Referer": "https://m.weibo.cn/",
             "Accept": "application/json, text/plain, */*",
             "X-Requested-With": "XMLHttpRequest",
@@ -84,11 +81,7 @@ def _fetch_html(url: str, timeout: int = 15) -> Optional[str]:
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": CHROME_120_UA,  # M5: 跨平台 Chrome 120
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             **({"Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items())} if cookies else {}),
@@ -421,11 +414,7 @@ def _fetch_with_session(url: str, *, as_json: bool = False, timeout: int = 15) -
 
         session = _requests.Session()
         session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": CHROME_120_UA,  # M5: 跨平台 Chrome 120
             "Referer": "https://weibo.com/",
         })
 
@@ -677,7 +666,7 @@ class WeiboProvider(BaseProvider):
         )
     def get_request_headers(self) -> dict[str, str]:
         return {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
             "Referer": "https://weibo.com/",
         }
 

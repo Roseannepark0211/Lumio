@@ -42,9 +42,12 @@ _NEEDS_REFERER_DOMAINS = (
 )
 
 # 需要特殊 User-Agent 的域名（部分 CDN 屏蔽默认 UA）
+# 小红书 CDN 已验证：跨平台 UA 触发 502，必须用 Windows Chrome 120 UA
+# （M5 修复：用 utils.ua.WINDOWS_CHROME_120_UA 常量替代硬编码）
+from .ua import WINDOWS_CHROME_120_UA
 _SPECIAL_UA_DOMAINS = {
-    "xhscdn.com": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "xiaohongshu.com": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "xhscdn.com": WINDOWS_CHROME_120_UA,
+    "xiaohongshu.com": WINDOWS_CHROME_120_UA,
 }
 
 # 缓存有效期 7 天
