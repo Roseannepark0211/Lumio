@@ -75,7 +75,9 @@ a = Analysis(
         "setuptools",
         "pip",
         "pkg_resources",
-        "distutils",
+        # distutils 在 Python 3.12+ 已移除（PEP 632），不需要 exclude
+        # 若 exclude 会与 setuptools._distutils_hack 启动时加载冲突：
+        #   ValueError: Target module "distutils" already imported as "ExcludedModule"
         # 标准 GUI/网络模块（Lumio 不用）
         "curses",
         "pdb",
