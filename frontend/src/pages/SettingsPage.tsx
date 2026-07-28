@@ -35,7 +35,7 @@ import {
 import { useToast } from "../App";
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
-import { formatSize as formatSizeRaw } from "../utils/format";
+import { formatSize } from "../utils/format";
 import { ModalDialog } from "../components/ModalDialog";
 
 // ============================================================
@@ -1006,7 +1006,7 @@ export function SettingsPage() {
                     </div>
                     <div className="shrink-0 text-right">
                       <div className="font-mono text-xs font-bold text-text">
-                        {formatSize(s?.size_bytes || 0)}
+                        {formatSize(s?.size_bytes || 0, true)}
                       </div>
                       <div className="font-mono text-[9px] text-text-dim">
                         {s?.file_count || 0} {tr("cache_files")}
@@ -1441,10 +1441,4 @@ function DialogActions({
   );
 }
 
-// ============================================================
-// 工具函数
-// ============================================================
-
-function formatSize(bytes: number): string {
-  return formatSizeRaw(bytes, true);
-}
+// formatSize 已提取到 utils/format（其他页面共用）

@@ -32,50 +32,13 @@ import { useI18n } from "../i18n";
 import { MediaPreviewDialog } from "../components/MediaPreviewDialog";
 import { ModalDialog } from "../components/ModalDialog";
 import { formatSize } from "../utils/format";
+import { platformLabel, platformTextColor } from "../utils/platform";
 
 // ============================================================
 // 常量
 // ============================================================
 
-// 平台展示名（接受 tr 以支持多语言；YouTube/IG/X 等英文名不翻译）
-function platformLabel(p: string, tr: (k: string) => string): string {
-  switch (p) {
-    case "youtube":
-      return "YouTube";
-    case "instagram":
-      return "IG";
-    case "x":
-      return "X";
-    case "bilibili":
-      return tr("platform_bilibili");
-    case "douyin":
-      return tr("platform_douyin");
-    case "kuaishou":
-      return tr("platform_kuaishou");
-    case "weibo":
-      return tr("platform_weibo");
-    case "xiaohongshu":
-      return tr("platform_xiaohongshu");
-    default:
-      return p ? p.toUpperCase() : "";
-  }
-}
-
-// 平台徽章颜色（与 QML Theme.platformColor 对齐）
-const PLATFORM_COLOR: Record<string, string> = {
-  youtube: "text-red-400",
-  instagram: "text-pink-400",
-  x: "text-zinc-200",
-  bilibili: "text-blue-400",
-  douyin: "text-zinc-100",
-  kuaishou: "text-orange-400",
-  weibo: "text-orange-500",
-  xiaohongshu: "text-red-500",
-};
-
-function platformColor(p: string): string {
-  return PLATFORM_COLOR[p] || "text-text-muted";
-}
+// platformLabel / platformTextColor 已提取到 utils/platform
 
 // 媒体类型徽章颜色（与 QML 实现对齐；label 走 i18n）
 function typeBadgeClass(
@@ -939,7 +902,7 @@ function LibraryCardInner({
         <div className="mt-1.5 flex gap-1">
           {item.platform && (
             <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[9px] font-semibold">
-              <span className={platformColor(item.platform)}>
+              <span className={platformTextColor(item.platform)}>
                 {platformLabel(item.platform, tr)}
               </span>
             </span>

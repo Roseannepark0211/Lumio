@@ -49,3 +49,21 @@ const PLATFORM_DOT_COLOR: Record<string, string> = {
 export function platformDotColor(p: string): string {
   return PLATFORM_DOT_COLOR[p] || "bg-zinc-500";
 }
+
+/** 平台文字色（text-* 类，用于彩色徽章/文字）。
+ *  原 InboxPage.platformIconColor + LibraryPage.platformColor 合并而来。 */
+const PLATFORM_TEXT_COLOR: Record<string, string> = {
+  youtube: "text-red-400",
+  instagram: "text-pink-400",
+  x: "text-zinc-200",
+  bilibili: "text-blue-400",
+  douyin: "text-zinc-100",
+  kuaishou: "text-orange-400",
+  weibo: "text-orange-500",
+  xiaohongshu: "text-red-500",
+  telegram: "text-sky-400",
+};
+
+export function platformTextColor(p: string): string {
+  return PLATFORM_TEXT_COLOR[p] || "text-text-muted";
+}

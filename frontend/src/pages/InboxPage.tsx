@@ -26,6 +26,7 @@ import {
 } from "../api";
 import { useI18n } from "../i18n";
 import { ModalDialog } from "../components/ModalDialog";
+import { platformLabel, platformTextColor } from "../utils/platform";
 
 // ============================================================
 // 常量
@@ -101,57 +102,7 @@ function statusBadgeClass(s: string): { bg: string; text: string; border: string
   }
 }
 
-function platformLabel(p: string, tr: LabelFn): string {
-  if (!p) return "—";
-  switch (p) {
-    case "youtube":
-      return "YouTube";
-    case "instagram":
-      return "IG";
-    case "x":
-      return "X";
-    case "bilibili":
-      return tr("platform_bilibili");
-    case "douyin":
-      return tr("platform_douyin");
-    case "kuaishou":
-      return tr("platform_kuaishou");
-    case "weibo":
-      return tr("platform_weibo");
-    case "xiaohongshu":
-      return tr("platform_xiaohongshu");
-    case "telegram":
-      return "Telegram";
-    default:
-      return p.toUpperCase();
-  }
-}
-
-/** 平台图标色（与 QML Theme.platformColor 对齐） */
-function platformIconColor(p: string): string {
-  switch (p) {
-    case "youtube":
-      return "text-red-400";
-    case "instagram":
-      return "text-pink-400";
-    case "x":
-      return "text-zinc-200";
-    case "bilibili":
-      return "text-blue-400";
-    case "douyin":
-      return "text-zinc-100";
-    case "kuaishou":
-      return "text-orange-400";
-    case "weibo":
-      return "text-orange-500";
-    case "xiaohongshu":
-      return "text-red-500";
-    case "telegram":
-      return "text-sky-400";
-    default:
-      return "text-text-muted";
-  }
-}
+// platformLabel / platformTextColor 已提取到 utils/platform
 
 function formatTime(t: string): string {
   if (!t || t.length === 0) return "—";
@@ -642,7 +593,7 @@ function InboxCard({
         ) : (
           <div
             className={`flex h-full w-full items-center justify-center text-xl ${
-              isImage ? "text-text-muted" : platformIconColor(item.platform)
+              isImage ? "text-text-muted" : platformTextColor(item.platform)
             }`}
           >
             {isImage ? "🖼" : "▶"}

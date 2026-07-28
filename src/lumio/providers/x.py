@@ -19,6 +19,7 @@ from typing import Optional
 
 from .base import BaseProvider, FormatOption, MediaInfo, MediaItem, MediaType, Platform
 from .registry import register
+from ..utils.ua import DEFAULT_UA  # M5: 跨平台 UA
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,7 @@ def _x_api_session():
             elif c.name == "auth_token" and ("x.com" in c.domain or "twitter.com" in c.domain):
                 auth_token = c.value
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/131.0.0.0 Safari/537.36",
+        "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
         "Authorization": f"Bearer {_X_BEARER}",
         "x-csrf-token": ct0,
     })
@@ -179,29 +178,9 @@ def _x_extract_tweet_media(tweet_result: dict) -> list[MediaItem]:
 
 
 def _yt_opts(cookie_path) -> dict:
-    """构造 yt-dlp 选项（与 downloader._yt_opts 一致）。"""
-    from ..utils.config import load_config
-    from ..downloader import _find_ffmpeg
-    # 跨平台 ffmpeg 定位：系统 PATH 优先，否则用 imageio_ffmpeg 内置二进制
-    ffmpeg_bin = _find_ffmpeg() or "ffmpeg"
-
-    cfg = load_config()
-    proxy = cfg.get("proxy", "")
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "no_color": True,
-        "merge_output_format": "mp4",
-        "ffmpeg_location": ffmpeg_bin,
-        "continuedl": True,
-        "keep_fragments": True,
-    }
-    if proxy:
-        opts["proxy"] = proxy
-    if cookie_path:
-        opts["cookiefile"] = str(cookie_path)
-    return opts
+    """构造 yt-dlp 选项 — 已迁移到 utils.yt_opts，此处保留 re-export。"""
+    from ..utils.yt_opts import yt_opts
+    return yt_opts(cookie_path)
 
 
 @register

@@ -20,34 +20,14 @@ import {
   type StatsResponse,
 } from "../api";
 import { useI18n } from "../i18n";
-import { formatSize as formatSizeRaw } from "../utils/format";
-import { platformLabel, platformDotColor } from "../utils/platform";
+import { formatSize } from "../utils/format";
+import { platformLabel, platformDotColor, platformTextColor } from "../utils/platform";
 
 // ============================================================
 // 常量
 // ============================================================
 
-// 平台大数字色（与 QML 实现 text=platformColor 对齐，偏冷调暗色）
-const PLATFORM_TEXT_COLOR: Record<string, string> = {
-  youtube: "text-red-400",
-  instagram: "text-pink-400",
-  x: "text-zinc-200",
-  bilibili: "text-blue-400",
-  douyin: "text-zinc-100",
-  kuaishou: "text-orange-400",
-  weibo: "text-orange-500",
-  xiaohongshu: "text-red-500",
-  telegram: "text-sky-400",
-  unknown: "text-text-muted",
-};
-
-function platformTextColor(p: string): string {
-  return PLATFORM_TEXT_COLOR[p] || "text-text-muted";
-}
-
-function formatSize(bytes: number): string {
-  return formatSizeRaw(bytes, true);
-}
+// platformTextColor 已提取到 utils/platform
 
 // ============================================================
 // 主组件
@@ -119,7 +99,7 @@ export function StatsPage() {
       },
       {
         label: tr("stats_size"),
-        value: formatSize(stats.total_size),
+        value: formatSize(stats.total_size, true),
         accent: "text-success",
       },
       {

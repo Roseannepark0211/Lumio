@@ -13,6 +13,8 @@ import http.cookiejar
 import requests
 import yt_dlp
 
+from .utils.ua import DEFAULT_UA, CHROME_120_UA  # M5: 跨平台 UA
+
 from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
 from .providers.registry import get_provider_for
@@ -24,11 +26,7 @@ logger = logging.getLogger(__name__)
 _conflict_ask_handler = None  # Callable[[Path], str] — returns "rename"/"skip"/"overwrite"
 
 _DOWNLOAD_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA（原硬编码 Windows NT 10.0）
 }
 
 def _ask_user_conflict(file_path: Path) -> str:
@@ -126,16 +124,15 @@ def _resolve_output_dir(task) -> Path:
 
 
 def _find_ffmpeg() -> str | None:
-    """Locate ffmpeg: system PATH first, then imageio-ffmpeg bundle."""
-    path = shutil.which("ffmpeg")
-    if path:
-        return path
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        return None
+    """已迁移到 utils.yt_opts.find_ffmpeg，此处保留 re-export 避免破坏 providers 等调用方。"""
+    from .utils.yt_opts import find_ffmpeg
+    return find_ffmpeg()
 
+
+def _yt_opts(cookie_file: Path | None = None) -> dict:
+    """已迁移到 utils.yt_opts.yt_opts，此处保留 re-export 避免破坏调用方。"""
+    from .utils.yt_opts import yt_opts
+    return yt_opts(cookie_file)
 
 
 @dataclass
@@ -160,22 +157,7 @@ class DownloadTask:
 
 
 # ---- YouTube ----
-
-def _yt_opts(cookie_file: Path | None = None) -> dict:
-    opts: dict = {
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "continuedl": True,
-        "keep_fragments": True,
-        "socket_timeout": 15,
-    }
-    if cookie_file and cookie_file.exists():
-        opts["cookiefile"] = str(cookie_file)
-    ffmpeg = _find_ffmpeg()
-    if ffmpeg:
-        opts["ffmpeg_location"] = ffmpeg  # full path to binary
-    return opts
+# _yt_opts / _find_ffmpeg 已迁移到 utils.yt_opts，见上方 re-export
 
 
 # ---- Instagram ----
@@ -268,7 +250,7 @@ def _ig_api_session() -> requests.Session:
                 csrf_token = c.value
                 break
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": CHROME_120_UA,  # M5: 跨平台 Chrome 120（IG 移动 API 验证需要 120 版本）
         "X-IG-App-ID": "936619743392459",
         "X-CSRFToken": csrf_token,
         "X-Requested-With": "XMLHttpRequest",
@@ -337,7 +319,7 @@ def _x_api_session() -> requests.Session:
                 ct0 = c.value
                 break
     session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
         "Authorization": f"Bearer {_X_BEARER}",
         "x-csrf-token": ct0,
     })
@@ -1188,7 +1170,7 @@ def _direct_download_with_pause(task, pause_event, on_progress):
         on_progress(task)
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": DEFAULT_UA,  # M5: 跨平台 UA
     }
     # IG CDN 需要 Referer
     if "cdninstagram" in task.direct_url or "fbcdn" in task.direct_url:

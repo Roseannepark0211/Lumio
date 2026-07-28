@@ -7,7 +7,6 @@ All IG data is fetched via Apify Actor proxy — no local IG API dependency.
 from __future__ import annotations
 
 import logging
-import threading
 from datetime import datetime, timezone
 
 
@@ -81,84 +80,9 @@ class ApifyIGClient:
             raise ValueError(f"Apify returned no data for {url}")
         return self._to_video_info(items[0])
 
-    def fetch_profile_info(self, username: str) -> dict:
-        """Fetch profile metadata."""
-        run = self._client.actor(self._actor_id).call(run_input={
-            "directUrls": [f"https://www.instagram.com/{username}/"],
-            "resultsType": "posts",
-            "resultsLimit": 1,
-            "addParentData": True,
-        })
-        dataset_id = _extract_dataset_id(run)
-        items = list(self._client.dataset(dataset_id).iterate_items())
-        if not items:
-            raise ValueError(f"Apify returned no data for @{username}")
-        item = items[0]
-        return {
-            "username": item.get("ownerUsername", username),
-            "full_name": item.get("ownerFullName", ""),
-            "profile_pic_url": item.get("ownerProfilePicUrl"),
-            "post_count": 0,  # Apify doesn't return this from posts query
-            "user_id": str(item.get("ownerId", "")),
-        }
-
-    def enumerate_profile_posts(
-        self,
-        username: str,
-        limit: int,
-        callback=None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict]:
-        """Enumerate profile posts.
-
-        Returns list of Apify item dicts (not QueueTask — caller converts).
-        """
-        run_input = {
-            "directUrls": [f"https://www.instagram.com/{username}/"],
-            "resultsType": "posts",
-            "resultsLimit": limit,
-        }
-        # apify_client .call() blocks until the actor run finishes.
-        # We run it in a thread to support cancel_event polling.
-        result_holder: dict = {}
-        error_holder: list = []
-
-        def _run():
-            try:
-                result_holder["run"] = self._client.actor(self._actor_id).call(
-                    run_input=run_input,
-                )
-            except Exception as e:
-                error_holder.append(e)
-
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
-
-        # Poll for cancellation while waiting
-        while thread.is_alive():
-            if cancel_event and cancel_event.is_set():
-                # Can't cancel an Apify run mid-flight, but we can stop waiting
-                return []
-            thread.join(timeout=0.5)
-
-        if error_holder:
-            raise error_holder[0]
-
-        run = result_holder.get("run")
-        if not run:
-            return []
-
-        # Iterate dataset, collect items, report progress
-        all_items = []
-        dataset_id = _extract_dataset_id(run)
-        dataset = self._client.dataset(dataset_id)
-        for idx, item in enumerate(dataset.iterate_items()):
-            if cancel_event and cancel_event.is_set():
-                break
-            all_items.append(item)
-            if callback:
-                callback(len(all_items), limit)
-        return all_items
+    # fetch_profile_info / enumerate_profile_posts 已删除（无任何调用点，完全死代码）
+    # 历史用途：React 前端批量下载迁移被否决（commit f590fc5）后，profile/channel URL
+    # 在 /api/parse-url 端点被显式拒绝，这两个方法无前端入口可触发。
 
     # ------------------------------------------------------------------
     # Conversion helpers
@@ -248,30 +172,8 @@ class ApifyIGClient:
         except (ValueError, AttributeError):
             return ""
 
-    def post_to_queue_task(self, item: dict, custom_name: str, output_dir, max_retries: int = 3, batch_id: str = ""):
-        """Convert Apify result item → QueueTask."""
-        from .queue_manager import QueueTask
-
-        short_code = item.get("shortCode", "")
-        caption = (item.get("caption") or "").strip()
-        title = caption[:80] if caption else "Instagram post"
-        author = item.get("ownerUsername", "")
-        post_time = self._parse_timestamp(item.get("timestamp"))
-        thumb = item.get("displayUrl", "")
-        url = item.get("url", f"https://www.instagram.com/p/{short_code}/")
-
-        return QueueTask(
-            url=url,
-            output_dir=str(output_dir),
-            custom_name=custom_name,
-            batch_id=batch_id,
-            title=title,
-            platform="instagram",
-            author=author,
-            post_time=post_time,
-            thumbnail_url=thumb,
-            max_retries=max_retries,
-        )
+    # post_to_queue_task 已删除（无任何调用点，完全死代码）
+    # 历史用途：批量下载路径专用，前端不迁移批量下载后无入口可触发。
 
 
 # --- Module-level Apify client singleton ---

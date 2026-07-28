@@ -29,41 +29,9 @@ _YT_SHORTS_RE = re.compile(r"youtube\.com/shorts/([\w-]+)")
 
 
 def _yt_opts(cookie_path) -> dict:
-    """构造 yt-dlp 选项（与 downloader._yt_opts 一致）。"""
-    import yt_dlp
-    from ..utils.config import load_config
-    from ..downloader import _find_ffmpeg
-    # 跨平台 ffmpeg 定位：系统 PATH 优先，否则用 imageio_ffmpeg 内置二进制
-    # （_find_ffmpeg 内部会自动选对应平台的 ffmpeg 二进制名，不再硬编码 win 版本）
-    ffmpeg_bin = _find_ffmpeg() or "ffmpeg"
-
-    cfg = load_config()
-    proxy = cfg.get("proxy", "")
-    playlist = cfg.get("download_yt_playlist", False)
-
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "no_color": True,
-        # 合并输出
-        "merge_output_format": "mp4",
-        # ffmpeg 位置（imageio_ffmpeg 内置）
-        "ffmpeg_location": ffmpeg_bin,
-        # 断点续传
-        "continuedl": True,
-        "keep_fragments": True,
-        # 嵌入元数据
-        "embedmetadata": False,
-        # 不下载字幕
-        "writesubtitles": False,
-        "writeautomaticsub": False,
-    }
-    if proxy:
-        opts["proxy"] = proxy
-    if cookie_path:
-        opts["cookiefile"] = str(cookie_path)
-    return opts
+    """构造 yt-dlp 选项 — 已迁移到 utils.yt_opts，此处保留 re-export。"""
+    from ..utils.yt_opts import yt_opts
+    return yt_opts(cookie_path)
 
 
 @register
