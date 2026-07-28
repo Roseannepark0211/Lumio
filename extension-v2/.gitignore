@@ -1,0 +1,23 @@
+node_modules
+dist
+dist-electron
+*.local
+.DS_Store
+
+# 自动生成的图标（从 frontend/build/icon.png 生成）
+src/assets/icons/*.png
+
+# tsx 运行时编译产物（精确排除，避免误伤源码）
+manifest.config.d.ts
+manifest.config.js
+vite.config.d.ts
+vite.config.js
+scripts/generate-icons.d.ts
+scripts/generate-icons.js
+
+# TS 增量编译缓存
+tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
+
+# 设计预览文件（与主项目一致）
+design_preview/

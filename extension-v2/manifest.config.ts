@@ -1,0 +1,71 @@
+import { defineManifest } from "@crxjs/vite-plugin";
+import pkg from "./package.json";
+
+/**
+ * Lumio Browser Extension - MV3 Manifest
+ *
+ * 阶段 1：仅基础 popup + background（连接状态 + 主按钮发送 URL）
+ * 阶段 2：加 content_scripts（平台元数据提取）
+ * 阶段 3：加 commands + omnibox
+ */
+export const manifest = defineManifest({
+  manifest_version: 3,
+  name: "Lumio",
+  version: pkg.version,
+  description:
+    "将网页中的视频/图片一键发送到 Lumio 桌面客户端下载（支持 YouTube/Instagram/X/B站/快手/小红书）",
+  permissions: [
+    "activeTab",
+    "tabs",
+    "contextMenus",
+    "storage",
+    "scripting",
+    "notifications",
+    "commands",
+    "omnibox",
+  ],
+  host_permissions: [
+    "*://*.youtube.com/*",
+    "*://*.youtu.be/*",
+    "*://*.instagram.com/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*",
+    "*://*.bilibili.com/*",
+    "*://*.b23.tv/*",
+    "*://*.kuaishou.com/*",
+    "*://*.xiaohongshu.com/*",
+    "*://*.xhslink.com/*",
+    "*://*.xhslink.cn/*",
+    "http://127.0.0.1:38900/*",
+    "http://localhost:38900/*",
+  ],
+  background: {
+    service_worker: "src/background/index.ts",
+    type: "module",
+  },
+  action: {
+    default_popup: "src/popup/index.html",
+    default_title: "Lumio",
+    default_icon: {
+      16: "src/assets/icons/logo-16.png",
+      32: "src/assets/icons/logo-32.png",
+      48: "src/assets/icons/logo-48.png",
+      128: "src/assets/icons/logo-128.png",
+    },
+  },
+  icons: {
+    16: "src/assets/icons/logo-16.png",
+    32: "src/assets/icons/logo-32.png",
+    48: "src/assets/icons/logo-48.png",
+    128: "src/assets/icons/logo-128.png",
+  },
+  // 阶段 3 启用
+  // commands: {
+  //   _execute_action: { suggested_key: { default: "Ctrl+Shift+L" } },
+  //   "capture-page-silent": {
+  //     suggested_key: { default: "Ctrl+Shift+D" },
+  //     description: "静默发送当前页面到 Lumio",
+  //   },
+  // },
+  // omnibox: { keyword: "lumio" },
+});

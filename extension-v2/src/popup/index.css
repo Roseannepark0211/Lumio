@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 浅色主题（默认）— Apple Liquid Glass 蓝色调（与主项目一致） */
+    --color-bg: 245 245 247;          /* #f5f5f7 */
+    --color-bg-surface: 255 255 255;  /* #ffffff */
+    --color-bg-elevated: 240 240 243; /* #f0f0f3 */
+    --color-accent: 10 132 255;       /* #0a84ff - Apple System Blue */
+    --color-accent-glow: 100 210 255; /* #64d2ff */
+    --color-danger: 220 38 38;        /* #dc2626 */
+    --color-success: 16 185 129;      /* #10b981 */
+    --color-warning: 217 119 6;       /* #d97706 */
+    --color-text: 28 28 38;           /* #1c1c26 */
+    --color-text-muted: 107 114 128;  /* #6b7280 */
+    --color-text-dim: 156 163 175;    /* #9ca3af */
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html.dark {
+    /* 深色主题 */
+    --color-bg: 10 10 15;             /* #0a0a0f */
+    --color-bg-surface: 19 19 26;     /* #13131a */
+    --color-bg-elevated: 28 28 38;    /* #1c1c26 */
+    --color-accent: 10 132 255;       /* #0a84ff */
+    --color-accent-glow: 100 210 255; /* #64d2ff */
+    --color-danger: 239 68 68;        /* #ef4444 */
+    --color-success: 16 185 129;      /* #10b981 */
+    --color-warning: 245 158 11;      /* #f59e0b */
+    --color-text: 229 231 235;        /* #e5e7eb */
+    --color-text-muted: 156 163 175;  /* #9ca3af */
+    --color-text-dim: 107 114 128;    /* #6b7280 */
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 400px;
+    min-height: 480px;
+  }
+
+  body {
+    font-family: theme("fontFamily.sans");
+    color: rgb(var(--color-text));
+    /* Liquid Glass 背景：多层柔和光晕 + 基础底色 */
+    background:
+      radial-gradient(60% 50% at 18% 8%, rgb(var(--color-accent) / 0.18) 0%, transparent 60%),
+      radial-gradient(55% 45% at 82% 92%, rgb(var(--color-danger) / 0.10) 0%, transparent 60%),
+      radial-gradient(40% 35% at 65% 35%, rgb(var(--color-success) / 0.06) 0%, transparent 55%),
+      radial-gradient(45% 40% at 30% 75%, rgb(var(--color-accent-glow) / 0.08) 0%, transparent 55%),
+      rgb(var(--color-bg));
+    background-attachment: fixed;
+    user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-text-muted) / 0.2);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-text-muted) / 0.4);
+  }
+}
+
+@layer components {
+  /* Liquid Glass 卡片 — 与主项目 .glass-card 一致 */
+  .glass-card {
+    @apply relative rounded-2xl border;
+    border-color: rgb(var(--color-text) / 0.1);
+    background: rgb(var(--color-text) / 0.06);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    box-shadow:
+      0 12px 32px -12px rgb(0 0 0 / 0.35),
+      inset 0 1px 0 0 rgb(255 255 255 / 0.08);
+  }
+
+  /* 主按钮（accent 渐变 + 内发光） */
+  .btn-primary {
+    @apply relative w-full rounded-xl px-4 py-3 text-sm font-semibold text-white;
+    background: linear-gradient(
+      135deg,
+      rgb(var(--color-accent) / 0.95),
+      rgb(var(--color-accent-glow) / 0.85)
+    );
+    box-shadow:
+      0 6px 20px -6px rgb(var(--color-accent) / 0.5),
+      inset 0 1px 0 0 rgb(255 255 255 / 0.2);
+    transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      0 8px 24px -6px rgb(var(--color-accent) / 0.6),
+      inset 0 1px 0 0 rgb(255 255 255 / 0.25);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-primary:disabled {
+    @apply cursor-not-allowed opacity-40;
+    box-shadow: none;
+  }
+
+  /* 次级按钮 */
+  .btn-ghost {
+    @apply rounded-lg px-3 py-1.5 text-xs font-medium;
+    color: rgb(var(--color-text-muted));
+    transition: all 150ms ease-out;
+  }
+  .btn-ghost:hover {
+    background: rgb(var(--color-text) / 0.06);
+    color: rgb(var(--color-text));
+  }
+
+  /* 输入框 */
+  .input {
+    @apply w-full rounded-lg px-3 py-2 text-sm;
+    background: rgb(var(--color-text) / 0.04);
+    border: 1px solid rgb(var(--color-text) / 0.1);
+    color: rgb(var(--color-text));
+    transition: all 150ms ease-out;
+  }
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--color-accent) / 0.5);
+    background: rgb(var(--color-text) / 0.06);
+  }
+}
