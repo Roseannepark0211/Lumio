@@ -43,8 +43,19 @@ const fastapiToken = crypto.randomBytes(24).toString("hex");
 const FASTAPI_BASE = `http://127.0.0.1:${fastapiPort}`;
 
 // 把 token 通过环境变量传给渲染进程（preload 阶段读出）
+// ⚠️ 注意：sandbox 模式下 preload 的 process.env 是 polyfill，读不到主进程
+// 动态设置的变量。改用 IPC sendSync 同步获取（见下方 ipcMain.on 注册）。
+// 保留 env 设置作为兼容（dev 模式 + 非 sandbox 场景）
 process.env.LUMIO_FASTAPI_BASE = FASTAPI_BASE;
 process.env.LUMIO_FASTAPI_TOKEN = fastapiToken;
+
+// IPC 同步返回 FastAPI 连接信息给 preload 脚本。
+// preload 用 ipcRenderer.sendSync('get-fastapi-config') 同步获取，
+// 确保 sandbox 模式下也能拿到正确的端口和 token。
+// sendSync 是同步阻塞调用，在 preload 中安全使用（不会阻塞 UI）。
+ipcMain.on("get-fastapi-config", (event: Electron.IpcMainEvent) => {
+  event.returnValue = { base: FASTAPI_BASE, token: fastapiToken };
+});
 
 // D5: FastAPI spawn 前移到模块顶层——与 Electron 主进程初始化并行启动。
 //
@@ -609,6 +620,14 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // sandbox: false — 允许 preload 脚本访问 Node.js API（虽然我们用 IPC 传递配置，
+      // 但 sandbox 模式下 process.env 是 polyfill，禁用 sandbox 更稳妥）
+      sandbox: false,
+      // webSecurity: false — 打包模式必须禁用，否则 file:// origin 的 fetch 请求
+      // 到 http://127.0.0.1:PORT 会被 Chromium 的同源策略阻止（"Failed to fetch"）。
+      // dev 模式 Vite dev server 自带 CORS 头，不需要禁用。
+      // 安全风险：桌面应用本地调用，无敏感风险（FastAPI 只监听 127.0.0.1）
+      webSecurity: !app.isPackaged,
     },
     // 关键：主窗口创建时不立即显示
     // 等 React 渲染完毕（ready-to-show）+ FastAPI ready 后再 show
@@ -621,13 +640,19 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
-  // 加载 React 主页（后台加载，show: false 期间用户看不到）
+  // 加载 React 主页
+  // - dev 模式：立即加载 Vite dev server（Vite 已在运行，React HMR 可用）
+  // - packaged 模式：不在此处 loadFile！等 FastAPI ready 后再 loadFile（见下方 whenReady）
+  //   原因：如果在 FastAPI ready 之前 loadFile，React useEffect 会立即发起 fetch，
+  //   此时 FastAPI 还没启动，fetch 会失败。虽然有 fetchWithRetry（30 次重试 15 秒），
+  //   但如果 FastAPI 启动慢或时序不巧，重试可能全部失败 → setError → 页面显示
+  //   "TypeError: Failed to fetch"，且 React 不会自动重新 fetch。
+  //   等 FastAPI ready 后再 loadFile，React 渲染时 FastAPI 已 ready，fetch 第一次就成功。
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: "detach" });
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+  // packaged 模式的 loadFile 延迟到 FastAPI ready 之后（见 app.whenReady 中的 4.5 步）
 
   // 关键：React 渲染完毕后触发 ready-to-show
   // 配合 FastAPI ready 条件，两者都满足后才 show 主窗口 + 销毁 splash
@@ -909,6 +934,17 @@ app.whenReady().then(async () => {
     console.error("[electron] Failed to start FastAPI:", e);
     fastapiReady = true;
   }
+
+  // 4.5 FastAPI ready 后加载 React 主页（packaged 模式）
+  //     关键修复：之前 createWindow 中立即 loadFile，React useEffect 在 FastAPI ready
+  //     之前就发起 fetch，导致 Inbox/History/Library/Stats 页面 "TypeError: Failed to fetch"。
+  //     现在等 FastAPI ready 后再 loadFile，React 渲染时后端已就绪，fetch 第一次就成功。
+  //     dev 模式已在 createWindow 中 loadURL，此处跳过。
+  if (!process.env.VITE_DEV_SERVER_URL && mainWindow && !mainWindow.isDestroyed()) {
+    console.log("[electron] FastAPI ready, loading React page");
+    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  }
+
   // 5. 检查是否可以显示主窗口（mainWindowReady + fastapiReady 都满足时 show）
   tryShowMainWindow();
 

@@ -8,8 +8,35 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
-const fastapiBase = process.env.LUMIO_FASTAPI_BASE || "http://127.0.0.1:38910";
-const fastapiToken = process.env.LUMIO_FASTAPI_TOKEN || "";
+// 获取 FastAPI 连接信息（base URL + token）。
+//
+// 优先用 IPC sendSync 同步获取（sandbox 模式下唯一可靠方式）：
+//   sandbox 模式下 preload 的 process.env 是 polyfill，读不到主进程
+//   通过 process.env.X = Y 动态设置的变量。IPC sendSync 是同步阻塞调用，
+//   在 preload 执行期间就能拿到主进程的响应。
+//
+// fallback 到 process.env（dev 模式 + 非 sandbox 场景）：
+//   dev 模式下 sandbox 可能未启用，process.env 可用。
+//   浏览器开发模式（非 Electron）回退到固定 38910。
+let fastapiBase = "http://127.0.0.1:38910";
+let fastapiToken = "";
+try {
+  const config = ipcRenderer.sendSync("get-fastapi-config") as
+    | { base: string; token: string }
+    | null;
+  if (config && config.base) {
+    fastapiBase = config.base;
+    fastapiToken = config.token || "";
+  } else {
+    // IPC 返回 null/undefined（主进程 handler 未注册时）— fallback 到 env
+    fastapiBase = process.env.LUMIO_FASTAPI_BASE || fastapiBase;
+    fastapiToken = process.env.LUMIO_FASTAPI_TOKEN || fastapiToken;
+  }
+} catch {
+  // sendSync 失败（主进程未注册 handler）— fallback 到 env
+  fastapiBase = process.env.LUMIO_FASTAPI_BASE || fastapiBase;
+  fastapiToken = process.env.LUMIO_FASTAPI_TOKEN || fastapiToken;
+}
 
 /**
  * 把本地文件绝对路径转成 lumio-file:// URL。

@@ -435,14 +435,51 @@ export interface PreviewProgressPayload {
 // API 客户端
 // ============================================================
 
+// FastAPI 就绪等待 + 自动重试
+// 问题背景：Electron 打包模式下，前端页面 ready-to-show 时 FastAPI 可能还在启动中
+// （PyInstaller 解压 + Python 启动需要 3-8 秒）。此时所有 fetch 请求会收到
+// net::ERR_CONNECTION_REFUSED，导致页面显示"加载失败"且不会自动重试。
+//
+// 解决方案：在 get/post/put/delete 中检测连接失败，自动重试。
+// 重试策略：
+//   - 最多重试 30 次，每次间隔 500ms（总等待最多 15 秒）
+//   - 只重试 TypeError（网络错误：连接拒绝、连接重置等），不重试 HTTP 错误（4xx/5xx）
+//   - FastAPI ready 后的请求不受影响（首次就成功）
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxRetries = 30,
+  retryDelayMs = 500
+): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const r = await fetch(url, init);
+      return r;
+    } catch (e) {
+      lastError = e;
+      // TypeError = 网络错误（连接拒绝/重置/超时），可能是 FastAPI 还没 ready
+      // HTTP 错误（4xx/5xx）不会进这里，因为 fetch 不会对 HTTP 错误状态码 throw
+      if (e instanceof TypeError) {
+        // FastAPI 还没 ready，等待后重试
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        continue;
+      }
+      // 其他错误直接抛出
+      throw e;
+    }
+  }
+  throw lastError;
+}
+
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+  const r = await fetchWithRetry(`${BASE}${path}`, { headers: authHeaders() });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
   return r.json() as Promise<T>;
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
@@ -452,7 +489,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function put<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "PUT",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
@@ -462,7 +499,7 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
 }
 
 async function del<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -471,7 +508,7 @@ async function del<T>(path: string): Promise<T> {
 }
 
 async function patch<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
+  const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "PATCH",
     headers: authHeaders(),
   });
