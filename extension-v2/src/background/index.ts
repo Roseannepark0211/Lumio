@@ -14,7 +14,17 @@
 import type { CapturePayload, CaptureResult, LumioSettings, PageMeta } from "../types";
 import { LumioClient, detectPlatform, extractAuthorFromUrl } from "./api-client";
 import { createContextMenus, buildCapturePayload, safeTabsMessage } from "./contextMenus";
-import { DEFAULT_SETTINGS, SETTINGS_KEY, getSettings, saveSettings } from "./settings";
+import { DEFAULT_SETTINGS, getSettings, saveSettings } from "./settings";
+import { isDetailPageUrl } from "../shared/detailPage";
+import {
+  saveToHistory,
+  getRecentHistory,
+  getHistoryItem,
+  deleteHistoryItem,
+  deleteHistoryItems,
+  clearHistory,
+  getHistoryCount,
+} from "./history";
 
 // ── 客户端实例 ────────────────────────────────────────────────────────
 
@@ -47,15 +57,21 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
 
-  // 阶段 1：先不调 content.js（content scripts 还没注入）
-  // 阶段 2 会改为：先尝试从 content.js 拿 pageMeta
-  const pageMeta: PageMeta | null = null;
+  // 阶段 2：先尝试从 content.js / ig_extract.ts 提取元数据
+  const pageMeta = await extractPageMeta(tab.id);
+
+  // ★ 提取失败停止发送：详情页必须有元数据才发送
+  // 非详情页（首页/搜索页）允许裸 URL 发送
+  const isDetailPage = isDetailPageUrl(tab.url || "");
+  if (isDetailPage && !pageMeta) {
+    console.log("Lumio: 提取失败，停止发送（详情页需要元数据）");
+    return;
+  }
 
   const payload = buildCapturePayload(String(info.menuItemId), info, tab, pageMeta);
   if (!payload) return;
 
-  const result = await sendToLumio(payload);
-  notifyUser(result, payload);
+  await sendToLumio(payload);
 });
 
 // ── 接收 popup / content 消息 ─────────────────────────────────────────
@@ -67,7 +83,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (type === "capture") {
     const data = (msg as { data: Partial<PageMeta> }).data;
-    sendToLumio(buildPayloadFromPartial(data, sender.tab)).then(sendResponse);
+    // ★ 提取失败停止发送：详情页必须有元数据
+    // 但 X 视频推文 media_items 为空（blob: 无法提取），只要有 thumbnail 就允许发送
+    const tabUrl = data.url || sender.tab?.url || "";
+    const isDetail = isDetailPageUrl(tabUrl);
+    if (isDetail && !data.media_items?.length && !data.thumbnail && !data.direct_url) {
+      sendResponse({
+        success: false,
+        error: "页面元数据提取失败，请刷新页面后重试",
+      });
+      return false;
+    }
+    sendToLumioFromPageMeta(data, sender.tab).then(sendResponse);
     return true; // async
   }
 
@@ -91,69 +118,395 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // 阶段 2：popup 请求从 content.js 提取元数据
+  if (type === "extractPageMeta") {
+    const tabId = (msg as { tabId?: number }).tabId;
+    if (!tabId) {
+      sendResponse(null);
+      return false;
+    }
+    extractPageMeta(tabId).then(sendResponse);
+    return true;
+  }
+
+  // 阶段 2：历史记录管理
+  if (type === "getHistory") {
+    const limit = (msg as { limit?: number }).limit ?? 50;
+    getRecentHistory(limit).then(sendResponse);
+    return true;
+  }
+
+  if (type === "getHistoryCount") {
+    getHistoryCount().then(sendResponse);
+    return true;
+  }
+
+  if (type === "deleteHistoryItem") {
+    const id = (msg as { id?: string }).id;
+    if (id) {
+      deleteHistoryItem(id).then(() => sendResponse({ success: true }));
+      return true;
+    }
+    sendResponse({ success: false, error: "missing id" });
+    return false;
+  }
+
+  if (type === "deleteHistoryItems") {
+    const ids = (msg as { ids?: string[] }).ids || [];
+    deleteHistoryItems(ids).then(() => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (type === "clearHistory") {
+    clearHistory().then(() => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (type === "resendHistoryItem") {
+    const id = (msg as { id?: string }).id;
+    if (id) {
+      resendHistoryItem(id).then(sendResponse);
+      return true;
+    }
+    sendResponse({ success: false, error: "missing id" });
+    return false;
+  }
+
   return false;
 });
 
+/** 重发历史记录 */
+async function resendHistoryItem(id: string): Promise<CaptureResult> {
+  const item = await getHistoryItem(id);
+  if (!item) return { success: false, error: "记录不存在" };
+
+  const payload: CapturePayload = {
+    url: item.url,
+    title: item.title,
+    author: item.author,
+    platform: item.platform,
+    thumbnail: item.thumbnail,
+    duration: item.duration,
+    source: "browser",
+    type: item.type,
+    direct_url: item.direct_url,
+  };
+  return sendToLumio(payload);
+}
+
 // ── 发送到 Lumio API ─────────────────────────────────────────────────
 
-function buildPayloadFromPartial(
+/**
+ * 从 PageMeta（可能含 media_items）构建并发送
+ * - 多媒体场景（IG 轮播帖）：循环发送每个 media_item 作为独立 InboxItem
+ *   每个 item 的 url 加 #media-{index} 后缀避免 unique 约束冲突
+ * - 单媒体场景：media_items[0] → direct_url
+ */
+async function sendToLumioFromPageMeta(
   data: Partial<PageMeta>,
   tab: chrome.tabs.Tab | undefined,
-): CapturePayload {
+): Promise<CaptureResult> {
   const url = data.url || tab?.url || "";
-  return {
-    url,
+  const baseMeta = {
     title: data.title || tab?.title || "",
     author: data.author || extractAuthorFromUrl(url),
     platform: data.platform || detectPlatform(url),
     thumbnail: data.thumbnail || "",
     duration: data.duration ?? null,
-    source: "browser",
-    type: data.type || "url",
-    direct_url: data.direct_url,
   };
-}
 
-async function sendToLumio(payload: CapturePayload): Promise<CaptureResult> {
+  // 多媒体场景（IG 轮播帖 / X 多图推文）
+  if (data.media_items && data.media_items.length > 1) {
+    const results: CaptureResult[] = [];
+    for (let i = 0; i < data.media_items.length; i++) {
+      const item = data.media_items[i];
+      const itemUrl = `${url}#media-${i + 1}`;
+      const payload: CapturePayload = {
+        url: itemUrl,
+        ...baseMeta,
+        source: "browser",
+        type: item.is_video ? "video" : "image",
+        direct_url: item.url,
+      };
+      const result = await client.capture(payload);
+      results.push(result);
+    }
+    const last = results[results.length - 1] || { success: true, count: results.length };
+    // 写入历史
+    if (last.success) {
+      await saveToHistory({ ...baseMeta, url, source: "browser", type: "url" } as PageMeta, last);
+    }
+    return last;
+  }
+
+  // 单媒体场景
+  let directUrl = data.direct_url || "";
+  let type = data.type || "url";
+  if (data.media_items && data.media_items.length > 0) {
+    directUrl = data.media_items[0].url;
+    type = data.media_items[0].is_video ? "video" : "image";
+  }
+
+  const payload: CapturePayload = {
+    url,
+    ...baseMeta,
+    source: "browser",
+    type,
+    direct_url: directUrl,
+  };
+
   const result = await client.capture(payload);
-  // 阶段 2 会加：成功后 saveToLocalHistory
+  if (result.success) {
+    await saveToHistory({ ...baseMeta, url, source: "browser", type } as PageMeta, result);
+  }
   return result;
 }
 
-// ── 通知反馈 ──────────────────────────────────────────────────────────
-
-function notifyUser(result: CaptureResult, payload: CapturePayload) {
-  const ok = result.success;
-  const iconUrl = chrome.runtime.getURL("src/assets/icons/logo-48.png");
-  if (ok) {
-    const titleStr = payload.title ? `：${payload.title.slice(0, 40)}` : "";
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl,
-      title: "Lumio ✓",
-      message: `已发送到 Inbox${titleStr}`,
-      priority: 0,
-    });
-  } else {
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl,
-      title: "Lumio ✗",
-      message: `发送失败：${result.error || "未知错误"}`,
-      priority: 2,
-    });
+/** 右键菜单专用：从 CapturePayload 直接发送（不走 media_items 拆分） */
+async function sendToLumio(payload: CapturePayload): Promise<CaptureResult> {
+  const result = await client.capture(payload);
+  if (result.success) {
+    await saveToHistory(
+      {
+        url: payload.url,
+        title: payload.title,
+        author: payload.author,
+        platform: payload.platform,
+        thumbnail: payload.thumbnail,
+        duration: payload.duration,
+        source: "browser",
+        type: payload.type,
+      },
+      result,
+    );
   }
+  return result;
 }
 
-// ── 阶段 2 占位：从 content.js 提取页面元数据 ─────────────────────────
+// ── 阶段 2：从 content.js 提取页面元数据 ──────────────────────────────
 
-export async function extractPageMeta(tabId: number): Promise<PageMeta | null> {
-  // 阶段 2 实现：尝试 chrome.tabs.sendMessage(tabId, { type: "extractNow" })
-  // 阶段 2 实现：IG 页面 fallback 到 chrome.scripting.executeScript({ files: ["ig_extract.js"] })
-  void tabId;
-  void safeTabsMessage; // 阶段 2 用
+async function extractPageMeta(tabId: number): Promise<PageMeta | null> {
+  // 所有平台：调 content.js 的 extractNow（IG 已改为常驻 content script）
+  const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" });
+  if (meta && meta.url) return meta;
   return null;
 }
 
-// 导出供阶段 2 使用
-export { client, saveSettings, getSettings, SETTINGS_KEY };
+// ── 阶段 3：快捷键 commands ───────────────────────────────────────────
+
+chrome.commands?.onCommand.addListener(async (command) => {
+  if (command === "capture-page-silent") {
+    // 静默发送当前页面到 Lumio
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url) return;
+
+      const pageMeta = await extractPageMeta(tab.id);
+      const isDetail = isDetailPageUrl(tab.url);
+      if (isDetail && !pageMeta) {
+        console.log("Lumio: 静默发送 - 提取失败，跳过");
+        return;
+      }
+      await sendToLumioFromPageMeta(pageMeta || { url: tab.url, title: tab.title || "" }, tab);
+    } catch (e) {
+      console.log("Lumio: 静默发送失败", e);
+    }
+  }
+});
+
+// ── 阶段 3：Omnibox 地址栏 ────────────────────────────────────────────
+
+/**
+ * 从 URL 抓取 HTML 提取 og:image / twitter:image 作为缩略图
+ * 用于 omnibox 模式下补全封面（无 content script 可用）
+ *
+ * ★ 核心策略：不限制 head 区域，直接在整个 HTML 中用 indexOf 快速定位
+ *   原因：X 等 SPA 平台 HTML 可达 276KB，head 可能未正确闭合或
+ *   og:image 在 head 很后面（被内联 JS 推后），限制 head 会漏掉
+ *
+ * ★ 限制：依赖 host_permissions，部分平台需 cookie 才能拿完整页面
+ *    失败时返回空字符串，不影响发送
+ */
+async function fetchOgImage(url: string): Promise<{ thumbnail: string; title: string }> {
+  try {
+    console.log("Lumio: fetchOgImage 开始抓取", url);
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      credentials: "include",
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      },
+    });
+    console.log("Lumio: fetchOgImage 响应", resp.status, resp.headers.get("content-type"));
+    if (!resp.ok) {
+      console.log("Lumio: fetchOgImage 失败 - HTTP", resp.status);
+      return { thumbnail: "", title: "" };
+    }
+    const ct = resp.headers.get("content-type") || "";
+    if (!ct.includes("text/html") && !ct.includes("application/xhtml")) {
+      console.log("Lumio: fetchOgImage 跳过 - 非 HTML", ct);
+      return { thumbnail: "", title: "" };
+    }
+    const html = await resp.text();
+    console.log("Lumio: fetchOgImage HTML 长度", html.length);
+
+    // 在整个 HTML 中提取 meta content（不限制 head）
+    // 用 indexOf 快速定位 key，然后取周围 500 字符提取 content
+    const extractMeta = (key: string, attr: "property" | "name"): string => {
+      // 尝试两种引号
+      const patterns = [
+        `${attr}="${key}"`,
+        `${attr}='${key}'`,
+      ];
+      for (const pat of patterns) {
+        let idx = html.indexOf(pat);
+        while (idx !== -1) {
+          // 取 key 前后各 300 字符（meta 标签不会太长）
+          const start = Math.max(0, idx - 300);
+          const end = Math.min(html.length, idx + 300);
+          const snippet = html.slice(start, end);
+
+          // 在 snippet 中找 content="..." 或 content='...'
+          // 同时确保这个 snippet 来自 <meta> 标签
+          const metaStart = snippet.lastIndexOf("<meta", idx - start);
+          if (metaStart === -1) {
+            idx = html.indexOf(pat, idx + 1);
+            continue;
+          }
+          const metaEnd = snippet.indexOf(">", idx - start);
+          if (metaEnd === -1) {
+            idx = html.indexOf(pat, idx + 1);
+            continue;
+          }
+          const metaTag = snippet.slice(metaStart, metaEnd + 1);
+
+          // 从 meta 标签中提取 content
+          const cm =
+            metaTag.match(/content\s*=\s*["']([^"']+)["']/i) ||
+            metaTag.match(/content\s*=\s*([^\s"'>]+)/i);
+          if (cm) {
+            return decodeHtmlEntities(cm[1]);
+          }
+          idx = html.indexOf(pat, idx + 1);
+        }
+      }
+      return "";
+    };
+
+    // og:image / twitter:image / og:image:secure_url
+    const ogImg =
+      extractMeta("og:image", "property") ||
+      extractMeta("og:image:secure_url", "property") ||
+      extractMeta("twitter:image", "name") ||
+      extractMeta("twitter:image:src", "name") ||
+      "";
+
+    // og:title / twitter:title / <title>
+    const ogTitle =
+      extractMeta("og:title", "property") ||
+      extractMeta("twitter:title", "name") ||
+      html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ||
+      "";
+
+    console.log("Lumio: fetchOgImage 提取结果", {
+      thumbnail: ogImg.slice(0, 100),
+      title: ogTitle.slice(0, 100),
+    });
+
+    return {
+      thumbnail: ogImg.trim(),
+      title: decodeHtmlEntities(ogTitle).trim().slice(0, 200),
+    };
+  } catch (e) {
+    console.log("Lumio: fetchOgImage 异常", e);
+    return { thumbnail: "", title: "" };
+  }
+}
+
+/** 解码常见 HTML 实体 */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&#47;/g, "/");
+}
+
+chrome.omnibox?.onInputEntered.addListener(async (text) => {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  // 如果不是 URL，尝试加 https://
+  let url = trimmed;
+  if (!/^https?:\/\//.test(trimmed)) {
+    if (/^[\w-]+(\.[\w-]+)+/.test(trimmed)) {
+      url = `https://${trimmed}`;
+    } else {
+      console.log("Lumio: omnibox 输入不是有效 URL", trimmed);
+      return;
+    }
+  }
+
+  console.log("Lumio: omnibox 发送", url);
+
+  // ★ 沿用 content script 提取（与右键/popup 同逻辑）
+  // omnibox 触发时用户在地址栏输入，活动 tab 就是当前页面。
+  // 如果活动 tab 域名与输入 URL 匹配，content script 已注入，
+  // 直接调 extractPageMeta 拿完整元数据（含 thumbnail/media_items）。
+  let pageMeta: PageMeta | null = null;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id && tab.url) {
+      // 检查活动 tab 域名是否与输入 URL 相同（或同 hostname）
+      const tabHost = new URL(tab.url).hostname;
+      const inputHost = (() => {
+        try { return new URL(url).hostname; } catch { return ""; }
+      })();
+      if (tabHost && inputHost && tabHost === inputHost) {
+        console.log("Lumio: omnibox 沿用 content script 提取", tabHost);
+        pageMeta = await extractPageMeta(tab.id);
+      }
+    }
+  } catch (e) {
+    console.log("Lumio: omnibox content script 提取失败", e);
+  }
+
+  // content script 提取失败 → 回退到 fetchOgImage
+  let thumbnail = "";
+  let title = "";
+  if (pageMeta) {
+    thumbnail = pageMeta.thumbnail || "";
+    title = pageMeta.title || "";
+  } else {
+    const og = await fetchOgImage(url);
+    thumbnail = og.thumbnail;
+    title = og.title;
+  }
+
+  const payload: CapturePayload = {
+    url,
+    title,
+    author: pageMeta?.author || extractAuthorFromUrl(url),
+    platform: pageMeta?.platform || detectPlatform(url),
+    thumbnail,
+    duration: pageMeta?.duration ?? null,
+    source: "browser",
+    type: "url",
+  };
+  await sendToLumio(payload);
+});
+
+// omnibox 建议提示
+chrome.omnibox?.onInputStarted.addListener(() => {
+  chrome.omnibox.setDefaultSuggestion({
+    description: "发送 URL 到 Lumio：输入完整网址后回车",
+  });
+});

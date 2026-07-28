@@ -22,6 +22,7 @@ _werkzeug_logger.addFilter(type("NoHealthFilter", (logging.Filter,), {
 })())
 
 _inbox_manager = None  # type: ignore
+_queue_manager = None  # type: ignore  # 阶段3：Flask /stats 用
 _server_thread: threading.Thread | None = None
 
 # ── 简易限流 ────────────────────────────────────────────────────────
@@ -75,6 +76,53 @@ def health():
     return jsonify({"status": "ok", "version": __version__})
 
 
+@app.route("/stats", methods=["GET"])
+def stats():
+    """返回 inbox + queue 统计信息（供浏览器扩展轮询）。
+
+    响应：
+    {
+      "inbox_unread": int,
+      "queue_total": int,
+      "queue_active": int,   # 下载中/等待/重试/暂停
+      "queue_completed": int,
+      "queue_failed": int,
+    }
+    """
+    result = {
+        "inbox_unread": 0,
+        "queue_total": 0,
+        "queue_active": 0,
+        "queue_completed": 0,
+        "queue_failed": 0,
+    }
+
+    # inbox 未读数
+    if _inbox_manager is not None:
+        try:
+            result["inbox_unread"] = len(_inbox_manager.get_pending())
+        except Exception:
+            pass
+
+    # queue 统计
+    if _queue_manager is not None:
+        try:
+            tasks = _queue_manager.get_all_tasks()
+            result["queue_total"] = len(tasks)
+            for qt in tasks:
+                s = qt.status
+                if s in ("下载中", "等待中", "重试中", "暂停中"):
+                    result["queue_active"] += 1
+                elif s == "已完成":
+                    result["queue_completed"] += 1
+                elif s == "失败":
+                    result["queue_failed"] += 1
+        except Exception:
+            pass
+
+    return jsonify(result)
+
+
 @app.route("/capture", methods=["POST", "OPTIONS"])
 def capture():
     if request.method == "OPTIONS":
@@ -115,10 +163,14 @@ def capture():
 _srv = None  # werkzeug BaseWSGIServer instance
 
 
-def start_server(inbox_manager, port: int = 38900) -> bool:
-    """启动 API 服务（daemon thread）。返回 True 表示成功。"""
-    global _inbox_manager, _server_thread, _srv
+def start_server(inbox_manager, queue_manager=None, port: int = 38900) -> bool:
+    """启动 API 服务（daemon thread）。返回 True 表示成功。
+
+    queue_manager 为可选参数，传入后 /stats 接口可返回队列统计。
+    """
+    global _inbox_manager, _queue_manager, _server_thread, _srv
     _inbox_manager = inbox_manager
+    _queue_manager = queue_manager
 
     # 端口预检
     import socket

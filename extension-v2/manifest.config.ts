@@ -20,7 +20,6 @@ export const manifest = defineManifest({
     "contextMenus",
     "storage",
     "scripting",
-    "notifications",
     "commands",
     "omnibox",
   ],
@@ -43,6 +42,21 @@ export const manifest = defineManifest({
     service_worker: "src/background/index.ts",
     type: "module",
   },
+  content_scripts: [
+    {
+      matches: [
+        "*://*.youtube.com/*",
+        "*://*.instagram.com/*",
+        "*://*.x.com/*",
+        "*://*.twitter.com/*",
+        "*://*.bilibili.com/*",
+        "*://*.kuaishou.com/*",
+        "*://*.xiaohongshu.com/*",
+      ],
+      js: ["src/content/index.ts"],
+      run_at: "document_idle",
+    },
+  ],
   action: {
     default_popup: "src/popup/index.html",
     default_title: "Lumio",
@@ -59,13 +73,17 @@ export const manifest = defineManifest({
     48: "src/assets/icons/logo-48.png",
     128: "src/assets/icons/logo-128.png",
   },
-  // 阶段 3 启用
-  // commands: {
-  //   _execute_action: { suggested_key: { default: "Ctrl+Shift+L" } },
-  //   "capture-page-silent": {
-  //     suggested_key: { default: "Ctrl+Shift+D" },
-  //     description: "静默发送当前页面到 Lumio",
-  //   },
-  // },
-  // omnibox: { keyword: "lumio" },
+  // 阶段 3：快捷键
+  commands: {
+    _execute_action: {
+      suggested_key: { default: "Ctrl+Shift+L", mac: "Command+Shift+L" },
+      description: "打开 Lumio popup",
+    },
+    "capture-page-silent": {
+      suggested_key: { default: "Ctrl+Shift+D", mac: "Command+Shift+D" },
+      description: "静默发送当前页面到 Lumio",
+    },
+  },
+  // 阶段 3：地址栏 omnibox
+  omnibox: { keyword: "lumio" },
 });

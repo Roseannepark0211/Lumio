@@ -248,8 +248,8 @@ class AppContext:
 
         cfg = load_config()
         # 浏览器扩展的 /capture API 仍由原 Flask 服务提供（端口 38900）
-        # 这里启动它，不阻塞
-        start_server(self.inbox_manager, port=cfg.get("api_port", 38900))
+        # 传入 queue_manager 让 /stats 也能返回队列统计
+        start_server(self.inbox_manager, self.manager, port=cfg.get("api_port", 38900))
         self._stop_flask = stop_server
 
         # Telegram Bot

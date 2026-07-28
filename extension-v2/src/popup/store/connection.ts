@@ -10,8 +10,6 @@ interface ConnectionState {
   settings: LumioSettings;
   settingsOpen: boolean;
 
-  setConnected: (connected: boolean) => void;
-  setSettings: (settings: LumioSettings) => void;
   setSettingsOpen: (open: boolean) => void;
   updateSettings: (patch: Partial<LumioSettings>) => Promise<void>;
   init: () => Promise<void>;
@@ -21,10 +19,6 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   connected: false,
   settings: DEFAULT_SETTINGS,
   settingsOpen: false,
-
-  setConnected: (connected) => set({ connected }),
-
-  setSettings: (settings) => set({ settings }),
 
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 

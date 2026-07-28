@@ -55,13 +55,6 @@ export interface CaptureResult {
   error?: string;
 }
 
-/** Inbox 计数（阶段 3 用） */
-export interface InboxCount {
-  pending: number;
-  downloading: number;
-  today_done: number;
-}
-
 /** 历史记录（IndexedDB） */
 export interface HistoryItem extends PageMeta {
   id: string;
@@ -75,15 +68,3 @@ export interface LumioSettings {
   apiBaseUrl: string; // 默认 http://127.0.0.1:38900
   theme: "system" | "light" | "dark";
 }
-
-// ── 消息类型 ────────────────────────────────────────────────────────
-
-export type RuntimeMessage =
-  | { type: "getStatus" }
-  | { type: "status"; connected: boolean }
-  | { type: "capture"; data: Partial<PageMeta> }
-  | { type: "extractNow" } // popup → content
-  | { type: "pageInfo"; data: PageMeta | null } // content → popup
-  | { type: "getSettings" }
-  | { type: "setSettings"; settings: Partial<LumioSettings> }
-  | { type: "settingsUpdated"; settings: LumioSettings };
