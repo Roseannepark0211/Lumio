@@ -1,7 +1,7 @@
 {
   "name": "lumio-frontend",
   "private": true,
-  "version": "4.2.0",
+  "version": "4.4.0",
   "type": "module",
   "description": "Lumio desktop app frontend (Electron + React + Vite)",
   "scripts": {
