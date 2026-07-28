@@ -24,6 +24,8 @@ import http from "node:http";
 import crypto from "node:crypto";
 // A1: TrayManager 运行时延迟到 whenReady 内动态 import，类型用 import type 编译时擦除
 import type { TrayManager } from "./tray";
+// UpdaterManager 类型用 import type 编译时擦除，运行时动态 import
+import type { UpdaterManager } from "./updater";
 
 // ============================================================
 // 全局状态
@@ -33,6 +35,7 @@ let fastapiProc: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 let trayManager: TrayManager | null = null;
+let updaterManager: UpdaterManager | null = null;
 
 // FastAPI 连接信息（每次启动随机生成，传给子进程 + 渲染进程）
 const fastapiPort = pickUnusedPort();
@@ -879,6 +882,23 @@ app.whenReady().then(async () => {
     },
   });
   trayManager.init();
+
+  // 自动更新管理器初始化（延迟动态 import，避免主进程启动时加载 electron-updater）
+  // 三平台分流：
+  //   Windows/Linux: electron-updater 全自动（检查→下载→安装）
+  //   macOS: 手动下载 DMG 模式（无 Apple Developer 证书）
+  const { UpdaterManager } = await import("./updater");
+  updaterManager = new UpdaterManager({
+    getMainWindow: () => mainWindow,
+    getFastApiProcess: () => fastapiProc,
+    killFastApi: async () => {
+      // 复用 main.ts 已有的 stopFastApi 逻辑（含 5s 超时 + force kill 兜底）
+      await stopFastApi();
+    },
+  });
+  updaterManager.init();
+  // 启动后延迟 10 秒自动检查更新（避免阻塞首屏）
+  updaterManager.scheduleAutoCheck(10_000);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

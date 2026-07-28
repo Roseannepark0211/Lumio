@@ -30,13 +30,13 @@ import {
   type ApifyStatus,
   type ApifyUsage,
   type CacheStats,
-  type CheckUpdateResult,
 } from "../api";
 import { useToast } from "../App";
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
 import { formatSize } from "../utils/format";
 import { ModalDialog } from "../components/ModalDialog";
+import { UpdateDialog } from "../components/UpdateDialog";
 
 // ============================================================
 // 常量
@@ -138,7 +138,7 @@ export function SettingsPage() {
   const [tgState, setTgState] = useState<TelegramState | null>(null);
   const [apifyState, setApifyState] = useState<ApifyStatus | null>(null);
   const [apifyUsage, setApifyUsage] = useState<ApifyUsage>({});
-  const [updateStatus, setUpdateStatus] = useState("");
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   // —— 验证瞬态 ——
   const [tgValidating, setTgValidating] = useState(false);
@@ -452,21 +452,8 @@ export function SettingsPage() {
   }, [showToast]);
 
   // —— 检查更新 ——
-  const onCheckUpdate = useCallback(async () => {
-    setUpdateStatus(tr("settings_update_checking"));
-    try {
-      const r: CheckUpdateResult = await api.checkUpdate();
-      if (r.error) {
-        setUpdateStatus(`❌ ${tr("settings_update_error", { err: r.error })}`);
-      } else if (r.has_update) {
-        setUpdateStatus(`🆕 ${tr("settings_update_found", { ver: `v${r.latest}` })}（当前 v${r.current}）`);
-      } else {
-        setUpdateStatus(`✅ ${tr("settings_update_latest")} v${r.current}`);
-      }
-    } catch (e) {
-      setUpdateStatus(`❌ ${tr("settings_update_error", { err: String(e) })}`);
-    }
-  }, [tr]);
+  // 已改用 UpdateDialog 组件（打开时自动检查更新 + 显示 release notes + 下载 + 重启安装）
+  // updateStatus 仅保留用于启动时自动检查的 toast 提示，手动检查走 UpdateDialog 流程
 
   // —— 主题 / 语言切换 ——
   const onSetTheme = useCallback(
@@ -1129,16 +1116,12 @@ export function SettingsPage() {
             </span>
             <div className="flex-1" />
             <button
-              onClick={onCheckUpdate}
+              onClick={() => setUpdateDialogOpen(true)}
               className="rounded-lg bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/25"
             >
               ↻ {tr("settings_check_update")}
             </button>
           </Row>
-
-          {updateStatus && (
-            <p className="text-xs text-accent">{updateStatus}</p>
-          )}
 
           <p className="text-center font-mono text-[10px] text-text-dim">
             Lumio © 2026 · Build {(config.build_date as string) || "2026.07.25"}
@@ -1190,6 +1173,9 @@ export function SettingsPage() {
           />
         </ModalDialog>
       )}
+
+      {/* 检查更新对话框（打开时自动检查 → 显示 release notes → 下载 → 重启安装） */}
+      <UpdateDialog open={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} />
     </div>
   );
 }

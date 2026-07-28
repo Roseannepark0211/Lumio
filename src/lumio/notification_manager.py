@@ -550,12 +550,24 @@ class NotificationManager(QObject):
                 with self._lock:
                     self._remove_by_source_key("version_new")
                     self._remove_by_source_key("version_latest")
+                # 通知页改为"更新内容通知"——把 release body（markdown）写入 message
+                # 用户在通知页直接看到实际更新内容，而不是简单的"有新版本"提示
+                release_body = getattr(self, "_latest_release_body", "") or ""
+                release_name = getattr(self, "_latest_release_name", "") or ""
+                # message 格式：release_name + 换行 + release body（截断到 1000 字防过长）
+                if release_body:
+                    body_preview = release_body[:1000] + ("..." if len(release_body) > 1000 else "")
+                    message = body_preview
+                else:
+                    message = t("notif_version_new_msg", __version__, new_version)
+                # title 包含版本号 + release name（如果有）
+                title = f"Lumio {new_version}" + (f" — {release_name}" if release_name else "")
                 self.add_notification(Notification(
                     category="update",
                     type="update",
                     priority="normal",
-                    title=t("notif_version_new_title"),
-                    message=t("notif_version_new_msg", __version__, new_version),
+                    title=title,
+                    message=message,
                     action="open_url:https://github.com/Roseannepark0211/Lumio/releases",
                     action_text=t("notif_action_download"),
                     source_key="version_new",
@@ -651,46 +663,38 @@ class NotificationManager(QObject):
             logger.debug("Cache status check failed: %s", e)
 
     def _do_version_check(self) -> str:
-        """实际执行版本检查。返回: "latest" / "new:X.X.X" / "error:message"。"""
+        """实际执行版本检查。返回: "latest" / "new:X.X.X" / "error:message"。
+
+        实现迁移：原方案用 `git fetch --tags + git tag -l` 拉本地 git 仓库 tag，
+        打包后（无 .git 目录）会失败。改为调 GitHub Releases API，不依赖本地 git。
+        仓库地址统一为 Roseannepark0211/Lumio（与 FastAPI 端点一致）。
+        """
         try:
-            from packaging.version import Version
-        except ImportError:
-            def _ver_tuple(v: str):
-                return tuple(int(x) for x in v.split(".") if x.isdigit())
+            import urllib.request
+            api_url = "https://api.github.com/repos/Roseannepark0211/Lumio/releases/latest"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "Lumio"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            latest = (data.get("tag_name") or "").lstrip("v")
+            if not latest:
+                return "error:GitHub Releases 未返回 tag_name"
 
-            class _SimpleVersion:
-                def __init__(self, v):
-                    self._v = _ver_tuple(v)
+            # 版本对比
+            try:
+                from packaging.version import Version
+                has_update = Version(latest) > Version(__version__)
+            except ImportError:
+                def _vt(v: str):
+                    return tuple(int(x) for x in v.split(".") if x.isdigit())
+                has_update = _vt(latest) > _vt(__version__)
 
-                def __gt__(self, o):
-                    return self._v > o._v
-
-                def __eq__(self, o):
-                    return self._v == o._v
-
-                def __le__(self, o):
-                    return self._v <= o._v
-
-            Version = _SimpleVersion  # type: ignore
-
-        try:
-            subprocess.run(
-                ["git", "fetch", "--tags", "origin"],
-                capture_output=True, text=True, timeout=10,
-                cwd=str(Path(__file__).parent.parent.parent),
-            )
-            result = subprocess.run(
-                ["git", "tag", "-l", "v*", "--sort=-v:refname"],
-                capture_output=True, text=True, timeout=5,
-                cwd=str(Path(__file__).parent.parent.parent),
-            )
-            tags = [t.strip().lstrip("v") for t in result.stdout.strip().split("\n") if t.strip()]
-            if not tags:
-                return "error:未找到版本标签"
-            latest = tags[0]
-            if Version(latest) <= Version(__version__):
-                return "latest"
-            return f"new:{latest}"
+            if has_update:
+                # 把 release body（更新内容）缓存到实例，供 check_version_manual 用
+                self._latest_release_body = data.get("body", "")
+                self._latest_release_url = data.get("html_url", "")
+                self._latest_release_name = data.get("name", "")
+                return f"new:{latest}"
+            return "latest"
         except Exception as e:
             return f"error:{e}"
 
@@ -716,12 +720,21 @@ class NotificationManager(QObject):
             # 移除旧的新版本通知（如有），添加新的
             self._remove_by_source_key("version_new")
             self._remove_by_source_key("version_latest")
+            # 通知页改为"更新内容通知"——把 release body 写入 message
+            release_body = getattr(self, "_latest_release_body", "") or ""
+            release_name = getattr(self, "_latest_release_name", "") or ""
+            if release_body:
+                body_preview = release_body[:1000] + ("..." if len(release_body) > 1000 else "")
+                message = body_preview
+            else:
+                message = t("notif_version_new_msg", __version__, new_version)
+            title = f"Lumio {new_version}" + (f" — {release_name}" if release_name else "")
             self.add_notification(Notification(
                 category="update",
                 type="update",
                 priority="normal",
-                title=t("notif_version_new_title"),
-                message=t("notif_version_new_msg", __version__, new_version),
+                title=title,
+                message=message,
                 action="open_url:https://github.com/Roseannepark0211/Lumio/releases",
                 action_text=t("notif_action_download"),
                 source_key="version_new",

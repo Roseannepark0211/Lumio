@@ -70,4 +70,27 @@ contextBridge.exposeInMainWorld("lumio", {
   onNavigate: (callback: (page: string) => void) => {
     ipcRenderer.on("navigate", (_e, page: string) => callback(page));
   },
+  /** 自动更新 IPC 桥接 — SettingsPage 检查更新流程调用 */
+  updater: {
+    /** 手动检查更新（用户点击"检查更新"按钮触发） */
+    check: () => ipcRenderer.invoke("updater:check"),
+    /** 开始下载更新（用户在更新对话框点"立即下载"触发） */
+    download: () => ipcRenderer.invoke("updater:download"),
+    /** 退出并安装更新（用户在下载完成提示点"立即重启"触发） */
+    quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
+    /** 监听主进程推送的更新事件 */
+    onEvent: (callback: (channel: string, data: any) => void) => {
+      const channels = [
+        "update:checking",
+        "update:available",
+        "update:not-available",
+        "update:download-progress",
+        "update:downloaded",
+        "update:error",
+      ];
+      channels.forEach((ch) => {
+        ipcRenderer.on(ch, (_e, data: any) => callback(ch, data));
+      });
+    },
+  },
 });

@@ -35,7 +35,47 @@ interface LumioGlobal {
   };
   /** 监听托盘菜单导航事件（主进程 → 渲染进程） */
   onNavigate?: (callback: (page: string) => void) => void;
+  /** 自动更新 IPC 桥接（Electron 模式可用） */
+  updater?: {
+    check: () => Promise<CheckUpdateResult>;
+    download: () => Promise<{ ok: boolean; error: string | null }>;
+    quitAndInstall: () => Promise<{ ok: boolean }>;
+    onEvent: (callback: (channel: string, data: any) => void) => void;
+  };
 }
+
+// ============================================================
+// 自动更新类型定义（与 electron/updater.ts 对齐）
+// ============================================================
+
+export interface UpdateInfo {
+  version: string;
+  releaseNotes: string | null;
+  releaseName: string | null;
+  releaseDate: string | null;
+}
+
+export interface CheckUpdateResult {
+  hasUpdate: boolean;
+  info: UpdateInfo | null;
+  error: string | null;
+}
+
+export interface DownloadProgress {
+  percent: number;
+  transferredBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+}
+
+/** 自动更新事件通道名（与 electron/updater.ts sendToRenderer 对齐） */
+export type UpdateEventChannel =
+  | "update:checking"
+  | "update:available"
+  | "update:not-available"
+  | "update:download-progress"
+  | "update:downloaded"
+  | "update:error";
 
 const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: LumioGlobal }).lumio : undefined);
 
@@ -305,12 +345,16 @@ export interface CacheDirStat {
   freed?: number;
 }
 
-/** 版本检查响应（/api/check-update） */
-export interface CheckUpdateResult {
+/** 版本检查响应（/api/check-update）—— 旧 FastAPI 端点返回的格式
+ *  注意：与 electron-updater 的 CheckUpdateResult 不同（前者用于后端 API 兼容） */
+export interface CheckUpdateApiResponse {
   current?: string;
   latest?: string;
   has_update?: boolean;
   release_url?: string;
+  release_name?: string;
+  release_body?: string;
+  published_at?: string;
   error?: string;
 }
 
@@ -670,7 +714,7 @@ export const api = {
     post<{ ok: boolean; error?: string }>("/api/clipboard/copy", { text }),
 
   // —— SettingsPage: 版本检查 ——
-  checkUpdate: () => get<CheckUpdateResult>("/api/check-update"),
+  checkUpdate: () => get<CheckUpdateApiResponse>("/api/check-update"),
 
   // —— SettingsPage: 文件/文件夹对话框（走 Electron IPC，非 FastAPI） ——
   /**

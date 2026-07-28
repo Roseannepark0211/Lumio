@@ -1667,10 +1667,15 @@ def create_app() -> FastAPI:
 
     @app.get("/api/check-update")
     async def check_update() -> dict:
+        """检查 GitHub Releases 最新版本。
+
+        统一仓库地址：Roseannepark0211/Lumio（之前误用 Azad-slack/Lumio）。
+        返回 release body（更新内容）供前端展示 release notes。
+        """
         try:
             from . import __version__
             import urllib.request
-            api_url = "https://api.github.com/repos/Azad-slack/Lumio/releases/latest"
+            api_url = "https://api.github.com/repos/Roseannepark0211/Lumio/releases/latest"
             req = urllib.request.Request(api_url, headers={"User-Agent": "Lumio"})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -1680,6 +1685,9 @@ def create_app() -> FastAPI:
                 "latest": latest,
                 "has_update": _version_lt(__version__, latest),
                 "release_url": data.get("html_url", ""),
+                "release_name": data.get("name", ""),
+                "release_body": data.get("body", ""),  # 更新内容（markdown）
+                "published_at": data.get("published_at", ""),
             }
         except Exception as e:
             return {"error": str(e)}
