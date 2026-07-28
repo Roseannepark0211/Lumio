@@ -1,0 +1,220 @@
+name: CI
+
+# 跨平台持续集成 —— 替代文档《发布迁移架构正式版前的准备工作.md》中的手动测试矩阵
+# （用户无 macOS/Linux 设备，用 GitHub Actions 在 CI 上验证跨平台兼容性）
+#
+# 触发条件：
+#   - push 到 main：跑全平台单测
+#   - PR：跑全平台单测
+#   - 手动触发：workflow_dispatch（带 debug 选项）
+#
+# 测试矩阵：
+#   - Windows x64  → windows-latest（同时是用户本机环境的 CI 兜底）
+#   - macOS arm64  → macos-14（Apple Silicon M1，非 Rosetta）
+#   - Linux x64    → ubuntu-latest
+#
+# 验证内容：
+#   1. Python 单元测试（不含 test_integration.py，避免依赖真实网络）
+#   2. Python 跨平台 import 检查（M5 UA / S1 ffmpeg / S2 剪贴板）
+#   3. Frontend 构建验证（tsc + vite build，确保 Electron 主进程 TS 类型正确）
+#   4. Frontend lint（如配置了 ESLint）
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Enable debug logging"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+# 同一分支并发时取消旧 run，节省 CI 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: Python Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false  # 一个平台失败不影响其他平台继续跑
+      matrix:
+        include:
+          - os: windows-latest
+            os_name: windows
+            python_cmd: python
+          - os: macos-14
+            os_name: macos-arm64
+            python_cmd: python3
+          - os: ubuntu-latest
+            os_name: linux
+            python_cmd: python3
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          ${{ matrix.python_cmd }} -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Install system ffmpeg (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install system ffmpeg (macOS only)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: ${{ matrix.python_cmd }} -m pytest tests/ -v --ignore=tests/test_integration.py
+
+      - name: Cross-platform import check (M1-M5 verification)
+        env:
+          PYTHONPATH: src
+        run: |
+          ${{ matrix.python_cmd }} -c "
+          import sys
+          print(f'Python: {sys.version}')
+          print(f'Platform: {sys.platform}')
+
+          # M5: 跨平台 UA
+          from lumio.utils.ua import DEFAULT_UA, CHROME_120_UA, WINDOWS_CHROME_UA, WINDOWS_CHROME_120_UA, chrome_ua
+          print(f'DEFAULT_UA: {DEFAULT_UA}')
+          assert 'Windows NT' in DEFAULT_UA if sys.platform == 'win32' else 'Windows NT' not in DEFAULT_UA, 'UA should match platform'
+
+          # S1: ffmpeg 跨平台路径
+          from lumio.downloader import _find_ffmpeg
+          ffmpeg = _find_ffmpeg()
+          print(f'ffmpeg path: {ffmpeg}')
+
+          # S2: 剪贴板跨平台
+          from lumio.utils.signal import _QGuiApplicationClipboard
+          cb = _QGuiApplicationClipboard()
+          print(f'Clipboard read (first 50 chars): {cb.text()[:50]!r}')
+
+          # 主 manager 实例化
+          from lumio.utils.signal import QApplication
+          app = QApplication.instance() or QApplication([])
+          from lumio.queue_manager import DownloadManager
+          from lumio.library_manager import LibraryManager
+          from lumio.history_manager import HistoryManager
+          from lumio.inbox_manager import InboxManager
+          from lumio.notification_manager import NotificationManager
+          print('All managers: import OK')
+
+          print('Cross-platform check: PASS')
+          "
+
+  frontend-build:
+    name: Frontend Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript type check (Electron main)
+        working-directory: frontend
+        run: npm run build:electron
+
+      - name: Vite build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Validate electron-builder config
+        working-directory: frontend
+        run: 'node -e "const cfg = require(''./electron-builder.config.js''); console.log(JSON.stringify({ win: cfg.win && cfg.win.target, mac: cfg.mac && cfg.mac.target, linux: cfg.linux && cfg.linux.target }))"'
+
+      - name: Upload build artifacts (Linux only, for inspection)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-linux
+          path: frontend/dist/
+          retention-days: 7
+
+  # 跨平台冒烟测试：模拟 main.ts 的关键路径（不真启动 Electron）
+  smoke-test:
+    name: Smoke Test (${{ matrix.os }})
+    needs: [python-tests, frontend-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install system ffmpeg (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else sudo apt-get update && sudo apt-get install -y ffmpeg; fi
+        shell: bash
+
+      - name: Smoke test - FastAPI startup
+        env:
+          PYTHONPATH: src
+          LUMIO_FASTAPI_PORT: "39000"
+          LUMIO_FASTAPI_TOKEN: "smoke-test-token"
+        run: |
+          # 后台启动 FastAPI
+          python -m lumio.api_fastapi &
+          FASTAPI_PID=$!
+
+          # 等 5 秒让服务就绪
+          sleep 5
+
+          # 健康检查
+          curl -sSf http://127.0.0.1:39000/api/health > /dev/null && echo "FastAPI: healthy" || (echo "FastAPI: FAILED"; kill $FASTAPI_PID; exit 1)
+
+          # 关闭
+          kill $FASTAPI_PID 2>/dev/null || true
+          wait $FASTAPI_PID 2>/dev/null || true
+        shell: bash

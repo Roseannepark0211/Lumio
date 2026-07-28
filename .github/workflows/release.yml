@@ -1,9 +1,14 @@
 name: Build & Release
 
-# 仅在正式版本 tag 上触发构建发布。
-# 排除迁移期 tag（含 pre- / post- / dev），这些 tag 只用作回滚锚点，
-# 不应该触发 Release 构建（AGENTS.md Git 工作流：迁移期不打长期分支，
-# 每个里程碑前打 tag 作为逃生通道，但不是发布版本）。
+# ============================================================
+# 触发条件：仅在正式版本 tag 上触发
+# ============================================================
+# 排除迁移期 tag（AGENTS.md "Git 工作流"）：
+#   - v*-pre-*    迁移里程碑前的回滚锚点
+#   - v*-post-*   迁移完成后的事后标记
+#   - v*dev*      开发期临时 tag
+#   - v*-rc-*     Release Candidate（预发布）
+# 这些 tag 只用作回滚锚点或预发布，不应该触发正式 Release 构建。
 #
 # GitHub Actions 用 glob（非正则）。先匹配 v* 再用 ! 排除迁移期 tag。
 on:
@@ -16,98 +21,243 @@ on:
       - '!v*-rc-*'
 
 permissions:
-  contents: write
+  contents: write  # 创建 Release + 上传资源
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false  # 同一 tag 多次 push 不取消，避免半成品 Release
 
 jobs:
+  # ============================================================
+  # 构建：4 平台并行矩阵
+  # ============================================================
+  # - Windows x64    → NSIS 安装包（.exe）
+  # - macOS x64      → DMG（Intel，macos-13 原生 runner）
+  # - macOS arm64    → DMG（Apple Silicon，macos-14 原生 runner）
+  # - Linux x64      → AppImage + deb + rpm
+  #
+  # 关键设计：
+  #   1. macOS 不在 electron-builder.config.js 里指定 arch，让 CI 矩阵
+  #      用原生 runner 架构分别构建。原因：PyInstaller 不支持交叉编译，
+  #      Python 后端必须是原生架构。
+  #   2. electron-builder --publish always 自动上传产物 + latest.yml 到 Release
+  #      （electron-updater 通过 latest.yml 检查更新）
+  #   3. GH_TOKEN 环境变量让 electron-builder 有权创建/编辑 Release
+  #   4. macOS notarize 默认关闭；通过 secrets 启用（个人项目无 Apple 证书）
+  #   5. Windows 代码签名默认关闭；通过 secrets CSC_LINK 启用
   build:
+    name: Build (${{ matrix.os_name }})
     strategy:
+      fail-fast: false  # 一个平台失败不影响其他平台继续跑
       matrix:
         include:
           - os: windows-latest
-            artifact_name: Lumio-Windows-x64.zip
-          - os: macos-latest
-            artifact_name: Lumio-macOS.tar.gz
+            os_name: windows-x64
+            python_cmd: python
+          - os: macos-13
+            os_name: macos-x64
+            python_cmd: python3
+          - os: macos-14
+            os_name: macos-arm64
+            python_cmd: python3
           - os: ubuntu-latest
-            artifact_name: Lumio-Linux-x64.tar.gz
+            os_name: linux-x64
+            python_cmd: python3
 
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
-        pip install -e ".[test]"
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-    - name: Run tests
-      env:
-        PYTHONPATH: src
-      run: python -m pytest tests/ -v --ignore=tests/test_integration.py
-      timeout-minutes: 5
-
-    - name: Build with PyInstaller
-      run: pyinstaller lumio.spec
-
-    - name: Package (Windows)
-      if: runner.os == 'Windows'
-      run: Compress-Archive -Path dist/LumioAPI/* -DestinationPath ${{ matrix.artifact_name }}
-
-    - name: Package (macOS/Linux)
-      if: runner.os != 'Windows'
-      run: cd dist && tar czf ../${{ matrix.artifact_name }} LumioAPI/
-
-    - name: Upload to Release
-      uses: softprops/action-gh-release@v2
-      with:
-        body: |
-          ## Lumio ${{ github.ref_name }}
-
-          内容采集与素材管理桌面工具。
-
-          ### 下载
-
-          | 系统 | 文件 | 说明 |
-          |------|------|------|
-          | Windows x64 | `Lumio-Windows-x64.zip` | 解压后运行 `Lumio.exe` |
-          | macOS | `Lumio-macOS.tar.gz` | 解压后运行 `Lumio` |
-          | Linux x64 | `Lumio-Linux-x64.tar.gz` | 解压后运行 `./Lumio` |
-
-          ### 系统要求
-
-          - **Windows**: Windows 10/11 x64
-          - **macOS**: macOS 12+ (Intel/Apple Silicon)
-          - **Linux**: Ubuntu 20.04+ / Fedora 36+ x64
-
-          ### 安装说明
-
-          1. 下载对应系统的压缩包
-          2. 解压到任意目录
-          3. 运行 `Lumio` 可执行文件
-
-          > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有文件均开源可查。
-
-          ### pip 安装（需要 Python 3.10+）
-
-          ```
-          pip install lumio
-          lumio-api
-          ```
-
-          ### 从源码运行
-
-          ```
-          git clone https://github.com/Roseannepark0211/Lumio.git
-          cd Lumio
+      - name: Install Python dependencies
+        run: |
+          ${{ matrix.python_cmd }} -m pip install --upgrade pip
           pip install -e .
-          python -m lumio.api_fastapi
-          ```
-        files: |
-          ${{ matrix.artifact_name }}
+          pip install pyinstaller
+
+      - name: Install system ffmpeg (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ffmpeg
+          else
+            sudo apt-get update && sudo apt-get install -y ffmpeg libxtst6 libnss3 libnotify4
+          fi
+        shell: bash
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Python backend (PyInstaller)
+        working-directory: frontend
+        run: npm run build:backend
+
+      - name: Build frontend (Vite + TypeScript)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build Electron main (TypeScript)
+        working-directory: frontend
+        run: npm run build:electron
+
+      - name: Verify build inputs
+        working-directory: frontend
+        run: |
+          echo "--- python-backend/ ---"
+          ls -la python-backend/ | head -20
+          echo "--- dist/ ---"
+          ls -la dist/ | head -10
+          echo "--- dist-electron/ ---"
+          ls -la dist-electron/ | head -10
+          echo "--- build/ ---"
+          ls -la build/ | head -10
+        shell: bash
+
+      - name: Package with electron-builder (--publish always)
+        working-directory: frontend
+        env:
+          # GitHub Release 上传凭据（electron-builder 用此 token 创建/编辑 Release）
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS notarize（可选，通过 secrets 启用）
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS 代码签名证书（可选，.p12 base64）
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Windows 代码签名证书（可选，.p12 base64）
+          # 同样用 CSC_LINK / CSC_KEY_PASSWORD（electron-builder 自动按平台分流）
+        run: npx electron-builder --publish always
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.os_name }}
+          path: |
+            frontend/release/
+            frontend/dist/
+            frontend/dist-electron/
+            dist/
+          retention-days: 7
+
+  # ============================================================
+  # 发布说明：所有平台构建完成后统一更新 Release body
+  # ============================================================
+  # electron-builder --publish always 会自动创建 Release（body 为空），
+  # 这个 job 在所有 build job 完成后，从 git log 生成 release notes
+  # 并写入 Release body。UpdateDialog 通过 GitHub API 读 body 显示更新内容。
+  release-notes:
+    name: Update Release Notes
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整 git history 用于生成 release notes
+
+      - name: Generate release notes from commit history
+        id: notes
+        run: |
+          # 找到上一个 tag（排除当前 tag）
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          echo "Current tag: $CURRENT_TAG"
+
+          # 列出当前 tag 之前的所有 tag，按版本号排序取最新
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1 || echo "")
+          echo "Previous tag: $PREV_TAG"
+
+          if [ -n "$PREV_TAG" ]; then
+            # 从上个 tag 到当前 tag 的 commit history
+            NOTES=$(git log --pretty=format:"- %s" ${PREV_TAG}..${CURRENT_TAG} | head -80)
+          else
+            # 没有 prev tag，取最近 50 条 commit
+            NOTES=$(git log --pretty=format:"- %s" HEAD~50..HEAD | head -50)
+          fi
+
+          # 写到 GITHUB_OUTPUT（prev_tag 单行，notes 多行用 EOF heredoc）
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update Release body
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## Lumio ${{ github.ref_name }}
+
+            内容采集与素材管理桌面工具，通过分享链接下载 YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书的图片和视频。
+
+            ### 更新内容
+
+            ${{ steps.notes.outputs.notes }}
+
+            ### 下载
+
+            | 系统 | 文件 | 说明 |
+            |------|------|------|
+            | Windows x64 | `Lumio-Setup-*.exe` | NSIS 安装包，双击安装 |
+            | macOS Intel | `Lumio-*-x64.dmg` | Intel Mac |
+            | macOS Apple Silicon | `Lumio-*-arm64.dmg` | M1/M2/M3/M4 Mac |
+            | Linux x64 | `Lumio-*.AppImage` | AppImage，无需安装直接运行 |
+            | Linux x64 | `Lumio-*.deb` | Debian/Ubuntu |
+            | Linux x64 | `Lumio-*.rpm` | Fedora/RHEL/openSUSE |
+
+            ### 系统要求
+
+            - **Windows**: Windows 10/11 x64
+            - **macOS**: macOS 12+（Intel 或 Apple Silicon）
+            - **Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64
+
+            ### 安装说明
+
+            1. 下载对应系统的安装包
+            2. Windows 双击 `.exe` 安装；macOS 双击 `.dmg` 拖入 Applications；Linux 直接运行 `.AppImage` 或用包管理器安装 `.deb`/`.rpm`
+            3. 首次启动会拉起内置 Python 后端（无需手动配置环境）
+
+            > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有源码均开源可查。
+
+            > **macOS 用户**: 首次打开 DMG 后右键 → 「打开」绕过 Gatekeeper；或终端执行 `xattr -dr com.apple.quarantine /Applications/Lumio.app`。
+
+            ### 自动更新
+
+            已安装的用户可在「设置 → 关于」点击「检查更新」：
+            - **Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装
+            - **macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）
+
+            ### 从源码运行（开发者）
+
+            ```
+            git clone https://github.com/Roseannepark0211/Lumio.git
+            cd Lumio
+            pip install -e .
+            # 启动 Python 后端
+            python -m lumio.api_fastapi
+            # 另开终端启动前端（需要 Node.js 20+）
+            cd frontend
+            npm ci
+            npm run dev:electron
+            ```
+
+            ---
+            **Full Changelog**: https://github.com/Roseannepark0211/Lumio/compare/${{ steps.notes.outputs.prev_tag }}...${{ github.ref_name }}

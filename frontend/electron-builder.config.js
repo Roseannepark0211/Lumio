@@ -35,6 +35,16 @@ module.exports = {
     "dist/**/*",
     "dist-electron/**/*",
   ],
+  // publish: electron-updater 通过此配置拉取 latest.yml + 下载安装包
+  // GitHub Releases 作为唯一更新源（个人项目零服务器成本）
+  // electron-builder --publish always 会自动上传产物到对应 Release tag
+  publish: [
+    {
+      provider: "github",
+      owner: "Roseannepark0211",
+      repo: "Lumio",
+    },
+  ],
   // asar 打包：把 dist/ + dist-electron/ 整体打入 app.asar 归档
   // - 安装包体积 -30%~50%（小文件合并 + 压缩）
   // - 启动时减少 fs 系统调用（一次读取归档 vs 多次小文件 IO）
@@ -87,23 +97,24 @@ module.exports = {
   },
 
   // ============================================================
-  // macOS — DMG + universal2
+  // macOS — DMG（单架构，由 CI 矩阵分别构建 x64 / arm64）
   // ============================================================
-  // 关键配置：
-  //   - arch: ["x64", "arm64"] → 单独构建 Intel / Apple Silicon 包
-  //     （不用 "universal" 是因为 PyInstaller 产物只针对当前架构，
-  //      universal 会导致 Electron 跑到非原生架构的 Python 后端上）
-  //   - notarize: false 默认关闭；启用需 Apple Developer ID 证书 +
+  // 关键设计：
+  //   - 不在 electron-builder.config.js 里指定 mac.arch / target.arch，
+  //     让 electron-builder 默认用当前主机架构打包
+  //   - CI 矩阵用 macos-13 (Intel x64) + macos-14 (Apple Silicon arm64)
+  //     分别跑一次构建，每次产出单一架构的 DMG
+  //   - 原因：PyInstaller 不支持交叉编译，Python 后端必须是原生架构
+  //     若在 arm64 主机上让 electron-builder 交叉编译 x64，Python 后端
+  //     仍是 arm64 → x64 包跑起来后 spawn arm64 LumioAPI 会失败
+  //
+  //   - notarize: 默认关闭；启用需 Apple Developer ID 证书 +
   //     环境变量 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
   //   - hardenedRuntime: true 是 notarize 的前提（即使不 notarize 也建议开）
   //   - category: App Store 应用分类（utilities=工具类）
   mac: {
-    target: [
-      { target: "dmg", arch: ["x64", "arm64"] },
-    ],
+    target: ["dmg"],
     icon: "build/icon.png",
-    // 单独构建两个架构包（不合并 universal），避免 Python 后端架构不匹配
-    arch: ["x64", "arm64"],
     category: "public.app-category.utilities",
     hardenedRuntime: true,
     gatekeeperAssess: false,
@@ -120,6 +131,7 @@ module.exports = {
   },
   dmg: {
     // DMG 卷标题：Lumio-X.Y.Z-arm64.dmg / Lumio-X.Y.Z-x64.dmg
+    // ${arch} 由 electron-builder 自动填充为当前主机架构
     title: "${productName}-${version}-${arch}",
     contents: [
       { x: 130, y: 220 },
