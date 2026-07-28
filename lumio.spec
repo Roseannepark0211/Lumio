@@ -57,9 +57,14 @@ a = Analysis(
         # GUI 框架（Lumio 用 Electron 前端，不用 tkinter）
         "tkinter",
         # 科学计算（Lumio 不用，但 pip 安装其他包时可能被静态分析误带）
+        # numpy 36MB + numpy.libs 5MB = 41MB 体积优化
         "numpy",
         "pandas",
         "matplotlib",
+        # IDE 自动补全（运行时不需要，3.3MB）
+        "jedi",
+        # 高性能 HTTP 客户端（Lumio 用 requests/httpx，不用 impit，7.2MB）
+        "impit",
         # 测试/文档/REPL 工具（运行时不需要）
         "pytest",
         "unittest",
@@ -145,8 +150,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "LumioAPI",
             "CFBundleDisplayName": "Lumio API",
-            "CFBundleShortVersionString": "4.2.0",
-            "CFBundleVersion": "4.2.0",
+            "CFBundleShortVersionString": "4.4.0",
+            "CFBundleVersion": "4.4.0",
             "LSMinimumSystemVersion": "10.13",
             "LSBackgroundOnly": True,  # 后台服务，不显示 Dock 图标
             "NSHighResolutionCapable": True,
