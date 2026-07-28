@@ -95,6 +95,20 @@ fs.mkdirSync(targetDir, { recursive: true });
 log(`copying ${primaryDist} → ${targetDir}`);
 fs.cpSync(primaryDist, targetDir, { recursive: true });
 
+// 5.5 生成 version.txt（packaged 模式 splash 窗口显示真实版本号）
+// main.ts 的 readAppVersion() 会读 resources/build/version.txt
+const initPath = path.resolve(__dirname, "..", "..", "src", "lumio", "__init__.py");
+if (fs.existsSync(initPath)) {
+  const content = fs.readFileSync(initPath, { encoding: "utf-8" });
+  const m = content.match(/__version__\s*=\s*["']([^"']+)["']/);
+  if (m) {
+    const versionDir = path.resolve(__dirname, "..", "build");
+    if (!fs.existsSync(versionDir)) fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, "version.txt"), m[1], { encoding: "utf-8" });
+    log(`wrote build/version.txt: ${m[1]}`);
+  }
+}
+
 // 6. 验证最终产物
 const finalExe = useAppBundle
   ? path.join(targetDir, "LumioAPI.app", "Contents", "MacOS", "LumioAPI")

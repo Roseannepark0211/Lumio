@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Lumio</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden;
+    background: #0a0a0f;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #e4e4e7; -webkit-font-smoothing: antialiased; user-select: none;
+  }
+  .splash {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .orb {
+    position: absolute; border-radius: 50%; filter: blur(80px);
+    opacity: 0.55; pointer-events: none; will-change: transform;
+  }
+  .orb-1 {
+    width: 620px; height: 620px;
+    background: radial-gradient(circle, #06b6d4 0%, transparent 70%);
+    top: -160px; left: -140px;
+    animation: drift-1 18s ease-in-out infinite;
+  }
+  .orb-2 {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, #22d3ee 0%, transparent 70%);
+    bottom: -120px; right: -80px;
+    animation: drift-2 22s ease-in-out infinite;
+  }
+  .orb-3 {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, #0891b2 0%, transparent 70%);
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    opacity: 0.35;
+    animation: drift-3 26s ease-in-out infinite;
+  }
+  @keyframes drift-1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(120px, 90px) scale(1.1); }
+    66% { transform: translate(-60px, 160px) scale(0.95); }
+  }
+  @keyframes drift-2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-140px, -100px) scale(1.15); }
+  }
+  @keyframes drift-3 {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.3); }
+  }
+  .wordmark-wrap {
+    position: relative; z-index: 2;
+    padding: 32px 56px; border-radius: 32px;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 40px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    animation: container-breath 4s ease-in-out infinite;
+  }
+  @keyframes container-breath {
+    0%, 100% { box-shadow: 0 8px 40px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+    50% { box-shadow: 0 12px 60px rgba(6, 182, 212, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+  }
+  .wordmark {
+    font-size: 64px; font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #ffffff 0%, #e0f2fe 40%, #22d3ee 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: wordmark-breath 4s ease-in-out infinite;
+  }
+  @keyframes wordmark-breath {
+    0%, 100% { transform: scale(1); opacity: 0.95; }
+    50% { transform: scale(1.015); opacity: 1; }
+  }
+  .loading-indicator {
+    position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 20px; z-index: 2;
+  }
+  .dots { display: flex; gap: 10px; }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #22d3ee;
+    opacity: 0.3; animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 0.3; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.4); }
+  }
+  .loading-text {
+    font-size: 12px; font-weight: 500; letter-spacing: 0.4em;
+    text-transform: uppercase; color: rgba(228, 228, 231, 0.55);
+    font-variant-numeric: tabular-nums;
+  }
+  .version-tag {
+    position: absolute; bottom: 24px; right: 32px;
+    font-size: 10px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.1em; color: rgba(228, 228, 231, 0.3); z-index: 2;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .orb, .wordmark-wrap, .wordmark, .dot { animation: none !important; }
+    .dot { opacity: 0.6; }
+  }
+</style>
+</head>
+<body>
+  <div class="splash">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="wordmark-wrap">
+      <div class="wordmark">Lumio</div>
+    </div>
+    <div class="loading-indicator">
+      <div class="dots">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
+      <div class="loading-text">Loading</div>
+    </div>
+    <div class="version-tag" id="version-tag"></div>
+  </div>
+  <script>
+    // 从 query string 读取版本号（main.ts 通过 ?v=xxx 传入）
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var v = params.get("v");
+      if (v) document.getElementById("version-tag").textContent = "v" + v;
+    })();
+  </script>
+</body>
+</html>

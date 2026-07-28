@@ -42,13 +42,23 @@ module.exports = {
   asar: true,
   // 压缩级别：maximum（社区推荐，安装包体积最小，代价是构建时间 +30s）
   compression: "maximum",
-  // PyInstaller 产物作为 extraResources 打入安装包
-  // 打包后路径：process.resourcesPath/python-backend/LumioAPI[.exe]
+  // extraResources：不打入 asar，需要原生文件路径的资源
+  //   - python-backend/  : PyInstaller 产物（LumioAPI + 依赖）
+  //   - build/splash.html : 开屏 loading 页（main.ts 通过 process.resourcesPath 读取）
+  //   - build/version.txt : 真实版本号（main.ts 的 readAppVersion 读取）
   extraResources: [
     {
       from: "python-backend",
       to: "python-backend",
       filter: ["**/*"],
+    },
+    {
+      from: "build/splash.html",
+      to: "build/splash.html",
+    },
+    {
+      from: "build/version.txt",
+      to: "build/version.txt",
     },
   ],
 

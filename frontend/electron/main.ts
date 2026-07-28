@@ -16,14 +16,14 @@
  *   3. 强制 kill 残留进程（兜底）
  */
 
-import { app, BrowserWindow, shell, protocol, net, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, shell, protocol, dialog, ipcMain } from "electron";
 import { spawn, ChildProcess, execSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import http from "node:http";
 import crypto from "node:crypto";
-import { pathToFileURL } from "node:url";
-import { TrayManager } from "./tray";
+// A1: TrayManager 运行时延迟到 whenReady 内动态 import，类型用 import type 编译时擦除
+import type { TrayManager } from "./tray";
 
 // ============================================================
 // 全局状态
@@ -31,6 +31,7 @@ import { TrayManager } from "./tray";
 
 let fastapiProc: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
+let splashWindow: BrowserWindow | null = null;
 let trayManager: TrayManager | null = null;
 
 // FastAPI 连接信息（每次启动随机生成，传给子进程 + 渲染进程）
@@ -42,17 +43,52 @@ const FASTAPI_BASE = `http://127.0.0.1:${fastapiPort}`;
 process.env.LUMIO_FASTAPI_BASE = FASTAPI_BASE;
 process.env.LUMIO_FASTAPI_TOKEN = fastapiToken;
 
-// 在 app.whenReady() 之前重写 userData 目录，避免沙箱限制 %APPDATA%/lumio-frontend
-// 必须在 app ready 之前调用，否则 Electron 会用默认路径初始化各种缓存
+// D5: FastAPI spawn 前移到模块顶层——与 Electron 主进程初始化并行启动。
+//
+// 旧实现：在 app.whenReady() 内才 spawn FastAPI，串行等待 Electron 初始化完成才开始拉起 Python。
+// 新实现：模块加载时就 spawn FastAPI 子进程（child_process.spawn 不依赖 app ready），
+//         返回的 Promise 存到 fastApiReadyPromise，whenReady 内 await 这个 Promise。
+//
+// 收益：FastAPI 冷启动（Python import sqlalchemy/yt-dlp 等）与 Electron 主进程初始化
+//       （Chromium 启动 + V8 初始化 + splash 窗口创建）完全并行，节省 1-3 秒。
+//
+// 注意：spawn 时不能读取 process.resourcesPath（虽然 Node 全局可读，但为稳妥起见
+//       在 startFastApi 内部判断 app.isPackaged 决定 exePath，这部分不依赖 whenReady）。
+let fastApiReadyPromise: Promise<void> | null = null;
+function startFastApiEarly(): void {
+  if (fastApiReadyPromise) return;
+  fastApiReadyPromise = startFastApi();
+}
+
+// 在 app.whenReady() 之前重写 userData 目录（M3 修复：dev/packaged 分流）。
+// 必须在 app ready 之前调用，否则 Electron 会用默认路径初始化各种缓存。
+//
+// - dev 模式：写到项目目录下 frontend/.electron-cache/user-data
+//   好处：① 调试时可直接清空缓存 ② 避免 %APPDATA%/lumio-frontend 沙箱权限问题
+//   ③ 多个 dev 实例切换时缓存隔离
+//
+// - packaged 模式：用 Electron 默认 userData 路径（不重写）
+//   Windows: %APPDATA%/Lumio
+//   macOS:   ~/Library/Application Support/Lumio
+//   Linux:   ~/.config/Lumio
+//   好处：① 符合各平台惯例（用户可找到日志/缓存） ② 系统级清理工具能识别
+//   ③ 升级安装时配置保留 ④ 不会写到 app.asar 内（只读）
+//
+// 旧实现无脑写 <projectRoot>/frontend/.electron-cache/user-data，
+// 打包后 projectRoot 解析成 app.asar 内部路径 → 写入失败 → Electron 用默认路径
+// 但 setPath 已被调用 → 内部状态混乱（AGENTS.md "M3" 问题）
 {
-  const projectRoot = path.resolve(__dirname, "..", "..");
-  const userDataDir = path.join(projectRoot, "frontend", ".electron-cache", "user-data");
-  try {
-    fs.mkdirSync(userDataDir, { recursive: true });
-    app.setPath("userData", userDataDir);
-  } catch {
-    // 如果设置失败（比如目录不可写），让 Electron 用默认路径
+  if (!app.isPackaged) {
+    const projectRoot = path.resolve(__dirname, "..", "..");
+    const userDataDir = path.join(projectRoot, "frontend", ".electron-cache", "user-data");
+    try {
+      fs.mkdirSync(userDataDir, { recursive: true });
+      app.setPath("userData", userDataDir);
+    } catch {
+      // 如果设置失败（比如目录不可写），让 Electron 用默认路径
+    }
   }
+  // packaged 模式不重写，让 Electron 用平台默认路径
 }
 
 // V8 js-flags 调优：桌面单用户场景，限制老生代堆上限避免内存膨胀，
@@ -62,6 +98,24 @@ app.commandLine.appendSwitch(
   "js-flags",
   "--max-old-space-size=2048 --gc-interval=100"
 );
+
+// A2: Chromium 启动开关裁剪——关闭 Lumio 不需要的子系统，加速主进程冷启动
+// 必须在 app ready 之前调用，否则 Chromium 已用默认配置初始化
+// - disable-extensions: 不加载 Chromium 扩展系统（Electron 不用扩展）
+// - disable-plugins: 不加载 PepperFlash/PDF 插件子系统
+// - disable-background-networking: 关闭 Chromium 后台网络轮询（safebrowsing/time-sync 等）
+// - disable-default-apps: 不加载默认应用工厂
+// - disable-hang-monitor: 关闭 Chromium 卡死检测线程
+// - disable-prompt-on-repost: 关闭重新提交表单提示
+// 注意：禁用 GPU 会大幅降低视频/缩略图渲染性能，所以保留 GPU 加速
+app.commandLine.appendSwitch("disable-extensions");
+app.commandLine.appendSwitch("disable-plugins");
+app.commandLine.appendSwitch("disable-background-networking");
+app.commandLine.appendSwitch("disable-default-apps");
+app.commandLine.appendSwitch("disable-hang-monitor");
+app.commandLine.appendSwitch("disable-prompt-on-repost");
+// 禁用 PDF 子进程（PDF.js 不需要，Electron 直接 shell.openExternal 系统打开）
+app.commandLine.appendSwitch("disable-features", "OutOfProcessPdf");
 
 // 注册 lumio-file:// 自定义 protocol，映射本地文件路径
 // 必须在 app.whenReady() 之前调用 registerSchemesAsPrivileged，
@@ -84,6 +138,12 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+
+// D5: 立即 spawn FastAPI 子进程——与 Electron 主进程后续初始化（Chromium 启动 +
+// V8 初始化 + whenReady 触发 + splash 窗口创建）完全并行，节省 1-3 秒。
+// startFastApi 是函数声明（function declaration），会被提升到模块顶部，可在此调用。
+// fastApiReadyPromise 由 startFastApiEarly 内部赋值，whenReady 内 await 这个 Promise。
+startFastApiEarly();
 
 // ============================================================
 // 工具函数
@@ -128,17 +188,91 @@ function pickUnusedPort(): number {
   return 38910 + Math.floor(Math.random() * 90);
 }
 
-/** 同步检查端口是否被占用（用 netstat）。 */
+/**
+ * 同步检查端口是否被占用（M2 修复：跨平台）。
+ *
+ * 旧实现 `netstat -ano | findstr` 仅 Windows。
+ * 新实现按平台分流：
+ *   - Windows: netstat -ano（保留原方案，原生可用）
+ *   - Unix:    lsof -i :PORT -P -t（macOS/Linux 通用）
+ *
+ * 不用 node:net + listen 是因为 Server.listen() 异步，而 isPortInUse
+ * 在 startFastApi Promise 构造器里被同步调用（早期预警用，FastAPI
+ * 真正冲突时仍会立即报错，这里只是 UX 优化）。
+ */
 function isPortInUse(port: number): boolean {
-  // 简单策略：用 netstat 检测端口
   try {
-    const out = execSync(`netstat -ano -p tcp | findstr ":${port} "`, {
-      windowsHide: true,
-      encoding: "utf8",
-    });
-    return out.trim().length > 0;
+    if (process.platform === "win32") {
+      const out = execSync(`netstat -ano -p tcp | findstr ":${port} "`, {
+        windowsHide: true,
+        encoding: "utf8",
+      });
+      return out.trim().length > 0;
+    } else {
+      // Unix: lsof -i :PORT（macOS/Linux 都有 lsof）
+      // -P 强制不解析端口名（更快），-t 只输出 pid（更简洁）
+      const out = execSync(`lsof -i :${port} -P -t`, {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      return out.trim().length > 0;
+    }
   } catch {
+    // netstat/lsof 退出码 1 = 无匹配（端口空闲），正常情况
     return false;
+  }
+}
+
+/**
+ * 跨平台杀进程树（M1 修复）。
+ *
+ * - Windows: taskkill /pid X /f /t（/t 递归杀子进程）
+ * - Unix:    递归 pgrep -P X 找子进程后 kill -9
+ *            （Unix kill 默认不杀进程树，uvicorn worker 会被 orphan 留在系统里）
+ *
+ * 不引入 tree-kill npm 包（已是 concurrently 间接依赖，但避免变直接依赖）。
+ */
+function killProcessTree(pid: number): void {
+  try {
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/pid", String(pid), "/f", "/t"]);
+    } else {
+      // 递归收集所有子进程 pid（BFS）
+      const collect = (rootPid: number): number[] => {
+        const all = [rootPid];
+        const queue = [rootPid];
+        while (queue.length > 0) {
+          const parent = queue.shift()!;
+          try {
+            const out = execSync(`pgrep -P ${parent}`, {
+              encoding: "utf8",
+              windowsHide: true,
+            });
+            for (const line of out.trim().split(/\r?\n/)) {
+              const child = parseInt(line.trim(), 10);
+              if (Number.isFinite(child) && !all.includes(child)) {
+                all.push(child);
+                queue.push(child);
+              }
+            }
+          } catch {
+            // pgrep 退出码 1 = 无子进程，正常情况
+          }
+        }
+        return all;
+      };
+      // 先杀子进程，最后杀父进程（避免父进程在子进程死前收到 SIGCHLD 重生 worker）
+      const all = collect(pid).reverse();
+      for (const p of all) {
+        try {
+          process.kill(p, "SIGKILL");
+        } catch {
+          // ESRCH = 进程已退出，忽略
+        }
+      }
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -166,6 +300,43 @@ function readCloseBehavior(): string {
   } catch {
     return "ask";
   }
+}
+
+/**
+ * 同步读取 Python lumio.__version__（用于 splash 窗口显示真实版本号）。
+ *
+ * dev 模式：读 src/lumio/__init__.py 解析 __version__ = "x.y.z"
+ * packaged 模式：读 resources/build/version.txt（build-backend.js 生成）
+ * 都失败：返回 app.getVersion()（package.json 的 version，可能是 0.1.0）
+ */
+function readAppVersion(): string {
+  // dev 模式：读 src/lumio/__init__.py
+  if (!app.isPackaged) {
+    try {
+      const projectRoot = path.resolve(__dirname, "..", "..");
+      const initPath = path.join(projectRoot, "src", "lumio", "__init__.py");
+      if (fs.existsSync(initPath)) {
+        const content = fs.readFileSync(initPath, { encoding: "utf-8" });
+        const m = content.match(/__version__\s*=\s*["']([^"']+)["']/);
+        if (m) return m[1];
+      }
+    } catch {
+      // ignore
+    }
+  }
+  // packaged 模式：读 resources/build/version.txt（build-backend.js 生成）
+  if (app.isPackaged) {
+    try {
+      const versionPath = path.join(process.resourcesPath, "build", "version.txt");
+      if (fs.existsSync(versionPath)) {
+        return fs.readFileSync(versionPath, { encoding: "utf-8" }).trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+  // 兜底：用 package.json 的 version
+  return app.getVersion();
 }
 
 // ============================================================
@@ -273,6 +444,8 @@ function startFastApi(): Promise<void> {
     });
 
     // 轮询 /api/health（最多 30 秒）
+    // 首次延迟 300ms（FastAPI 至少需要 1s 启动，300ms 后开始探活合理）
+    // 轮询间隔 200ms（更快感知 ready，减少用户等待）
     const deadline = Date.now() + 30_000;
     const checkHealth = () => {
       const req = http.get(`${FASTAPI_BASE}/api/health`, (res) => {
@@ -295,10 +468,10 @@ function startFastApi(): Promise<void> {
       if (Date.now() > deadline) {
         reject(new Error("FastAPI startup timeout (30s)"));
       } else {
-        setTimeout(checkHealth, 500);
+        setTimeout(checkHealth, 200);
       }
     };
-    setTimeout(checkHealth, 800);
+    setTimeout(checkHealth, 300);
   });
 }
 
@@ -335,22 +508,15 @@ async function stopFastApi(): Promise<void> {
   // 2. 等 3 秒优雅退出
   await new Promise((r) => setTimeout(r, 3000));
 
-  // 3. 强制 kill 残留进程（兜底）
+  // 3. 强制 kill 残留进程树（兜底）—— M1 修复：跨平台杀进程树
   if (fastapiProc) {
     console.log("[electron] force-killing FastAPI");
-    try {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(fastapiProc.pid), "/f", "/t"]);
-      } else {
-        fastapiProc.kill("SIGKILL");
-      }
-    } catch {
-      // ignore
-    }
+    killProcessTree(fastapiProc.pid!);
     fastapiProc = null;
   }
 
   // 4. 终极兜底：扫端口上的所有 pid 都干掉（防 spawn 出来的 uvicorn worker 残留）
+  // 跨平台方案：用 lsof（Unix）+ netstat（Windows）—— 两者输出格式不同
   if (process.platform === "win32") {
     try {
       const out = execSync(`netstat -ano -p tcp | findstr ":${fastapiPort} "`, {
@@ -365,7 +531,30 @@ async function stopFastApi(): Promise<void> {
       }
       for (const pid of pids) {
         try {
-          spawn("taskkill", ["/pid", pid, "/f", "/t"]);
+          killProcessTree(parseInt(pid, 10));
+          console.log(`[electron] cleanup kill pid=${pid}`);
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // no leftover
+    }
+  } else {
+    // Unix: lsof -i :PORT -t 列出占端口的 pid
+    try {
+      const out = execSync(`lsof -i :${fastapiPort} -t`, {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      const pids = new Set<string>();
+      for (const line of out.trim().split(/\r?\n/)) {
+        const pid = line.trim();
+        if (pid && /^\d+$/.test(pid) && pid !== "0") pids.add(pid);
+      }
+      for (const pid of pids) {
+        try {
+          killProcessTree(parseInt(pid, 10));
           console.log(`[electron] cleanup kill pid=${pid}`);
         } catch {
           // ignore
@@ -397,6 +586,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+    // 关键：主窗口创建时不立即显示
+    // 等 React 渲染完毕（ready-to-show）+ FastAPI ready 后再 show
+    // 避免显示空窗口或 React 加载期间的黑屏
+    show: false,
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -404,12 +597,22 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
+  // 加载 React 主页（后台加载，show: false 期间用户看不到）
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
+
+  // 关键：React 渲染完毕后触发 ready-to-show
+  // 配合 FastAPI ready 条件，两者都满足后才 show 主窗口 + 销毁 splash
+  // 避免切换瞬间黑屏（主窗口 show 时内容已渲染完毕）
+  mainWindow.once("ready-to-show", () => {
+    console.log("[electron] mainWindow ready-to-show");
+    mainWindowReady = true;
+    tryShowMainWindow();
+  });
 
   // 关闭窗口 → 按 config.close_behavior 分支：
   //   - "ask"      → 弹三选确认窗（取消/退出/最小化到托盘）
@@ -442,6 +645,74 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+/**
+ * 创建 splash 启动窗口（极简 HTML，不依赖 React，秒开）。
+ *
+ * 双窗口架构：
+ *   1. splash 窗口立即显示（loadFile splash.html，无 React 依赖，<100ms 渲染）
+ *   2. 主窗口后台加载 React（show: false，用户看不到加载过程）
+ *   3. 主窗口 ready-to-show + FastAPI ready → 主窗口 show + splash 销毁
+ *
+ * splash 窗口特点：
+ *   - 与主窗口同尺寸（1120x720）+ 同 backgroundColor，切换瞬间无大小/色差跳变
+ *   - frame: false 无标题栏（splash 不需要交互）
+ *   - 不依赖 React bundle，纯 HTML+CSS，秒开
+ *   - 版本号通过 query string 传入（readAppVersion 同步读取）
+ */
+function createSplashWindow(): void {
+  const version = readAppVersion();
+  splashWindow = new BrowserWindow({
+    width: 1120,
+    height: 720,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    backgroundColor: "#0a0a0f",
+    icon: path.join(__dirname, "..", "build", "icon.png"),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    // A3: 立即显示——splash 内容是纯内联 HTML+CSS（splash.html 无 external 资源），
+    // 配合 backgroundColor 与最终主窗口底色一致（#0a0a0f），切换瞬间无色差跳变。
+    // 不等 ready-to-show，让 splash 在 Chromium 完成首次绘制前就用背景色占据屏幕。
+    show: true,
+  });
+
+  const splashPath = app.isPackaged
+    ? path.join(process.resourcesPath, "build", "splash.html")
+    : path.join(__dirname, "..", "build", "splash.html");
+
+  splashWindow.loadFile(splashPath, { query: { v: version } });
+
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+// ============================================================
+// 双条件同步：主窗口 ready-to-show + FastAPI ready
+// ============================================================
+
+// 两个独立条件，都满足后才 show 主窗口 + 销毁 splash
+let mainWindowReady = false;  // React 渲染完毕
+let fastapiReady = false;     // FastAPI 启动完毕
+
+/** 主窗口 ready-to-show 或 FastAPI ready 时调用，检查是否两个条件都满足。 */
+function tryShowMainWindow(): void {
+  if (mainWindowReady && fastapiReady && mainWindow && !mainWindow.isDestroyed()) {
+    console.log("[electron] both ready, showing main window + destroying splash");
+    mainWindow.show();
+    mainWindow.focus();
+    // 销毁 splash（主窗口已显示，无黑屏瞬间）
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
+  }
 }
 
 // ============================================================
@@ -574,12 +845,25 @@ app.whenReady().then(async () => {
   });
 
   try {
-    await startFastApi();
+    // 1. 立即创建 splash 窗口（极简 HTML，秒开，用户立即看到 loading）
+    createSplashWindow();
+    // 2. 创建主窗口（show: false，后台加载 React，用户看不到加载过程）
+    createWindow();
+    // 3. await FastAPI ready（D5: spawn 已在模块顶层启动，这里只等 health 轮询结果）
+    //    FastAPI 冷启动与 Electron 主进程初始化并行，这里通常 0 等待或仅需等剩余 health
+    if (fastApiReadyPromise) {
+      await fastApiReadyPromise;
+    }
+    // 4. FastAPI ready，设置标志位，检查是否可以显示主窗口
+    fastapiReady = true;
+    tryShowMainWindow();
   } catch (e) {
     console.error("[electron] Failed to start FastAPI:", e);
   }
-  createWindow();
 
+  // A1: TrayManager 动态 import——延迟加载 tray 模块及其依赖（electron 主进程启动时
+  // 不再加载 TrayManager 类，等 splash + 主窗口都已创建后再加载，节省 100-300ms）
+  const { TrayManager } = await import("./tray");
   // 初始化系统托盘（关闭窗口 → 最小化到托盘，右键 → Liquid Glass 菜单）
   trayManager = new TrayManager({
     getMainWindow: () => mainWindow,
@@ -618,15 +902,8 @@ app.on("before-quit", async (e) => {
 
 process.on("exit", () => {
   if (fastapiProc) {
-    try {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(fastapiProc.pid), "/f", "/t"]);
-      } else {
-        fastapiProc.kill("SIGKILL");
-      }
-    } catch {
-      // ignore
-    }
+    // M1 修复：跨平台杀进程树（exit 事件同步执行，不能用异步 stopFastApi）
+    killProcessTree(fastapiProc.pid!);
   }
 });
 

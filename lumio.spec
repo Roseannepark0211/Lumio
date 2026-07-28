@@ -48,6 +48,38 @@ a = Analysis(
         # 已剥离 PySide6 依赖，确保不打进包
         "PySide6",
         "shiboken6",
+        # C2 性能优化：排除 Lumio 不使用的常见模块，减小包体积 + 加速冷启动
+        # 静态分析器可能因 import 链误打包这些模块，显式 exclude 强制剥离
+        # Qt 其他绑定（Lumio 已剥离 PySide6，不用 PyQt）
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        # GUI 框架（Lumio 用 Electron 前端，不用 tkinter）
+        "tkinter",
+        # 科学计算（Lumio 不用，但 pip 安装其他包时可能被静态分析误带）
+        "numpy",
+        "pandas",
+        "matplotlib",
+        # 测试/文档/REPL 工具（运行时不需要）
+        "pytest",
+        "unittest",
+        "pydoc",
+        "doctest",
+        "test",
+        "tests",
+        "sphinx",
+        "docutils",
+        "IPython",
+        "jupyter",
+        "notebook",
+        "setuptools",
+        "pip",
+        "pkg_resources",
+        "distutils",
+        # 标准 GUI/网络模块（Lumio 不用）
+        "curses",
+        "pdb",
+        "xmlrpc",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

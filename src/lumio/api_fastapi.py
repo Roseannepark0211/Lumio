@@ -262,11 +262,13 @@ class AppContext:
             except Exception as e:
                 logger.warning("Telegram service start failed: %s", e)
 
-        # 启动时检测环境（后台异步）
-        try:
-            self.notification_manager.check_all()
-        except Exception:
-            pass
+        # 启动时检测环境（C4: 改后台线程，避免阻塞 startup event 让 /api/health 立即 ready）
+        def _bg_check_all() -> None:
+            try:
+                self.notification_manager.check_all()
+            except Exception:
+                pass
+        threading.Thread(target=_bg_check_all, daemon=True, name="notif-check").start()
 
         # 缓存自动清理
         threading.Thread(target=self._auto_clean_cache, daemon=True).start()

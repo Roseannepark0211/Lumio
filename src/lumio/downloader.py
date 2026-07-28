@@ -11,7 +11,10 @@ from typing import Callable
 
 import http.cookiejar
 import requests
-import yt_dlp
+# C4 性能优化：yt_dlp 顶层 import 会触发数百个 extractor 模块加载（1-2s），
+# 改为函数内 lazy import，让 DownloadManager() 实例化和 AppContext 启动不阻塞。
+# 首次调用 download 时才 import，之后从 sys.modules 缓存命中（无额外开销）。
+# 涉及 4 处函数：_yt_download / _x_download_video / _bilibili_download (2处)
 
 from .utils.ua import DEFAULT_UA, CHROME_120_UA  # M5: 跨平台 UA
 
@@ -642,6 +645,7 @@ def _yt_download_with_pause(task, pause_event, on_progress):
     if on_progress:
         on_progress(task)
 
+    import yt_dlp  # C4 lazy import：避免顶层加载触发数百个 extractor
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([task.url])
 
@@ -863,6 +867,7 @@ def _x_download_with_pause(task, pause_event, on_progress):
         task.status = "downloading"
         if on_progress:
             on_progress(task)
+        import yt_dlp  # C4 lazy import
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([task.url])
         # Verify file actually exists (yt-dlp may report "finished" before rename)
@@ -1056,6 +1061,7 @@ def _bilibili_download_with_pause(task, pause_event, on_progress):
     task.status = "downloading"
     if on_progress:
         on_progress(task)
+    import yt_dlp  # C4 lazy import
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([task.url])
