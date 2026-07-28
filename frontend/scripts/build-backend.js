@@ -91,9 +91,18 @@ fs.mkdirSync(targetDir, { recursive: true });
 // 5. 复制产物 → frontend/python-backend/
 // macOS + .app: 把整个 .app bundle 复制到 python-backend/LumioAPI.app/
 //   main.ts 在 macOS 上 spawn python-backend/LumioAPI.app/Contents/MacOS/LumioAPI
+//   fs.cpSync(src, dst) 会把 src 的内容复制到 dst 内部，所以 dst 必须是
+//   python-backend/LumioAPI.app 而非 python-backend/，否则 .app bundle 结构会散开
 // 其他平台: 把 dist/LumioAPI/* 平铺到 python-backend/
 log(`copying ${primaryDist} → ${targetDir}`);
-fs.cpSync(primaryDist, targetDir, { recursive: true });
+if (useAppBundle) {
+  // macOS: 目标路径是 python-backend/LumioAPI.app（保留 .app bundle 结构）
+  const appDest = path.join(targetDir, "LumioAPI.app");
+  fs.cpSync(primaryDist, appDest, { recursive: true });
+} else {
+  // Windows/Linux: 平铺到 python-backend/
+  fs.cpSync(primaryDist, targetDir, { recursive: true });
+}
 
 // 5.5 生成 version.txt（packaged 模式 splash 窗口显示真实版本号）
 // main.ts 的 readAppVersion() 会读 resources/build/version.txt

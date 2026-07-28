@@ -82,9 +82,16 @@ module.exports = {
     icon: "build/icon.png",
   },
   nsis: {
+    // oneClick: false → 显示完整安装向导（欢迎页→选择路径→开始菜单→安装进度→完成）
+    // 不是一键安装，用户可以选择安装路径
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
+    // 卸载安全性：只删除安装目录（%LOCALAPPDATA%\Programs\lumio\），
+    // 不删除用户数据（~/.lumio/ 在用户主目录，不受卸载影响）
+    // - false（默认）：卸载后保留 AppData
+    // - true：卸载时同时删除 %APPDATA%\lumio\ 和 %APPDATA%\Roaming\lumio\
+    deleteAppDataOnUninstall: false,
     // 移除了不存在的 build/installer.nsh 引用
     // 如需自定义 NSIS 模板，请新建 build/installer.nsh 后取消注释
     // include: "build/installer.nsh",
@@ -143,6 +150,8 @@ module.exports = {
   // Linux — AppImage + deb + rpm
   // ============================================================
   linux: {
+    // 显式 target 列表（字符串数组形式），避免 electron-builder 自动添加 snap
+    // CI 中额外用 --linux AppImage deb rpm 命令行参数强制覆盖（命令行优先级最高）
     target: ["AppImage", "deb", "rpm"],
     icon: "build/icon.png",
     // AppImage 分类（遵循 freedesktop.org Desktop Menu Specification）

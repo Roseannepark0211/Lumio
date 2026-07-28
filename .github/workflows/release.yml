@@ -29,6 +29,38 @@ concurrency:
 
 jobs:
   # ============================================================
+  # 清理 Release 旧资产
+  # ============================================================
+  # electron-builder --publish always 只覆盖同名资产，不删除旧文件。
+  # 多次构建会导致 Release 累积大量旧产物（如改名后的 lumio-frontend-* vs lumio-*）。
+  # 这个 job 在 build 之前先删除 Release 上所有现有资产，保证最终只有本次构建的产物。
+  cleanup-release:
+    name: Cleanup Release Assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Delete all existing release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Cleaning assets for tag: $TAG"
+          # 如果 Release 不存在（首次构建），gh release view 会失败，直接退出
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG does not exist yet, nothing to clean"
+            exit 0
+          fi
+          # 列出所有资产并逐个删除
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | while read -r asset; do
+            echo "Deleting: $asset"
+            gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes || true
+          done
+          echo "Cleanup complete"
+
+  # ============================================================
   # 构建：4 平台并行矩阵
   # ============================================================
   # - Windows x64    → NSIS 安装包（.exe）
@@ -47,6 +79,7 @@ jobs:
   #   5. Windows 代码签名默认关闭；通过 secrets CSC_LINK 启用
   build:
     name: Build (${{ matrix.os_name }})
+    needs: cleanup-release  # 先清理旧资产，再上传新产物
     strategy:
       fail-fast: false  # 一个平台失败不影响其他平台继续跑
       matrix:
@@ -54,9 +87,6 @@ jobs:
           - os: windows-latest
             os_name: windows-x64
             python_cmd: python
-          - os: macos-13
-            os_name: macos-x64
-            python_cmd: python3
           - os: macos-14
             os_name: macos-arm64
             python_cmd: python3
@@ -104,6 +134,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Install macOS dmg-license (macOS only)
+        if: runner.os == 'macOS'
+        working-directory: frontend
+        run: npm install --no-save dmg-license
+
       - name: Build Python backend (PyInstaller)
         working-directory: frontend
         run: npm run build:backend
@@ -132,18 +167,28 @@ jobs:
       - name: Package with electron-builder (--publish always)
         working-directory: frontend
         env:
-          # GitHub Release 上传凭据（electron-builder 用此 token 创建/编辑 Release）
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS notarize（可选，通过 secrets 启用）
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # macOS 代码签名证书（可选，.p12 base64）
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # Windows 代码签名证书（可选，.p12 base64）
-          # 同样用 CSC_LINK / CSC_KEY_PASSWORD（electron-builder 自动按平台分流）
-        run: npx electron-builder --publish always
+          # 代码签名证书通过 shell 动态 export，空字符串会导致 electron-builder
+          # 把 "" 当文件路径解析报 "not a file" 错误
+          CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          # 只在 secret 非空时 export，避免空字符串触发 electron-builder 报错
+          if [ -n "$CSC_LINK_SECRET" ]; then
+            export CSC_LINK="$CSC_LINK_SECRET"
+            export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+          fi
+          # Linux 用命令行参数强制指定 target，避免 electron-builder 24.x 自动添加 snap
+          # （命令行 --linux 优先级高于配置文件 linux.target）
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx electron-builder --linux AppImage deb rpm --publish always
+          else
+            npx electron-builder --publish always
+          fi
+        shell: bash
 
       - name: Upload build log on failure
         if: failure()
@@ -208,46 +253,63 @@ jobs:
 
             内容采集与素材管理桌面工具，通过分享链接下载 YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书的图片和视频。
 
-            ### 更新内容
+            ---
 
-            ${{ steps.notes.outputs.notes }}
-
-            ### 下载
+            ### 📥 普通用户下载（只需选一个）
 
             | 系统 | 文件 | 说明 |
             |------|------|------|
-            | Windows x64 | `Lumio-Setup-*.exe` | NSIS 安装包，双击安装 |
-            | macOS Intel | `Lumio-*-x64.dmg` | Intel Mac |
-            | macOS Apple Silicon | `Lumio-*-arm64.dmg` | M1/M2/M3/M4 Mac |
-            | Linux x64 | `Lumio-*.AppImage` | AppImage，无需安装直接运行 |
-            | Linux x64 | `Lumio-*.deb` | Debian/Ubuntu |
-            | Linux x64 | `Lumio-*.rpm` | Fedora/RHEL/openSUSE |
+            | **Windows x64** | `Lumio-Setup-${{ github.ref_name }}.exe` | NSIS 安装包，双击安装 |
+            | **macOS Apple Silicon** | `Lumio-${{ github.ref_name }}-arm64.dmg` | M1/M2/M3/M4 Mac（Intel Mac 暂不提供） |
+            | **Linux x64** | `Lumio-${{ github.ref_name }}.AppImage` | AppImage，无需安装，`chmod +x` 后直接运行 |
+            | **Linux x64** | `Lumio-${{ github.ref_name }}.x86_64.rpm` | Fedora / RHEL / openSUSE |
+            | **Linux x64** | `Lumio-${{ github.ref_name }}.amd64.deb` | Debian / Ubuntu |
 
-            ### 系统要求
+            > ⚠️ **不要下载** `latest.yml` / `latest-mac.yml` / `latest-linux.yml` / `*.blockmap` / `*-mac.zip` / `Source code *` —— 这些是自动更新机制和 GitHub 默认生成的辅助文件，不是安装包。
+
+            > ℹ️ **从旧版本（lumio-frontend）升级**：此版本修正了安装路径为 `Lumio`，请先在「设置 → 应用」中卸载旧的 `lumio-frontend`，再安装新版本。用户数据（`~/.lumio/`）不会丢失。
+
+            ---
+
+            ### 📋 更新内容
+
+            ${{ steps.notes.outputs.notes }}
+
+            ---
+
+            ### 💻 系统要求
 
             - **Windows**: Windows 10/11 x64
-            - **macOS**: macOS 12+（Intel 或 Apple Silicon）
+            - **macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）
             - **Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64
 
-            ### 安装说明
+            ---
 
-            1. 下载对应系统的安装包
-            2. Windows 双击 `.exe` 安装；macOS 双击 `.dmg` 拖入 Applications；Linux 直接运行 `.AppImage` 或用包管理器安装 `.deb`/`.rpm`
-            3. 首次启动会拉起内置 Python 后端（无需手动配置环境）
+            ### 📦 安装说明
+
+            1. 下载对应系统的安装包（见上方表格）
+            2. **Windows**: 双击 `.exe` 安装
+            3. **macOS**: 双击 `.dmg`，将 Lumio 拖入 Applications
+            4. **Linux**: `chmod +x Lumio-*.AppImage && ./Lumio-*.AppImage`，或用包管理器安装 `.deb`/`.rpm`
+            5. 首次启动会自动拉起内置 Python 后端（无需手动配置环境）
 
             > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有源码均开源可查。
 
-            > **macOS 用户**: 首次打开 DMG 后右键 → 「打开」绕过 Gatekeeper；或终端执行 `xattr -dr com.apple.quarantine /Applications/Lumio.app`。
+            > **macOS 用户**: 首次打开 DMG 后右键 →「打开」绕过 Gatekeeper；或终端执行 `xattr -dr com.apple.quarantine /Applications/Lumio.app`。
 
-            ### 自动更新
+            ---
+
+            ### 🔄 自动更新
 
             已安装的用户可在「设置 → 关于」点击「检查更新」：
             - **Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装
             - **macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）
 
-            ### 从源码运行（开发者）
+            ---
 
-            ```
+            ### 🛠️ 从源码运行（开发者）
+
+            ```bash
             git clone https://github.com/Roseannepark0211/Lumio.git
             cd Lumio
             pip install -e .

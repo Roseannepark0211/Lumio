@@ -54,6 +54,9 @@ REFACTOR_GUIDE.md
 工具迭代路线集合/
 测试链接.md
 
+# Design preview files (设计稿，不纳入版本控制)
+design_preview/
+
 # Legacy
 .getvp/
 
