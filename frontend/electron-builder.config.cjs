@@ -1,6 +1,13 @@
 /**
  * electron-builder 配置 — 三平台完整支持。
  *
+ * ⚠️ 文件扩展名必须是 `.cjs`：package.json 设了 `"type": "module"`，`.js` 会被
+ * Node 当 ESM 解析，electron-builder 用 require() 加载会失败并静默回退到默认
+ * 配置（oneClick: true 静默安装 / 无 extraResources / 无 icon 等），导致：
+ *   - 安装包双击直接静默安装，无向导
+ *   - 打包后 splash.html / python-backend / icon.png 全部缺失 → 黑屏
+ *   - 托盘图标透明、右键菜单不出现
+ *
  * 打包架构（参见 AGENTS.md "架构迁移规则"）：
  *
  *   Lumio.exe / Lumio.app / Lumio.AppImage（Electron 前端）
@@ -14,15 +21,6 @@
  *   3. electron-builder 把 dist/ + dist-electron/ + python-backend/ 打包成安装包
  *
  * main.ts 在 app.isPackaged 时 spawn resources/python-backend/LumioAPI[.exe]
- *
- * 三平台产物（参见发布迁移架构正式版前的准备工作.md "S3"）：
- *   - Windows: NSIS 安装包（.exe），icon.png 自动转 .ico
- *   - macOS:   DMG + universal2（x64 + arm64），icon.png 自动转 .icns
- *              notarize 默认关闭（需 Apple Developer ID，通过环境变量启用）
- *   - Linux:   AppImage + deb + rpm，icon.png 直接用
- *
- * 图标要求：build/icon.png 必须 ≥1024×1024（electron-builder 据此自动生成
- *           .ico / .icns 各尺寸变体），低于此尺寸 Windows/macOS 会报错
  */
 module.exports = {
   appId: "io.lumio.desktop",
@@ -56,6 +54,8 @@ module.exports = {
   //   - python-backend/  : PyInstaller 产物（LumioAPI + 依赖）
   //   - build/splash.html : 开屏 loading 页（main.ts 通过 process.resourcesPath 读取）
   //   - build/version.txt : 真实版本号（main.ts 的 readAppVersion 读取）
+  //   - build/icon.png    : 应用图标（main.ts 窗口图标 + tray.ts 托盘图标读取）
+  //                         asar 内的 build/ 不可被 nativeImage 读取，必须放 extraResources
   extraResources: [
     {
       from: "python-backend",
@@ -69,6 +69,10 @@ module.exports = {
     {
       from: "build/version.txt",
       to: "build/version.txt",
+    },
+    {
+      from: "build/icon.png",
+      to: "build/icon.png",
     },
   ],
 
@@ -87,27 +91,27 @@ module.exports = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
-    // 卸载安全性：只删除安装目录（%LOCALAPPDATA%\Programs\lumio\），
-    // 不删除用户数据（~/.lumio/ 在用户主目录，不受卸载影响）
-    // - false（默认）：卸载后保留 AppData
-    // - true：卸载时同时删除 %APPDATA%\lumio\ 和 %APPDATA%\Roaming\lumio\
-    deleteAppDataOnUninstall: false,
-    // 移除了不存在的 build/installer.nsh 引用
-    // 如需自定义 NSIS 模板，请新建 build/installer.nsh 后取消注释
-    // include: "build/installer.nsh",
-    // 安装包图标（缺省用 win.icon）
-    installerIcon: "build/icon.png",
-    uninstallerIcon: "build/icon.png",
+    // 卸载时清理 %APPDATA%\Lumio\（Electron userData：缓存/日志/cookies）
+    // 用户数据 ~/.lumio/ 在用户主目录，不受此设置影响，卸载后仍然保留
+    deleteAppDataOnUninstall: true,
+    // 自定义 NSIS 脚本：卸载前杀掉 Lumio.exe + LumioAPI.exe 子进程
+    // 避免卸载后进程残留 + 文件被占用导致卸载不干净
+    include: "build/installer.nsh",
+    // 安装包图标：不指定 installerIcon / uninstallerIcon，让 electron-builder
+    // 自动用 win.icon（PNG）转成 .ico 传给 NSIS（NSIS 只认 .ico 格式，直接
+    // 传 PNG 会报 "invalid icon file"）
     // 安装完成后是否创建桌面快捷方式
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
+    // 安装完成后显示「立即启动 Lumio」勾选框（oneClick: false 时生效）
+    runAfterFinish: true,
   },
 
   // ============================================================
   // macOS — DMG（单架构，由 CI 矩阵分别构建 x64 / arm64）
   // ============================================================
   // 关键设计：
-  //   - 不在 electron-builder.config.js 里指定 mac.arch / target.arch，
+  //   - 不在 electron-builder.config.cjs 里指定 mac.arch / target.arch，
   //     让 electron-builder 默认用当前主机架构打包
   //   - CI 矩阵用 macos-13 (Intel x64) + macos-14 (Apple Silicon arm64)
   //     分别跑一次构建，每次产出单一架构的 DMG
@@ -164,12 +168,13 @@ module.exports = {
       Comment: "Download media from YouTube/Instagram/X/B站/抖音/快手/微博/小红书",
       Categories: "Network;AudioVideo;",
     },
-    // deb 包元数据（控制依赖项）
-    deb: {
-      depends: ["libnotify4", "libxtst6", "libnss3"],
-    },
   },
-  AppImage: {
+  // deb 包元数据（root 级别，不在 linux 下 — electron-builder 24.x schema 要求）
+  deb: {
+    depends: ["libnotify4", "libxtst6", "libnss3"],
+  },
+  // AppImage 配置（root 级别，key 必须小写 appImage — electron-builder 24.x schema 要求）
+  appImage: {
     // AppImage 文件名含架构：Lumio-X.Y.Z.AppImage
     artifactName: "${productName}-${version}-${arch}.${ext}",
   },

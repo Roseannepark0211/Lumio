@@ -32,6 +32,7 @@ import {
   screen,
   ipcMain,
   nativeImage,
+  app,
 } from "electron";
 import path from "node:path";
 import http from "node:http";
@@ -72,14 +73,27 @@ export class TrayManager {
 
   /** 初始化托盘（必须在 app.whenReady() 之后调用） */
   init(): void {
-    const iconPath = path.join(__dirname, "..", "build", "icon.png");
+    // 打包模式：resources/build/icon.png（extraResources 复制出来的）
+    // dev 模式：frontend/build/icon.png（源码目录）
+    // 不能用 path.join(__dirname, "..", "build", "icon.png")：
+    //   打包后 __dirname 在 app.asar/dist-electron/，上一级是 app.asar/，
+    //   app.asar/build/icon.png 不存在（build/ 不在 asar 内）。
+    const iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, "build", "icon.png")
+      : path.join(__dirname, "..", "build", "icon.png");
     let icon: Electron.NativeImage;
     try {
       icon = nativeImage.createFromPath(iconPath);
       if (process.platform === "win32") {
         icon = icon.resize({ width: 16, height: 16 });
       }
-    } catch {
+      // 空图像兜底：如果文件不存在或加载失败，createFromPath 返回空图像，
+      // 此时用 nativeImage.createEmpty() 至少不会崩溃（托盘透明但不影响功能）
+      if (icon.isEmpty()) {
+        console.warn(`[tray] icon not found or empty: ${iconPath}`);
+      }
+    } catch (e) {
+      console.error(`[tray] failed to load icon: ${iconPath}`, e);
       icon = nativeImage.createEmpty();
     }
 

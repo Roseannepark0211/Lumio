@@ -156,7 +156,7 @@ jobs:
 
       - name: Validate electron-builder config
         working-directory: frontend
-        run: 'node -e "const cfg = require(''./electron-builder.config.js''); console.log(JSON.stringify({ win: cfg.win && cfg.win.target, mac: cfg.mac && cfg.mac.target, linux: cfg.linux && cfg.linux.target }))"'
+        run: 'node -e "const cfg = require(''./electron-builder.config.cjs''); console.log(JSON.stringify({ win: cfg.win && cfg.win.target, mac: cfg.mac && cfg.mac.target, linux: cfg.linux && cfg.linux.target }))"'
 
       - name: Upload build artifacts (Linux only, for inspection)
         if: runner.os == 'Linux'

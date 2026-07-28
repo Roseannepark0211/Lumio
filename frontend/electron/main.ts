@@ -279,6 +279,27 @@ function killProcessTree(pid: number): void {
   }
 }
 
+/** 获取应用图标路径（dev / packaged 分流）。
+ *
+ *  dev 模式：frontend/build/icon.png（源码目录）
+ *  packaged 模式：resources/build/icon.png（extraResources 复制出来的）
+ *
+ *  不能用 path.join(__dirname, "..", "build", "icon.png")：
+ *  打包后 __dirname 在 app.asar/dist-electron/，上一级是 app.asar/，
+ *  app.asar/build/icon.png 不存在（build/ 不在 files 列表里，不在 asar 内）。
+ *  必须用 process.resourcesPath（指向 app.asar 同级的 resources/ 目录），
+ *  electron-builder.config.cjs 的 extraResources 把 build/icon.png 复制到这里。
+ *
+ *  nativeImage.createFromPath 无法读取 asar 内的文件，必须用 extraResources
+ *  把图标复制到 asar 外部才能被 Tray / BrowserWindow 加载。
+ */
+function getIconPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "build", "icon.png");
+  }
+  return path.join(__dirname, "..", "build", "icon.png");
+}
+
 /** 同步读取 config.close_behavior（用于 close 事件分支判断）。
  *  - "ask"      → 每次询问（默认）
  *  - "minimize" → 总是最小化到托盘
@@ -361,7 +382,7 @@ function startFastApi(): Promise<void> {
     //   Windows: <app>/resources/python-backend/LumioAPI.exe
     //   macOS:   <app>/Contents/Resources/python-backend/LumioAPI
     //   Linux:   <app>/resources/python-backend/LumioAPI
-    // electron-builder extraResources 配置见 electron-builder.config.js
+    // electron-builder extraResources 配置见 electron-builder.config.cjs
     let exePath: string;
     let cwdPath: string;
     let env: NodeJS.ProcessEnv;
@@ -583,7 +604,7 @@ function createWindow(): void {
     title: "Lumio",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "..", "build", "icon.png"),
+    icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -674,7 +695,7 @@ function createSplashWindow(): void {
     maximizable: false,
     minimizable: false,
     backgroundColor: "#0a0a0f",
-    icon: path.join(__dirname, "..", "build", "icon.png"),
+    icon: getIconPath(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -847,27 +868,18 @@ app.whenReady().then(async () => {
     }
   });
 
-  try {
-    // 1. 立即创建 splash 窗口（极简 HTML，秒开，用户立即看到 loading）
-    createSplashWindow();
-    // 2. 创建主窗口（show: false，后台加载 React，用户看不到加载过程）
-    createWindow();
-    // 3. await FastAPI ready（D5: spawn 已在模块顶层启动，这里只等 health 轮询结果）
-    //    FastAPI 冷启动与 Electron 主进程初始化并行，这里通常 0 等待或仅需等剩余 health
-    if (fastApiReadyPromise) {
-      await fastApiReadyPromise;
-    }
-    // 4. FastAPI ready，设置标志位，检查是否可以显示主窗口
-    fastapiReady = true;
-    tryShowMainWindow();
-  } catch (e) {
-    console.error("[electron] Failed to start FastAPI:", e);
-  }
+  // 1. 立即创建 splash 窗口（极简 HTML，秒开，用户立即看到 loading）
+  createSplashWindow();
+  // 2. 创建主窗口（show: false，后台加载 React，用户看不到加载过程）
+  createWindow();
 
-  // A1: TrayManager 动态 import——延迟加载 tray 模块及其依赖（electron 主进程启动时
-  // 不再加载 TrayManager 类，等 splash + 主窗口都已创建后再加载，节省 100-300ms）
+  // 3. 立即初始化系统托盘（不等 FastAPI）
+  //    关键修复：原来 tray init 在 await fastApiReadyPromise 之后，FastAPI 启动失败
+  //    时（30s 超时）托盘才出现，用户期间无法操作。现在 tray 在窗口创建后立即初始化，
+  //    即使 FastAPI 失败用户也能通过托盘菜单退出。
+  //    TrayManager.getMainWindow() 是 lazy 函数，调用时才取 mainWindow 引用，
+  //    所以在 mainWindow 创建之后初始化 tray 即可。
   const { TrayManager } = await import("./tray");
-  // 初始化系统托盘（关闭窗口 → 最小化到托盘，右键 → Liquid Glass 菜单）
   trayManager = new TrayManager({
     getMainWindow: () => mainWindow,
     fastapiBase: FASTAPI_BASE,
@@ -882,6 +894,23 @@ app.whenReady().then(async () => {
     },
   });
   trayManager.init();
+
+  // 4. await FastAPI ready（D5: spawn 已在模块顶层启动，这里只等 health 轮询结果）
+  //    FastAPI 冷启动与 Electron 主进程初始化并行，这里通常 0 等待或仅需等剩余 health
+  try {
+    if (fastApiReadyPromise) {
+      await fastApiReadyPromise;
+    }
+    fastapiReady = true;
+  } catch (e) {
+    // FastAPI 启动失败：仍然显示主窗口（不能让 splash 永远停留）
+    // React 前端会检测 /api/health 不可用，显示错误状态 + 重试按钮
+    // 用户至少能看到主界面 + 通过托盘菜单退出
+    console.error("[electron] Failed to start FastAPI:", e);
+    fastapiReady = true;
+  }
+  // 5. 检查是否可以显示主窗口（mainWindowReady + fastapiReady 都满足时 show）
+  tryShowMainWindow();
 
   // 自动更新管理器初始化（延迟动态 import，避免主进程启动时加载 electron-updater）
   // 三平台分流：

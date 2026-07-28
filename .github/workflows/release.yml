@@ -69,7 +69,7 @@ jobs:
   # - Linux x64      → AppImage + deb + rpm
   #
   # 关键设计：
-  #   1. macOS 不在 electron-builder.config.js 里指定 arch，让 CI 矩阵
+  #   1. macOS 不在 electron-builder.config.cjs 里指定 arch，让 CI 矩阵
   #      用原生 runner 架构分别构建。原因：PyInstaller 不支持交叉编译，
   #      Python 后端必须是原生架构。
   #   2. electron-builder --publish always 自动上传产物 + latest.yml 到 Release
