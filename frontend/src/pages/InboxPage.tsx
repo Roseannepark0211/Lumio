@@ -25,6 +25,7 @@ import {
   type InboxItem,
 } from "../api";
 import { useI18n } from "../i18n";
+import { ModalDialog } from "../components/ModalDialog";
 
 // ============================================================
 // 常量
@@ -716,28 +717,4 @@ function InboxCard({
   );
 }
 
-// 简易模态对话框（替代 QML Dialog，与 HistoryPage 同款）
-function ModalDialog({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="glass-card w-[420px] max-w-[90vw] p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-3 text-base font-semibold text-text">{title}</h2>
-        {children}
-      </div>
-    </div>
-  );
-}
+// 简易模态对话框（替代 QML Dialog）—— 已提取到 components/ModalDialog

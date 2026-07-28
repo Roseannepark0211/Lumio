@@ -7,4 +7,8 @@ release
 .electron-cache
 # PyInstaller 产物（由 build:backend 脚本生成）
 python-backend
-build
+# 注意：build/ 目录是 electron-builder 的 buildResources（源码资源），
+# 包含 icon.png / entitlements.mac.plist / installer.nsh 等，
+# 必须纳入版本控制（不能 ignore）。仅忽略其中的临时缓存子目录：
+build/cache
+build/tmp

@@ -24,32 +24,6 @@ export function normStatus(s: string): string {
   return m[s] || s;
 }
 
-/** 状态显示文本（i18n 在后端已完成，前端直接做中文映射）。 */
-export function statusText(s: string): string {
-  const n = normStatus(s);
-  const m: Record<string, string> = {
-    waiting: "等待中",
-    downloading: "下载中",
-    paused: "暂停中",
-    retrying: "重试中",
-    interrupted: "已中断",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
-  };
-  return m[n] || s;
-}
-
-/** 状态对应的 Tailwind 文本颜色类。 */
-export function statusColorClass(s: string): string {
-  const n = normStatus(s);
-  if (n === "completed") return "text-success";
-  if (n === "downloading") return "text-accent";
-  if (n === "failed" || n === "cancelled") return "text-danger";
-  if (n === "paused" || n === "interrupted") return "text-warning";
-  return "text-text-muted";
-}
-
 /** 状态对应的 pill 样式类（用于 Badge）。 */
 export function statusPillClass(s: string): string {
   const n = normStatus(s);
@@ -58,15 +32,6 @@ export function statusPillClass(s: string): string {
   if (n === "failed" || n === "cancelled") return "pill-danger";
   if (n === "paused" || n === "interrupted") return "pill bg-warning/15 text-warning border border-warning/30";
   return "pill bg-white/5 text-text-muted";
-}
-
-/** 字节格式化：B / KB / MB / GB。 */
-export function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 /** 0..1 → "NN%"。 */

@@ -20,52 +20,12 @@ import {
   type StatsResponse,
 } from "../api";
 import { useI18n } from "../i18n";
+import { formatSize as formatSizeRaw } from "../utils/format";
+import { platformLabel, platformDotColor } from "../utils/platform";
 
 // ============================================================
 // 常量
 // ============================================================
-
-// 平台展示名（与 LibraryPage / HistoryPage 对齐）
-// 仅保留无需翻译的英文名；国内平台走 i18n tr() 调用
-const PLATFORM_LABEL_EN: Record<string, string> = {
-  youtube: "YouTube",
-  instagram: "Instagram",
-  x: "X",
-  telegram: "Telegram",
-};
-
-// 国内平台 i18n key 映射（YouTube/Instagram/X/Telegram 等英文名不翻译）
-const PLATFORM_I18N_KEY: Record<string, string> = {
-  bilibili: "platform_bilibili",
-  douyin: "platform_douyin",
-  kuaishou: "platform_kuaishou",
-  weibo: "platform_weibo",
-  xiaohongshu: "platform_xiaohongshu",
-};
-
-function platformLabel(p: string, tr: (k: string) => string): string {
-  if (PLATFORM_LABEL_EN[p]) return PLATFORM_LABEL_EN[p];
-  if (PLATFORM_I18N_KEY[p]) return tr(PLATFORM_I18N_KEY[p]);
-  return p ? p.toUpperCase() : "未知";
-}
-
-// 平台圆点颜色（与 QML Theme.platformColor 对齐）
-const PLATFORM_DOT_COLOR: Record<string, string> = {
-  youtube: "bg-red-500",
-  instagram: "bg-pink-500",
-  x: "bg-zinc-200",
-  bilibili: "bg-blue-500",
-  douyin: "bg-zinc-100",
-  kuaishou: "bg-orange-500",
-  weibo: "bg-orange-600",
-  xiaohongshu: "bg-red-600",
-  telegram: "bg-sky-500",
-  unknown: "bg-zinc-500",
-};
-
-function platformDotColor(p: string): string {
-  return PLATFORM_DOT_COLOR[p] || "bg-zinc-500";
-}
 
 // 平台大数字色（与 QML 实现 text=platformColor 对齐，偏冷调暗色）
 const PLATFORM_TEXT_COLOR: Record<string, string> = {
@@ -86,11 +46,7 @@ function platformTextColor(p: string): string {
 }
 
 function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "0 B";
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+  return formatSizeRaw(bytes, true);
 }
 
 // ============================================================

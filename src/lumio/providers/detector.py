@@ -69,56 +69,6 @@ def detect_domestic(url: str) -> Optional[tuple[Platform, str]]:
     return None
 
 
-# ========================================================================
-# Profile 标识提取（Section 16）
-# ========================================================================
-
-_PROFILE_PATTERNS: dict[Platform, list[re.Pattern]] = {
-    Platform.WEIBO: [
-        re.compile(r"weibo\.com/(\d+)"),
-        re.compile(r"m\.weibo\.cn/u/(\d+)"),
-    ],
-    Platform.XIAOHONGSHU: [
-        re.compile(r"xiaohongshu\.com/user/profile/([a-f0-9]+)"),
-    ],
-    Platform.BILIBILI: [
-        re.compile(r"bilibili\.com/space/(\d+)"),
-        re.compile(r"space\.bilibili\.com/(\d+)"),
-    ],
-    Platform.DOUYIN: [
-        re.compile(r"douyin\.com/user/([\w.]+)"),
-    ],
-    Platform.KUAISHOU: [
-        re.compile(r"kuaishou\.com/profile/(\d+)"),
-    ],
-}
-
-
-def extract_profile_identifier(url: str) -> Optional[str]:
-    """从国内平台个人主页 URL 中提取用户标识。
-
-    用于 GUI 批量下载对话框的信号参数。
-    如果 URL 不匹配任何已知个人主页模式，返回 None。
-
-    Examples:
-        >>> extract_profile_identifier("https://weibo.com/1234567890")
-        "1234567890"
-        >>> extract_profile_identifier("https://m.weibo.cn/u/1234567890")
-        "1234567890"
-        >>> extract_profile_identifier("https://example.com/foo")
-        None
-    """
-    for platform, patterns in _PROFILE_PATTERNS.items():
-        for pat in patterns:
-            m = pat.search(url)
-            if m:
-                identifier = m.group(1)
-                logger.debug("Extracted profile identifier %s from %s", identifier, url[:60])
-                return identifier
-    return None
-
-
 __all__ = [
     "detect_domestic",
-    "extract_profile_identifier",
 ]

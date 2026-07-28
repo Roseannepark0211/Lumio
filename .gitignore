@@ -6,7 +6,9 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
-build/
+# 只忽略根目录的 Python build/ 产物（pip/setup.py build），
+# 不要忽略子目录的 build/（frontend/build/ 是 electron-builder 源码资源目录）
+/build/
 .eggs/
 .eggs/
 

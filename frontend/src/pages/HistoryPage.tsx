@@ -23,6 +23,9 @@ import {
   type HistoryRecord,
 } from "../api";
 import { useI18n } from "../i18n";
+import { formatSize } from "../utils/format";
+import { platformLabel } from "../utils/platform";
+import { ModalDialog } from "../components/ModalDialog";
 
 // 平台筛选选项（与 QML HistoryPage.qml model 对齐）
 // translate=true 表示 label 字段是 i18n key，需在渲染时用 tr() 解析
@@ -37,33 +40,6 @@ const PLATFORM_OPTIONS: { value: string; label: string; translate?: boolean }[] 
   { value: "weibo", label: "platform_weibo", translate: true },
   { value: "xiaohongshu", label: "platform_xiaohongshu", translate: true },
 ];
-
-// 平台展示名（平台 key → i18n key 或英文原名）
-const PLATFORM_LABEL: Record<string, { text: string; translate?: boolean }> = {
-  youtube: { text: "YouTube" },
-  instagram: { text: "Instagram" },
-  x: { text: "X" },
-  bilibili: { text: "platform_bilibili", translate: true },
-  douyin: { text: "platform_douyin", translate: true },
-  kuaishou: { text: "platform_kuaishou", translate: true },
-  weibo: { text: "platform_weibo", translate: true },
-  xiaohongshu: { text: "platform_xiaohongshu", translate: true },
-};
-
-function platformLabel(p: string, tr: (k: string) => string): string {
-  if (!p) return "—";
-  const entry = PLATFORM_LABEL[p];
-  if (!entry) return p.toUpperCase();
-  return entry.translate ? tr(entry.text) : entry.text;
-}
-
-function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "—";
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-}
 
 function formatTime(t: string): string {
   if (!t || t.length === 0) return "—";
@@ -498,28 +474,6 @@ function RecordCard({
   );
 }
 
-// 简易模态对话框（替代 QML Dialog）
-function ModalDialog({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="glass-card w-[420px] max-w-[90vw] p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-3 text-base font-semibold text-text">{title}</h2>
-        {children}
-      </div>
-    </div>
-  );
-}
+// 简易模态对话框（替代 QML Dialog）—— 已提取到 components/ModalDialog
+
+

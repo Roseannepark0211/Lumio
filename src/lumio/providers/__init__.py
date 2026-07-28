@@ -23,7 +23,6 @@ from .base import (
     Platform,
 )
 from .detector import detect_domestic
-from .detector import extract_profile_identifier
 from .url_normalizer import normalize_url
 from .weibo import WeiboProvider  # noqa: F401
 from .xiaohongshu import XiaohongshuProvider  # noqa: F401
@@ -61,7 +60,6 @@ __all__ = [
     "Platform",
     # URL 检测
     "detect_domestic",
-    "extract_profile_identifier",
     # URL 规范化
     "normalize_url",
     # 缓存
@@ -81,7 +79,4 @@ __all__ = [
     "YouTubeProvider",
     "InstagramProvider",
     "XProvider",
-    "normalize_url",
-    "extract_profile_identifier",
-    "provider_cache",
 ]

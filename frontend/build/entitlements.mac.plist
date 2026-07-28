@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- hardenedRuntime 必需的最小权限集 -->
+    <!-- 允许加载未签名内存（JIT）—— Chromium / Node.js V8 JIT 需要 -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- 允许加载未签名的动态库 —— Electron 内嵌 Node native module 需要 -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- 允许加载 DYLD 环境变量（开发期调试用；发布可关闭，但 PyInstaller 产物需要） -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- 允许调试（开发期附加调试器；不影响发布） -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+    <!-- 网络出站连接（FastAPI 后端 / yt-dlp / Provider 下载必需） -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- 网络入站连接（FastAPI 监听 127.0.0.1 端口） -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- 文件读写 —— ~/.lumio/ 配置/数据库/下载文件 -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

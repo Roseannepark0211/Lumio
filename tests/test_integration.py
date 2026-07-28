@@ -17,10 +17,6 @@ from lumio.downloader import (
     DownloadTask,
     VideoInfo,
     extract_info,
-    fetch_profile_info,
-    fetch_yt_channel_info,
-    enumerate_profile_posts,
-    enumerate_yt_videos,
     start_download_with_pause,
 )
 from lumio.utils.url_parser import Platform, parse_url
@@ -105,36 +101,7 @@ class TestExtractInfo:
 
 
 # ================================================================
-# 3. Batch Enumeration (limit=2)
-# ================================================================
-
-class TestBatchEnumeration:
-    def test_ig_profile_info(self):
-        result = fetch_profile_info("jujingyi_kikuuu")
-        assert "username" in result, f"Expected username in result, got: {result}"
-        assert result["username"]
-
-    def test_ig_enumerate_posts(self):
-        posts = enumerate_profile_posts("jujingyi_kikuuu", limit=2)
-        assert len(posts) > 0, "Should enumerate at least 1 post"
-        assert len(posts) <= 2, "Should not exceed limit=2"
-        first = posts[0]
-        assert "shortcode" in first or "id" in first, f"Post missing key fields: {list(first.keys())}"
-
-    def test_yt_channel_info(self):
-        result = fetch_yt_channel_info(YT_CHANNEL)
-        assert "channel" in result or "title" in result, f"Expected channel info, got: {result}"
-
-    def test_yt_enumerate_videos(self):
-        videos = enumerate_yt_videos(YT_CHANNEL, limit=2)
-        assert len(videos) > 0, "Should enumerate at least 1 video"
-        assert len(videos) <= 2, "Should not exceed limit=2"
-        first = videos[0]
-        assert "url" in first or "id" in first, f"Video missing key fields: {list(first.keys())}"
-
-
-# ================================================================
-# 4. Download (single file each platform)
+# 3. Download (single file each platform)
 # ================================================================
 
 class TestDownload:

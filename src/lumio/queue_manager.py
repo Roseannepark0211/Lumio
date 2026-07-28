@@ -201,18 +201,10 @@ class DownloadManager(QObject):
     def set_library_manager(self, lm):
         self._library_manager = lm
 
-    def resolve_conflict(self, choice: str):
-        """Respond to conflict_ask signal. choice: 'rename'/'skip'/'overwrite'."""
-        self._conflict_handler.respond(choice)
-
     def check_url_duplicate(self, url: str) -> bool:
         if self._library_manager:
             return self._library_manager.url_exists(url)
         return False
-
-    def set_max_workers(self, n: int):
-        self._max_workers = max(1, min(10, n))
-        self._schedule()
 
     def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir, batch_id="") -> str:
         media_json = ""
@@ -438,25 +430,6 @@ class DownloadManager(QObject):
                     to_resume.append(qt.task_id)
         for tid in to_resume:
             self.resume_task(tid)
-
-    def resume_interrupted(self):
-        to_resume = []
-        with self._lock:
-            for qt in self._tasks.values():
-                if qt.status == TaskStatus.INTERRUPTED.value:
-                    to_resume.append(qt.task_id)
-        for tid in to_resume:
-            self.resume_task(tid)
-
-    def clear_completed(self):
-        with self._lock:
-            to_remove = [
-                tid for tid, qt in self._tasks.items()
-                if qt.status == TaskStatus.COMPLETED.value
-            ]
-            for tid in to_remove:
-                self._tasks.pop(tid, None)
-        self.queue_changed.emit()
 
     # ---- Persistence ----
 

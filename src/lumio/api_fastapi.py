@@ -1640,16 +1640,14 @@ def create_app() -> FastAPI:
         except _requests.HTTPError as e:
             # 远程 CDN 返回 4xx/5xx — 返回透明 GIF 而非 raise，避免 CORS header 缺失
             status = e.response.status_code if e.response is not None else 0
-            import sys
-            print(f"[thumb-proxy] HTTPError url={url} status={status}", file=sys.stderr)
+            logger.warning("thumb-proxy HTTPError url=%s status=%s", url, status)
             return Response(
                 content=_TRANSPARENT_GIF,
                 media_type="image/gif",
                 headers={"Cache-Control": "no-store"},
             )
         except Exception as e:
-            import sys
-            print(f"[thumb-proxy] error url={url} err={type(e).__name__}: {e}", file=sys.stderr)
+            logger.warning("thumb-proxy error url=%s err=%s: %s", url, type(e).__name__, e)
             return Response(
                 content=_TRANSPARENT_GIF,
                 media_type="image/gif",
@@ -1736,9 +1734,22 @@ def create_app() -> FastAPI:
     async def ws_events(ws: WebSocket) -> None:
         await ws.accept()
         q = _bus().subscribe()
+        # 心跳：每 25 秒发送应用层 ping 帧。
+        # 浏览器 WebSocket API 不暴露 ping/pong 帧给 JS，需要应用层自实现：
+        # 长时间下载时网络中间设备（NAT/路由器）会切断空闲连接，心跳保活。
+        # 心跳间隔 < 30s 可穿大多数 NAT。
+        HEARTBEAT_INTERVAL = 25.0
         try:
             while True:
-                event = await q.get()
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    # 队列空闲超时：发心跳
+                    try:
+                        await ws.send_json({"type": "ping", "data": None, "ts": time.time()})
+                    except (WebSocketDisconnect, RuntimeError):
+                        break
+                    continue
                 try:
                     await ws.send_json(event)
                 except (WebSocketDisconnect, RuntimeError):
@@ -1991,7 +2002,17 @@ def main() -> None:
                 host, port,
                 "yes" if os.environ.get("LUMIO_FASTAPI_TOKEN") else "no")
     app = create_app()
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # 桌面单用户场景：强制单 worker，避免多 worker 导致 SQLite 连接复制（+200MB 内存）
+    # 和 manager 状态在多进程间不同步；禁用 access_log 减少日志开销
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        workers=1,
+        reload=False,
+        access_log=False,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":

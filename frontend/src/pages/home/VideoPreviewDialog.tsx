@@ -45,7 +45,6 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
   if (!localPath && !error) return null;
 
   const videoSrc = localPath ? lumioFileUrl(localPath) : "";
-  console.log("[VideoPreviewDialog] videoSrc =", videoSrc, "localPath =", localPath);
 
   return (
     <div
@@ -114,7 +113,7 @@ export function VideoPreviewDialog({ localPath, error, onClose }: Props) {
               console.error("[VideoPreviewDialog] video error:", { code, message: msg, src: videoSrc });
               setVideoError(`${label}: ${msg || tr("no_detail")} (src=${videoSrc})`);
             }}
-            onLoadedData={() => console.log("[VideoPreviewDialog] video loaded OK")}
+            onLoadedData={() => {}}
           />
         )}
       </div>

@@ -3,8 +3,12 @@
  *
  * 流程：
  *   1. 调用 PyInstaller 用 lumio.spec 打包 src/lumio/ → dist/LumioAPI/
+ *      （macOS 还会额外生成 dist/LumioAPI.app/ —— BUNDLE 输出）
  *   2. 清空 frontend/python-backend/（避免旧文件残留）
- *   3. 复制 dist/LumioAPI/* → frontend/python-backend/
+ *   3. 复制产物到 frontend/python-backend/：
+ *        Windows/Linux: dist/LumioAPI/* → frontend/python-backend/*
+ *        macOS:         dist/LumioAPI.app → frontend/python-backend/LumioAPI.app
+ *                       （保留 .app bundle 结构，便于 electron-builder afterSign 整体签名）
  *
  * 用法：
  *   npm run build:backend           # 默认构建
@@ -16,7 +20,8 @@
  *
  * 输出：
  *   frontend/python-backend/LumioAPI.exe（Windows）
- *   frontend/python-backend/LumioAPI（macOS/Linux）
+ *   frontend/python-backend/LumioAPI.app/Contents/MacOS/LumioAPI（macOS）
+ *   frontend/python-backend/LumioAPI（Linux）
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -29,8 +34,11 @@ const projectRoot = path.resolve(__dirname, "..", "..");
 const frontendRoot = path.resolve(__dirname, "..");
 const distDir = path.join(projectRoot, "dist");
 const backendDistDir = path.join(distDir, "LumioAPI");
+// macOS BUNDLE 输出 .app 包；其他平台无此产物
+const backendAppBundle = path.join(distDir, "LumioAPI.app");
 const targetDir = path.join(frontendRoot, "python-backend");
 
+const isMacos = process.platform === "darwin";
 const exeName = process.platform === "win32" ? "LumioAPI.exe" : "LumioAPI";
 
 function log(msg) {
@@ -59,11 +67,19 @@ execSync("pyinstaller lumio.spec --noconfirm", {
 });
 
 // 3. 验证产物
-const exePath = path.join(backendDistDir, exeName);
+// macOS 优先用 .app bundle（BUNDLE 输出），其他平台用 COLLECT 输出的文件夹
+const useAppBundle = isMacos && fs.existsSync(backendAppBundle);
+const primaryDist = useAppBundle ? backendAppBundle : backendDistDir;
+const exePath = useAppBundle
+  ? path.join(backendAppBundle, "Contents", "MacOS", "LumioAPI")
+  : path.join(backendDistDir, exeName);
 if (!fs.existsSync(exePath)) {
   fail(`PyInstaller output not found: ${exePath}`);
 }
 log(`PyInstaller output: ${exePath}`);
+if (useAppBundle) {
+  log("macOS: using .app bundle (BUNDLE output) for proper code signing");
+}
 
 // 4. 清空目标目录
 if (fs.existsSync(targetDir)) {
@@ -72,12 +88,17 @@ if (fs.existsSync(targetDir)) {
 }
 fs.mkdirSync(targetDir, { recursive: true });
 
-// 5. 复制 dist/LumioAPI/* → frontend/python-backend/
-log(`copying ${backendDistDir} → ${targetDir}`);
-fs.cpSync(backendDistDir, targetDir, { recursive: true });
+// 5. 复制产物 → frontend/python-backend/
+// macOS + .app: 把整个 .app bundle 复制到 python-backend/LumioAPI.app/
+//   main.ts 在 macOS 上 spawn python-backend/LumioAPI.app/Contents/MacOS/LumioAPI
+// 其他平台: 把 dist/LumioAPI/* 平铺到 python-backend/
+log(`copying ${primaryDist} → ${targetDir}`);
+fs.cpSync(primaryDist, targetDir, { recursive: true });
 
 // 6. 验证最终产物
-const finalExe = path.join(targetDir, exeName);
+const finalExe = useAppBundle
+  ? path.join(targetDir, "LumioAPI.app", "Contents", "MacOS", "LumioAPI")
+  : path.join(targetDir, exeName);
 if (!fs.existsSync(finalExe)) {
   fail(`Final binary not found: ${finalExe}`);
 }

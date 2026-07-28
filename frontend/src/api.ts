@@ -575,9 +575,6 @@ export const api = {
   /** 批量入队下载 */
   inboxBatchDownload: (ids: string[]) =>
     post<{ ok: boolean }>("/api/inbox/batch-download", { ids }),
-  /** 标记单条为已下载（手动场景使用） */
-  inboxMarkDownloaded: (itemId: string) =>
-    post<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}/mark-downloaded`),
   /** 归档单条 */
   inboxArchive: (itemId: string) =>
     post<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}/archive`),
@@ -668,10 +665,9 @@ export const api = {
   cleanCacheByRules: () => post<{ ok: boolean }>("/api/cache/clean-by-rules"),
   forceClearCache: () => post<{ ok: boolean }>("/api/cache/force-clear"),
 
-  // —— SettingsPage: 剪贴板 / Toast ——
+  // —— SettingsPage: 剪贴板 ——
   copyToClipboard: (text: string) =>
     post<{ ok: boolean; error?: string }>("/api/clipboard/copy", { text }),
-  showToast: (message: string) => post<{ ok: boolean }>("/api/toast", { message }),
 
   // —— SettingsPage: 版本检查 ——
   checkUpdate: () => get<CheckUpdateResult>("/api/check-update"),
@@ -737,7 +733,10 @@ export type EventType =
   | "apify_usage_updated"
   | "cache_cleaned"
   | "toast"
-  | "file_missing";
+  | "file_missing"
+  // 心跳协议帧（非业务事件，subscribeEvents 内部消费，不传递给业务回调）
+  | "ping"
+  | "pong";
 
 export interface AppEvent<T = unknown> {
   type: EventType;
@@ -747,6 +746,14 @@ export interface AppEvent<T = unknown> {
 
 /**
  * 订阅 FastAPI WebSocket 事件流。
+ *
+ * 健壮性设计（社区最佳实践）：
+ * - **心跳保活**：后端每 25s 发应用层 ping；前端收到后回 pong。
+ *   若 60s 内未收到任何消息（含 ping），认为连接已断（NAT/路由器静默切断），
+ *   主动 close 并触发重连。
+ * - **指数退避重连**：断开后 1s → 2s → 4s → 8s → 16s → 30s（上限）重试，
+ *   避免短时间大量重连风暴；重连成功后退避重置。
+ *
  * 返回 unsubscribe 函数。
  */
 export function subscribeEvents(
@@ -755,14 +762,87 @@ export function subscribeEvents(
 ): () => void {
   // WebSocket URL 需要把 http base 转成 ws
   const wsBase = BASE.replace(/^http/, "ws");
-  const ws = new WebSocket(`${wsBase}/ws/events`);
-  ws.onmessage = (e) => {
-    try {
-      onEvent(JSON.parse(e.data));
-    } catch {
-      // ignore parse error
+  const url = `${wsBase}/ws/events`;
+
+  // 心跳超时阈值：后端每 25s 发一次 ping，2 个周期内必须收到任何消息
+  const HEARTBEAT_TIMEOUT_MS = 60_000;
+  // 重连退避：1s → 2s → 4s → 8s → 16s → 30s（上限）
+  const MIN_BACKOFF_MS = 1_000;
+  const MAX_BACKOFF_MS = 30_000;
+
+  let ws: WebSocket | null = null;
+  let closedByUser = false;
+  let backoffMs = MIN_BACKOFF_MS;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearTimeout(heartbeatTimer);
+      heartbeatTimer = null;
     }
   };
-  ws.onerror = (e) => onError?.(e);
-  return () => ws.close();
+  const scheduleHeartbeat = () => {
+    clearHeartbeat();
+    heartbeatTimer = setTimeout(() => {
+      // 60s 没收到任何消息，主动断开触发重连
+      ws?.close();
+    }, HEARTBEAT_TIMEOUT_MS);
+  };
+
+  const connect = () => {
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      // 连接成功：重置退避
+      backoffMs = MIN_BACKOFF_MS;
+      scheduleHeartbeat();
+    };
+
+    ws.onmessage = (e) => {
+      // 任何消息都视为心跳有效（包括 ping）
+      scheduleHeartbeat();
+      try {
+        const evt = JSON.parse(e.data) as AppEvent;
+        // 应用层 ping/pong：后端发 ping，前端回 pong
+        if (evt.type === "ping") {
+          try {
+            ws?.send(JSON.stringify({ type: "pong", data: null, ts: Date.now() }));
+          } catch {
+            // send 失败说明连接已断，让心跳超时机制处理
+          }
+          return;
+        }
+        onEvent(evt);
+      } catch {
+        // ignore parse error
+      }
+    };
+
+    ws.onerror = (e) => {
+      onError?.(e);
+    };
+
+    ws.onclose = () => {
+      clearHeartbeat();
+      if (closedByUser) return;
+      // 指数退避重连
+      reconnectTimer = setTimeout(() => {
+        backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        connect();
+      }, backoffMs);
+    };
+  };
+
+  connect();
+
+  return () => {
+    closedByUser = true;
+    clearHeartbeat();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (ws) {
+      ws.onclose = null;  // 阻止 onclose 触发重连
+      ws.close();
+    }
+  };
 }

@@ -208,18 +208,6 @@
   }
 }
 
-/* LaserProgressBar 激光粒子拖尾动画 */
-@keyframes laser-particle {
-  0% {
-    transform: translateX(0) scaleX(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateX(-32px) scaleX(0.3);
-    opacity: 0;
-  }
-}
-
 /* PreviewArea 灯带边框：整圈柔光围绕素材，颜色从素材主色动态提取。
    - 不旋转（容器随素材尺寸变化，旋转会显得突兀）
    - 颜色由 JS 提取主色后注入 CSS 变量 --flow-color

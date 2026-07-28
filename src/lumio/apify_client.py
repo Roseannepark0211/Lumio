@@ -46,9 +46,8 @@ def _extract_dataset_id(run) -> str:
 class ApifyIGClient:
     """Instagram data client backed by Apify Actor.
 
-    Provides the same logical operations as the direct IG API functions
-    (extract_post_info, fetch_profile_info, enumerate_profile_posts)
-    but routes all data fetching through Apify's infrastructure.
+    Routes all IG data fetching through Apify's infrastructure to avoid
+    direct mobile API calls that risk account suspension.
     """
 
     def __init__(self, token: str, actor_id: str):
@@ -57,7 +56,7 @@ class ApifyIGClient:
         self._actor_id = actor_id
 
     # ------------------------------------------------------------------
-    # Public API (mirrors downloader.py IG functions)
+    # Public API
     # ------------------------------------------------------------------
 
     def test_connection(self) -> bool:
@@ -69,7 +68,7 @@ class ApifyIGClient:
             return False
 
     def extract_post_info(self, url: str) -> VideoInfo:
-        """Extract single post/reel info. Replaces _ig_extract_info()."""
+        """Extract single post/reel info."""
         run = self._client.actor(self._actor_id).call(run_input={
             "directUrls": [url],
             "resultsType": "posts",
@@ -83,7 +82,7 @@ class ApifyIGClient:
         return self._to_video_info(items[0])
 
     def fetch_profile_info(self, username: str) -> dict:
-        """Fetch profile metadata. Replaces fetch_profile_info()."""
+        """Fetch profile metadata."""
         run = self._client.actor(self._actor_id).call(run_input={
             "directUrls": [f"https://www.instagram.com/{username}/"],
             "resultsType": "posts",
@@ -110,10 +109,9 @@ class ApifyIGClient:
         callback=None,
         cancel_event: threading.Event | None = None,
     ) -> list[dict]:
-        """Enumerate profile posts. Replaces enumerate_profile_posts().
+        """Enumerate profile posts.
 
         Returns list of Apify item dicts (not QueueTask — caller converts).
-        Each dict is a raw Apify result, suitable for _post_to_queue_task() bridge.
         """
         run_input = {
             "directUrls": [f"https://www.instagram.com/{username}/"],
@@ -251,7 +249,7 @@ class ApifyIGClient:
             return ""
 
     def post_to_queue_task(self, item: dict, custom_name: str, output_dir, max_retries: int = 3, batch_id: str = ""):
-        """Convert Apify result item → QueueTask. Replaces _post_to_queue_task() for API mode."""
+        """Convert Apify result item → QueueTask."""
         from .queue_manager import QueueTask
 
         short_code = item.get("shortCode", "")

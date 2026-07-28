@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .signal import QThread, Signal
-
 from .config import get_cookie_path
 
 # Seconds in 7 days
@@ -108,22 +106,3 @@ def check_all_cookies() -> dict[str, str]:
         "bilibili": check_bilibili_cookie_status(),
         "kuaishou": check_kuaishou_cookie_status(),
     }
-
-
-def check_apify_token_status() -> str:
-    """Check if Apify API token is configured.
-    Returns: 'missing' (no token) | 'valid' (token set).
-    Actual connectivity validation is done via ApifyIGClient.test_connection().
-    """
-    from .config import get_apify_token
-    return "valid" if get_apify_token() else "missing"
-
-
-class CookieCheckWorker(QThread):
-    """Background thread for non-blocking cookie status check."""
-
-    result = Signal(str)
-
-    def run(self):
-        status = check_ig_cookie_status()
-        self.result.emit(status)

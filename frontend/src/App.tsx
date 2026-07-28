@@ -12,6 +12,7 @@ import { StatsPage } from "./pages/StatsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { Logo3DGlow } from "./components/Logo3DGlow";
+import { formatSize as formatSizeRaw } from "./utils/format";
 
 // 全局 Toast 上下文 — 任何页面都能触发 toast
 const ToastContext = React.createContext<(msg: string) => void>(() => {});
@@ -343,8 +344,5 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function formatSize(bytes: number): string {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  return formatSizeRaw(bytes, true);
 }

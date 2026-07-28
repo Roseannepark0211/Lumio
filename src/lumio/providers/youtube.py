@@ -32,11 +32,10 @@ def _yt_opts(cookie_path) -> dict:
     """构造 yt-dlp 选项（与 downloader._yt_opts 一致）。"""
     import yt_dlp
     from ..utils.config import load_config
-    try:
-        from importlib.resources import files as _files
-        ffmpeg_bin = str(_files("imageio_ffmpeg") / "ffmpeg-win-x86_64-v7.1.exe")
-    except Exception:
-        ffmpeg_bin = "ffmpeg"
+    from ..downloader import _find_ffmpeg
+    # 跨平台 ffmpeg 定位：系统 PATH 优先，否则用 imageio_ffmpeg 内置二进制
+    # （_find_ffmpeg 内部会自动选对应平台的 ffmpeg 二进制名，不再硬编码 win 版本）
+    ffmpeg_bin = _find_ffmpeg() or "ffmpeg"
 
     cfg = load_config()
     proxy = cfg.get("proxy", "")

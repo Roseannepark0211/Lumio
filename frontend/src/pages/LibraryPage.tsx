@@ -30,6 +30,8 @@ import {
 } from "../api";
 import { useI18n } from "../i18n";
 import { MediaPreviewDialog } from "../components/MediaPreviewDialog";
+import { ModalDialog } from "../components/ModalDialog";
+import { formatSize } from "../utils/format";
 
 // ============================================================
 // 常量
@@ -92,14 +94,6 @@ function typeBadgeClass(
     default:
       return { bg: "bg-white/10", text: "text-text-muted", label: t.toUpperCase() };
   }
-}
-
-function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return "—";
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
 }
 
 function formatCount(n: number): string {
@@ -1348,30 +1342,6 @@ function CollectionNameDialog({
 }
 
 // ============================================================
-// 简易模态对话框（与 HistoryPage 同款，复制以避免跨页面耦合）
+// 简易模态对话框 —— 已提取到 components/ModalDialog
 // ============================================================
 
-function ModalDialog({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="glass-card w-[420px] max-w-[90vw] p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-3 text-base font-semibold text-text">{title}</h2>
-        {children}
-      </div>
-    </div>
-  );
-}

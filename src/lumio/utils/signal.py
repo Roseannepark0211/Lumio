@@ -22,6 +22,8 @@ PySide6，但仍保留 Signal 的 connect/emit API 形式，最小化改动 mana
 
 from __future__ import annotations
 
+import os
+import sys
 import threading
 import uuid
 from typing import Any, Callable
@@ -291,52 +293,131 @@ class QGuiApplication(QApplication):
 
 
 class _QGuiApplicationClipboard:
-    """QGuiApplication.clipboard() 占位 — 实际剪贴板访问用 ctypes/pyperclip。"""
+    """QGuiApplication.clipboard() 占位 — 跨平台剪贴板访问。
+
+    - Windows: 用 ctypes.windll（user32/kernel32）直接调 Win32 API
+    - macOS: 用 pbcopy/pbpaste 命令
+    - Linux: 优先 xclip，回退 xsel
+    """
 
     def text(self) -> str:
         try:
-            import ctypes
-            CF_UNICODETEXT = 13
-            user32 = ctypes.windll.user32
-            user32.OpenClipboard(0)
-            try:
-                if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
-                    return ""
-                handle = user32.GetClipboardData(CF_UNICODETEXT)
-                if not handle:
-                    return ""
-                ptr = ctypes.cast(handle, ctypes.c_wchar_p)
-                return ptr.value or ""
-            finally:
-                user32.CloseClipboard()
+            if sys.platform == "win32":
+                return self._text_win32()
+            elif sys.platform == "darwin":
+                return self._text_macos()
+            else:
+                return self._text_linux()
         except Exception:
             return ""
 
     def setText(self, text: str) -> None:
         try:
-            import ctypes
-            CF_UNICODETEXT = 13
-            user32 = ctypes.windll.user32
-            user32.OpenClipboard(0)
-            try:
-                user32.EmptyClipboard()
-                if text:
-                    # GlobalAlloc(GMEM_MOVEABLE, len * 2 + 2)
-                    GMEM_MOVEABLE = 0x0002
-                    kernel32 = ctypes.windll.kernel32
-                    buf = ctypes.create_unicode_buffer(text)
-                    size = len(text) + 1
-                    h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE, size * 2)
-                    if h_mem:
-                        locked = kernel32.GlobalLock(h_mem)
-                        if locked:
-                            ctypes.memmove(locked, buf, size * 2)
-                            kernel32.GlobalUnlock(h_mem)
-                            user32.SetClipboardData(CF_UNICODETEXT, h_mem)
-            finally:
-                user32.CloseClipboard()
+            if sys.platform == "win32":
+                self._set_text_win32(text)
+            elif sys.platform == "darwin":
+                self._set_text_macos(text)
+            else:
+                self._set_text_linux(text)
         except Exception:
             pass
+
+    # ---------- Windows ----------
+
+    @staticmethod
+    def _text_win32() -> str:
+        import ctypes
+        CF_UNICODETEXT = 13
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        user32.OpenClipboard(0)
+        try:
+            if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+                return ""
+            handle = user32.GetClipboardData(CF_UNICODETEXT)
+            if not handle:
+                return ""
+            ptr = ctypes.cast(handle, ctypes.c_wchar_p)
+            return ptr.value or ""
+        finally:
+            user32.CloseClipboard()
+
+    @staticmethod
+    def _set_text_win32(text: str) -> None:
+        import ctypes
+        CF_UNICODETEXT = 13
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        user32.OpenClipboard(0)
+        try:
+            user32.EmptyClipboard()
+            if text:
+                # GlobalAlloc(GMEM_MOVEABLE, len * 2 + 2)
+                GMEM_MOVEABLE = 0x0002
+                kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                buf = ctypes.create_unicode_buffer(text)
+                size = len(text) + 1
+                h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE, size * 2)
+                if h_mem:
+                    locked = kernel32.GlobalLock(h_mem)
+                    if locked:
+                        ctypes.memmove(locked, buf, size * 2)
+                        kernel32.GlobalUnlock(h_mem)
+                        user32.SetClipboardData(CF_UNICODETEXT, h_mem)
+        finally:
+            user32.CloseClipboard()
+
+    # ---------- macOS ----------
+
+    @staticmethod
+    def _text_macos() -> str:
+        import subprocess
+        result = subprocess.run(
+            ["pbpaste", "-Prefer", "txt"],
+            capture_output=True, text=True, check=False,
+        )
+        return result.stdout
+
+    @staticmethod
+    def _set_text_macos(text: str) -> None:
+        import subprocess
+        subprocess.run(
+            ["pbcopy"],
+            input=text, text=True, check=False,
+        )
+
+    # ---------- Linux ----------
+
+    @staticmethod
+    def _text_linux() -> str:
+        import subprocess
+        import shutil
+        if shutil.which("xclip"):
+            result = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-o"],
+                capture_output=True, text=True, check=False,
+            )
+            return result.stdout
+        if shutil.which("xsel"):
+            result = subprocess.run(
+                ["xsel", "--clipboard", "--output"],
+                capture_output=True, text=True, check=False,
+            )
+            return result.stdout
+        return ""
+
+    @staticmethod
+    def _set_text_linux(text: str) -> None:
+        import subprocess
+        import shutil
+        if shutil.which("xclip"):
+            subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=text, text=True, check=False,
+            )
+        elif shutil.which("xsel"):
+            subprocess.run(
+                ["xsel", "--clipboard", "--input"],
+                input=text, text=True, check=False,
+            )
 
 
 def _qgui_clipboard() -> _QGuiApplicationClipboard:
@@ -349,25 +430,39 @@ def _clipboard_classmethod() -> _QGuiApplicationClipboard:
 
 
 class QDesktopServices:
-    """QDesktopServices placeholder，用 os.startfile/subprocess 替代。"""
+    """QDesktopServices placeholder，跨平台打开 URL/文件。"""
 
     @staticmethod
     def openUrl(url: Any) -> bool:
         """打开 URL 或文件路径。url 可以是 str 或 QUrl。"""
         url_str = str(url)
-        # 去掉 QUrl 的 file:/// 或 http:// 前缀对本地路径的处理
+        # 去掉 QUrl 的 file:/// 前缀对本地路径的处理
         if url_str.startswith("file:///"):
-            url_str = url_str[8:].replace("/", "\\")
+            # Windows: file:///C:/path → C:\path
+            # macOS/Linux: file:///path → /path
+            url_str = url_str[8:]
+            if sys.platform == "win32":
+                url_str = url_str.replace("/", "\\")
         try:
             import os
             import subprocess
             if url_str.startswith(("http://", "https://")):
-                # 用默认浏览器打开 URL
-                subprocess.Popen(["cmd", "/c", "start", "", url_str], shell=False)
+                # 用默认浏览器打开 URL（跨平台）
+                if sys.platform == "win32":
+                    subprocess.Popen(["cmd", "/c", "start", "", url_str], shell=False)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", url_str])
+                else:
+                    subprocess.Popen(["xdg-open", url_str])
             else:
-                # 本地文件/目录
+                # 本地文件/目录（跨平台）
                 if os.path.exists(url_str):
-                    os.startfile(url_str)
+                    if sys.platform == "win32":
+                        os.startfile(url_str)  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", url_str])
+                    else:
+                        subprocess.Popen(["xdg-open", url_str])
             return True
         except Exception:
             return False

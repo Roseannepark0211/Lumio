@@ -55,6 +55,14 @@ process.env.LUMIO_FASTAPI_TOKEN = fastapiToken;
   }
 }
 
+// V8 js-flags 调优：桌面单用户场景，限制老生代堆上限避免内存膨胀，
+// 提高 GC 频率换启动速度（社区推荐配置：单用户 Electron 应用 2GB 上限 + 100MB 间隔）
+// 必须在 app ready 之前调用，否则 V8 已用默认参数初始化堆
+app.commandLine.appendSwitch(
+  "js-flags",
+  "--max-old-space-size=2048 --gc-interval=100"
+);
+
 // 注册 lumio-file:// 自定义 protocol，映射本地文件路径
 // 必须在 app.whenReady() 之前调用 registerSchemesAsPrivileged，
 // 否则 Chromium 同源策略会拦截跨 protocol 的 fetch/video/image 请求
@@ -186,8 +194,23 @@ function startFastApi(): Promise<void> {
 
     if (app.isPackaged) {
       const resourcesPath = process.resourcesPath;
-      const exeName = process.platform === "win32" ? "LumioAPI.exe" : "LumioAPI";
-      exePath = path.join(resourcesPath, "python-backend", exeName);
+      // macOS: build-backend.js 复制 .app bundle 到 python-backend/LumioAPI.app/
+      //   spawn 路径：python-backend/LumioAPI.app/Contents/MacOS/LumioAPI
+      // Windows/Linux: build-backend.js 平铺 LumioAPI[.exe] 到 python-backend/
+      //   spawn 路径：python-backend/LumioAPI[.exe]
+      if (process.platform === "darwin") {
+        exePath = path.join(
+          resourcesPath,
+          "python-backend",
+          "LumioAPI.app",
+          "Contents",
+          "MacOS",
+          "LumioAPI"
+        );
+      } else {
+        const exeName = process.platform === "win32" ? "LumioAPI.exe" : "LumioAPI";
+        exePath = path.join(resourcesPath, "python-backend", exeName);
+      }
       cwdPath = path.dirname(exePath);
       env = {
         ...process.env,

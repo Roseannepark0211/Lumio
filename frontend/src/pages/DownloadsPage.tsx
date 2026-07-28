@@ -186,7 +186,6 @@ export function DownloadsPage() {
 
   // —— 单任务操作 ——
   const onStart = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] startTask:", id);
     try {
       await api.startTask(id);
     } catch (e) {
@@ -194,7 +193,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onPause = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] pauseTask:", id);
     try {
       await api.pauseTask(id);
     } catch (e) {
@@ -202,7 +200,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onResume = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] resumeTask:", id);
     try {
       await api.resumeTask(id);
     } catch (e) {
@@ -210,7 +207,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onRetry = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] retryTask:", id);
     try {
       await api.retryTask(id);
     } catch (e) {
@@ -218,7 +214,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onCancel = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] cancelTask:", id);
     try {
       await api.cancelTask(id);
     } catch (e) {
@@ -226,7 +221,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onDelete = useCallback(async (id: string) => {
-    console.log("[DownloadsPage] deleteTask:", id);
     try {
       await api.deleteTask(id);
     } catch (e) {
@@ -236,7 +230,6 @@ export function DownloadsPage() {
 
   // —— 全局操作 ——
   const onStartAll = useCallback(async () => {
-    console.log("[DownloadsPage] startAll (global)");
     try {
       await api.startAll();
     } catch (e) {
@@ -244,7 +237,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onPauseAll = useCallback(async () => {
-    console.log("[DownloadsPage] pauseAll (global)");
     try {
       await api.pauseAll();
     } catch (e) {
@@ -252,7 +244,6 @@ export function DownloadsPage() {
     }
   }, []);
   const onResumeAll = useCallback(async () => {
-    console.log("[DownloadsPage] resumeAll (global)");
     try {
       await api.resumeAll();
     } catch (e) {
@@ -325,9 +316,9 @@ export function DownloadsPage() {
             <button
               onClick={onResumeAll}
               className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/10 hover:text-text"
-              title={tr("resume_interrupted")}
+              title={tr("resume_all")}
             >
-              ↻ {tr("resume_interrupted")}
+              ↻ {tr("resume_all")}
             </button>
           </div>
         </header>
