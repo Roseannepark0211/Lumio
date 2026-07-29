@@ -24,8 +24,6 @@ import { useI18n } from "../i18n";
 interface Props {
   item: LibraryItem;
   onClose: () => void;
-  /** 删除当前素材记录（由 LibraryPage 提供，用于文件缺失时直接删除） */
-  onDeleteRecord?: (itemId: string) => Promise<void>;
 }
 
 interface PreviewItem {
@@ -35,12 +33,11 @@ interface PreviewItem {
 
 type LoadState = "loading" | "select" | "viewing" | "error";
 
-export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
+export function MediaPreviewDialog({ item, onClose }: Props) {
   const { tr } = useI18n();
   const [state, setState] = useState<LoadState>("loading");
   const [items, setItems] = useState<PreviewItem[]>([]);
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [isFileMissing, setIsFileMissing] = useState(false);
 
   // 用户选择的类型筛选（"video" / "image" / "audio"）
   // 选择后 currentIndex 在该类型的子集内导航
@@ -71,13 +68,11 @@ export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
     let cancelled = false;
     setState("loading");
     setErrorMsg("");
-    setIsFileMissing(false);
     (async () => {
       const fp = item.file_path || "";
       if (!fp) {
         if (!cancelled) {
           setErrorMsg(tr("preview_file_missing"));
-          setIsFileMissing(true);
           setState("error");
         }
         return;
@@ -87,7 +82,6 @@ export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
         if (cancelled) return;
         if (!r.items || r.items.length === 0) {
           setErrorMsg(tr("preview_file_missing"));
-          setIsFileMissing(true);
           setState("error");
           return;
         }
@@ -141,17 +135,6 @@ export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
       console.warn("open in system player failed:", e);
     }
   }, [item.file_path]);
-
-  // —— 删除当前素材记录（文件缺失时由用户主动触发） ——
-  const onDeleteMissingRecord = useCallback(async () => {
-    if (!onDeleteRecord || !item.id) return;
-    try {
-      await onDeleteRecord(item.id);
-      onClose();
-    } catch (e) {
-      console.warn("delete missing record failed:", e);
-    }
-  }, [onDeleteRecord, item.id, onClose]);
 
   // —— 键盘 ←/→ 切换（仅在 viewing 状态） ——
   useEffect(() => {
@@ -253,19 +236,7 @@ export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
         )}
 
         {state === "error" && (
-          <ErrorPanel
-            message={errorMsg}
-            actionLabel={
-              isFileMissing && onDeleteRecord && item.id
-                ? tr("delete_missing_record")
-                : undefined
-            }
-            onAction={
-              isFileMissing && onDeleteRecord && item.id
-                ? onDeleteMissingRecord
-                : undefined
-            }
-          />
+          <ErrorPanel message={errorMsg} />
         )}
 
         {/* 选择面板 — 混合类型时显示 */}

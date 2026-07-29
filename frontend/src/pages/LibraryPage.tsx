@@ -297,8 +297,27 @@ export function LibraryPage() {
     }
   }, []);
 
-  // 内部预览：直接打开 MediaPreviewDialog，不调系统播放器
-  const onPreview = useCallback((item: LibraryItem) => {
+  // 内部预览：先调 listPreviewItems 检查文件是否存在，文件缺失则不打开预览
+  // （后端会同时推 file_missing 事件，由 LibraryPage 弹删除确认对话框，避免双重提示）
+  const onPreview = useCallback(async (item: LibraryItem) => {
+    const fp = item.file_path || "";
+    if (!fp) {
+      // 无路径直接弹缺失对话框
+      setFileMissing({ path: "", itemId: item.id });
+      return;
+    }
+    try {
+      const r = await api.listPreviewItems(fp);
+      if (!r.items || r.items.length === 0) {
+        // 文件不存在或目录为空：后端已推 file_missing 事件，这里不打开预览
+        // 兜底：若事件未到达，本地也标记缺失
+        setFileMissing((prev) => prev ?? { path: fp, itemId: item.id });
+        return;
+      }
+    } catch (e) {
+      console.warn("listPreviewItems precheck failed:", e);
+      // 预检失败时仍尝试打开预览（让 MediaPreviewDialog 内部处理错误）
+    }
     setPreviewItem(item);
   }, []);
 
@@ -725,7 +744,6 @@ export function LibraryPage() {
         <MediaPreviewDialog
           item={previewItem}
           onClose={() => setPreviewItem(null)}
-          onDeleteRecord={onDeleteItem}
         />
       )}
     </div>

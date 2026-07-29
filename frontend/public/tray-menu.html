@@ -682,8 +682,8 @@ html, body {
   startPolling();
 
   // 监听主进程的 reload 事件：每次菜单显示时重新拉取数据
-  // 解决：菜单窗口复用（show/hide），首次加载后不再调 loadAll，
-  //       导致 FastAPI 重启后菜单永久显示"连接失败"
+  // 优化：WS 已连接 → 仅刷新数据（不清空菜单，避免"连接中…"闪烁）
+  //       WS 未连接 → 调 loadAll 重新建立连接（处理 FastAPI 重启）
   if (TRAY.onReload) {
     TRAY.onReload(() => {
       // 重置重试计数，让 loadAll 能重新尝试
@@ -692,11 +692,17 @@ html, body {
         clearTimeout(loadRetryTimer);
         loadRetryTimer = null;
       }
-      // 立即显示加载状态，避免用户看到上一次的"连接失败"残留
-      // （loadAll 是异步的，完成前用户会看到旧内容）
-      document.getElementById("menu").innerHTML =
-        '<div class="tray-empty">加载中…</div>';
-      loadAll();
+      // WS 已连接说明 FastAPI 还活着，仅刷新业务数据即可
+      // 失败时 refreshQueue/refreshInbox 会静默忽略，菜单保留上次数据
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        refreshQueue();
+        refreshInbox();
+      } else {
+        // WS 未连接：FastAPI 可能重启了，调 loadAll 重新建立连接
+        document.getElementById("menu").innerHTML =
+          '<div class="tray-empty">加载中…</div>';
+        loadAll();
+      }
     });
   }
 })();

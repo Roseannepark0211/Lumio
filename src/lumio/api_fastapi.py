@@ -58,6 +58,64 @@ def _ensure_qt_app() -> QApplication:
     return _qt_app
 
 
+# ============================================================
+# Inbox ↔ Queue 任务映射
+# ============================================================
+# task_id → inbox_item_id，用于下载完成/失败/取消时同步更新 inbox 状态
+# 仅在 inbox_download / inbox_batch_download 入队时记录，任务终态时清理
+_INBOX_TASK_MAP: dict[str, str] = {}
+_INBOX_TASK_LOCK = threading.Lock()
+
+
+def _set_inbox_task_map(task_id: str, inbox_item_id: str) -> None:
+    """记录 task_id → inbox_item_id 映射（inbox 入队时调用）。"""
+    with _INBOX_TASK_LOCK:
+        _INBOX_TASK_MAP[task_id] = inbox_item_id
+
+
+def _pop_inbox_item_id(task_id: str) -> Optional[str]:
+    """取出并移除映射（任务终态时调用）。"""
+    with _INBOX_TASK_LOCK:
+        return _INBOX_TASK_MAP.pop(task_id, None)
+
+
+def _sync_inbox_on_task_status(app_ctx: "AppContext", bus: "EventBus",
+                               task_id: str, status: str) -> None:
+    """task_status_changed 回调中调用，根据任务终态同步更新 inbox 状态。
+
+    - COMPLETED → inbox 标记 downloaded
+    - FAILED    → inbox 标记 failed
+    - CANCELLED → inbox 恢复为 new（让用户可重新下载）
+    其他状态（DOWNLOADING/PAUSED/RETRYING/...）不处理，保留 queued。
+    """
+    inbox_item_id = _pop_inbox_item_id(task_id)
+    if not inbox_item_id:
+        return
+
+    new_inbox_status: Optional[str] = None
+    # TaskStatus.COMPLETED.value = "已完成"，TaskStatus.FAILED.value = "失败"，
+    # TaskStatus.CANCELLED.value = "已取消"
+    if status == "已完成":
+        new_inbox_status = "downloaded"
+    elif status == "失败":
+        new_inbox_status = "failed"
+    elif status == "已取消":
+        new_inbox_status = "new"
+
+    if not new_inbox_status:
+        # 非终态，重新放回映射，等终态再处理
+        _set_inbox_task_map(task_id, inbox_item_id)
+        return
+
+    try:
+        # mark_status 会触发 item_updated 信号 → 已桥接到 inbox_changed 事件，
+        # 前端会自动 reload，无需显式 publish
+        app_ctx.inbox_manager.mark_status(inbox_item_id, new_inbox_status)
+    except Exception as e:
+        logger.warning("sync inbox status failed task=%s inbox=%s: %s",
+                       task_id, inbox_item_id, e)
+
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
@@ -1075,6 +1133,7 @@ def create_app() -> FastAPI:
                 )
                 ctx.manager.add_task(qt)
                 ctx.inbox_manager.mark_status(item_id, "queued")
+                _set_inbox_task_map(qt.task_id, item_id)
                 return {"ok": True, "task_id": qt.task_id}
 
             # ★ 无 direct_url：调 extract_info 重新解析（填充 media_items_json）
@@ -1099,6 +1158,7 @@ def create_app() -> FastAPI:
                 output_dir=str(get_download_dir()),
             )
             ctx.inbox_manager.mark_status(item_id, "queued")
+            _set_inbox_task_map(task_id, item_id)
             return {"ok": True, "task_id": task_id}
         except Exception as e:
             logger.exception("inbox_download failed item=%s", item_id)
@@ -1137,6 +1197,7 @@ def create_app() -> FastAPI:
                     )
                     ctx.manager.add_task(qt)
                     ctx.inbox_manager.mark_status(iid, "queued")
+                    _set_inbox_task_map(qt.task_id, iid)
                     continue
 
                 # ★ 无 direct_url，调 extract_info 重新解析
@@ -1148,7 +1209,7 @@ def create_app() -> FastAPI:
                 if info.formats:
                     format_id = info.formats[0].get("format_id", "best") if isinstance(info.formats[0], dict) else "best"
 
-                ctx.manager.add_task_from_info(
+                batch_task_id = ctx.manager.add_task_from_info(
                     info=info,
                     format_id=format_id,
                     format_type=format_type,
@@ -1156,6 +1217,7 @@ def create_app() -> FastAPI:
                     output_dir=str(get_download_dir()),
                 )
                 ctx.inbox_manager.mark_status(iid, "queued")
+                _set_inbox_task_map(batch_task_id, iid)
             except Exception as e:
                 logger.warning("inbox_batch_download item=%s failed: %s", iid, e)
                 ctx.inbox_manager.mark_status(iid, "failed")
@@ -1912,11 +1974,13 @@ def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
               lambda tid, ok, err: {"task_id": tid, "success": ok, "error": err}),
         Qt.DirectConnection,
     )
-    m.task_status_changed.connect(
-        _wrap("task_status_changed",
-              lambda tid, st: {"task_id": tid, "status": st}),
-        Qt.DirectConnection,
-    )
+    def _on_task_status_changed(tid: str, st: str):
+        # 先同步 inbox 状态（task_id → inbox_item_id 映射存在时）
+        _sync_inbox_on_task_status(app_ctx, bus, tid, st)
+        # 再推 task_status_changed 事件给前端
+        bus.publish("task_status_changed", {"task_id": tid, "status": st})
+
+    m.task_status_changed.connect(_on_task_status_changed, Qt.DirectConnection)
     m.queue_changed.connect(_wrap("queue_changed"), Qt.DirectConnection)
     m.batch_progress.connect(
         _wrap("batch_progress",
