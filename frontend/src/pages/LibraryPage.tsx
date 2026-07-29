@@ -1005,10 +1005,49 @@ function CollectionMenu({
 }: CollectionMenuProps) {
   const { tr } = useI18n();
 
-  // 计算菜单位置：以 anchor.x 为右边界，避免溢出右侧
+  // 计算菜单位置
   const MENU_WIDTH = 220;
+  // 菜单高度估算：
+  // p-1.5 (12px) + 新建按钮 (32px) + 分隔线 (9px) + 每个 Collection 项 (32px)
+  // 空列表时：12 + 32 + 9 + 32 (no_collections 提示) ≈ 85px
+  const MENU_ITEM_H = 32;
+  const MENU_BASE_H = 12 + 32 + 9; // 内边距 + 新建按钮 + 分隔线
+  const estimatedHeight =
+    collections.length === 0
+      ? MENU_BASE_H + 32 // "暂无分类"提示
+      : MENU_BASE_H + collections.length * MENU_ITEM_H;
+
+  // 水平：以 anchor.x 为右边界，避免溢出右侧
   const left = Math.max(8, menu.anchor.x - MENU_WIDTH);
-  const top = menu.anchor.y;
+
+  // 垂直：默认向下展开（anchor.y 是按钮底部 + 4）
+  // 如果向下展开会溢出视口底部 → 向上展开（菜单底部对齐按钮顶部）
+  // 如果向上展开也溢出顶部（菜单太高）→ 顶部对齐视口 8px，使用 max-height 滚动
+  const VIEWPORT_PAD = 8;
+  const spaceBelow = window.innerHeight - menu.anchor.y;
+  const spaceAbove = menu.anchor.y - 4; // anchor.y 已含 +4 偏移
+
+  let top: number;
+  let useMaxHeight = false;
+  let maxHeight: number | undefined;
+
+  if (spaceBelow >= estimatedHeight + VIEWPORT_PAD) {
+    // 下方空间足够 → 向下展开
+    top = menu.anchor.y;
+  } else if (spaceAbove >= estimatedHeight + VIEWPORT_PAD) {
+    // 上方空间足够 → 向上展开（菜单底部对齐按钮顶部 - 4）
+    top = menu.anchor.y - 4 - estimatedHeight;
+  } else {
+    // 上下都不够 → 选空间大的一侧，用 max-height 滚动
+    if (spaceBelow >= spaceAbove) {
+      top = menu.anchor.y;
+      maxHeight = window.innerHeight - menu.anchor.y - VIEWPORT_PAD;
+    } else {
+      top = VIEWPORT_PAD;
+      maxHeight = spaceAbove - VIEWPORT_PAD;
+    }
+    useMaxHeight = true;
+  }
 
   return (
     <>
@@ -1018,7 +1057,11 @@ function CollectionMenu({
       {/* 菜单 */}
       <div
         className="glass-card fixed z-50 w-[220px] p-1.5"
-        style={{ left, top }}
+        style={{
+          left,
+          top,
+          ...(useMaxHeight && maxHeight ? { maxHeight, overflowY: "auto" } : {}),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 新建 Collection */}
