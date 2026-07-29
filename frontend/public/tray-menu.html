@@ -329,17 +329,25 @@ html, body {
     if (TOKEN) h["X-Lumio-Token"] = TOKEN;
     return h;
   }
+  // fetch 超时控制：FastAPI 响应慢（处理批量下载/导入 yt-dlp 等）时，
+  // 默认 fetch 会无限 pending → loadAll 永远不进 catch → 菜单卡"加载中…"
+  function fetchWithTimeout(url, opts, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { ...opts, signal: ctrl.signal })
+      .finally(() => clearTimeout(timer));
+  }
   async function api(path) {
-    const r = await fetch(BASE + path, { headers: headers() });
+    const r = await fetchWithTimeout(BASE + path, { headers: headers() }, 4000);
     if (!r.ok) throw new Error(path + " " + r.status);
     return r.json();
   }
   async function apiPost(path, body) {
-    const r = await fetch(BASE + path, {
+    const r = await fetchWithTimeout(BASE + path, {
       method: "POST",
       headers: headers({ "Content-Type": "application/json" }),
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }, 4000);
     return r.json();
   }
 
@@ -497,10 +505,19 @@ html, body {
   }
 
   // —— 数据加载 ——
+  // 重试策略：最多 8 次，间隔 1s（总共 8s，覆盖 FastAPI 冷启动 5-10s）
+  // 旧策略 3 次/1.5s = 4.5s 不够，FastAPI 冷启动（Python import yt-dlp）常需 10s+
   let loadRetryCount = 0;
+  const MAX_RETRY = 8;
   let loadRetryTimer = null;
+  let isLoading = false;  // 防止并发 loadAll（tray:reload 触发时上次可能未完成）
   async function loadAll() {
+    if (isLoading) return;  // 上一次还没完成，跳过
+    isLoading = true;
     try {
+      // 先用 /api/health 探活（轻量），FastAPI 启动中也能快速返回
+      // 再并发拉业务数据，减少总耗时
+      await api("/api/health");
       const [cfg, queue, inbox, i18n] = await Promise.all([
         api("/api/config"),
         api("/api/queue"),
@@ -517,17 +534,18 @@ html, body {
       applyTheme();
       render();
     } catch (e) {
-      // 连接失败时自动重试（最多 3 次，间隔 1.5s），避免一次性失败永久卡在"连接失败"
-      if (loadRetryCount < 3) {
+      if (loadRetryCount < MAX_RETRY) {
         loadRetryCount++;
         document.getElementById("menu").innerHTML =
-          '<div class="tray-empty">连接中… (' + loadRetryCount + '/3)</div>';
+          '<div class="tray-empty">连接中… (' + loadRetryCount + '/' + MAX_RETRY + ')</div>';
         if (loadRetryTimer) clearTimeout(loadRetryTimer);
-        loadRetryTimer = setTimeout(loadAll, 1500);
+        loadRetryTimer = setTimeout(loadAll, 1000);
       } else {
         document.getElementById("menu").innerHTML =
           '<div class="tray-empty" style="cursor:pointer" onclick="loadRetryCount=0;loadAll()">连接失败，点击重试</div>';
       }
+    } finally {
+      isLoading = false;
     }
   }
 
@@ -603,11 +621,25 @@ html, body {
     }
   }
 
-  // —— 兜底轮询：每 5 秒拉一次 /api/queue，防止 WS 断连或事件遗漏导致徽章不刷新 ——
-  // 优先级低于 WS：WS 实时推送 + 5s 兜底轮询，双保险
-  setInterval(() => { refreshQueue(); }, 5000);
-
+  // —— 兜底轮询：菜单可见时每 5 秒拉一次 /api/queue ——
+  // 菜单隐藏时停止轮询，节省资源（旧实现 setInterval 永远运行，
+  // 菜单隐藏时也在发请求，且失败时 catch {} 静默忽略导致状态不一致）
+  let pollTimer = null;
   let queueTimer = null;
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(refreshQueue, 5000);
+  }
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    if (queueTimer) {
+      clearTimeout(queueTimer);
+      queueTimer = null;
+    }
+  }
   function refreshQueue() {
     // 防抖：短时间多个事件只拉一次
     if (queueTimer) clearTimeout(queueTimer);
@@ -627,9 +659,27 @@ html, body {
     } catch {}
   }
 
+  // —— 菜单可见性监听 ——
+  // 菜单隐藏时：停止轮询 + 清理重试定时器（避免隐藏时还在重试，状态错乱）
+  // 菜单显示时：启动轮询
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      stopPolling();
+      // 清理重试定时器：菜单隐藏时不需要继续重试
+      // 下次显示时 tray:reload 会重置 loadRetryCount 并重新调用 loadAll
+      if (loadRetryTimer) {
+        clearTimeout(loadRetryTimer);
+        loadRetryTimer = null;
+      }
+    } else {
+      startPolling();
+    }
+  });
+
   // —— 初始化 ——
   loadAll();
   connectWS();
+  startPolling();
 
   // 监听主进程的 reload 事件：每次菜单显示时重新拉取数据
   // 解决：菜单窗口复用（show/hide），首次加载后不再调 loadAll，
@@ -642,6 +692,10 @@ html, body {
         clearTimeout(loadRetryTimer);
         loadRetryTimer = null;
       }
+      // 立即显示加载状态，避免用户看到上一次的"连接失败"残留
+      // （loadAll 是异步的，完成前用户会看到旧内容）
+      document.getElementById("menu").innerHTML =
+        '<div class="tray-empty">加载中…</div>';
       loadAll();
     });
   }

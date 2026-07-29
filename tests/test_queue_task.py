@@ -102,7 +102,7 @@ class TestQueueTaskSerialization:
 
 class TestTaskStatusEnum:
     def test_all_values(self):
-        expected = {"等待中", "下载中", "暂停中", "重试中", "已中断", "已完成", "失败", "已取消"}
+        expected = {"等待中", "下载中", "暂停中", "重试中", "已中断", "已完成", "失败", "已取消", "合并中", "解析中"}
         actual = {s.value for s in TaskStatus}
         assert actual == expected
 

@@ -326,18 +326,56 @@ class _QGuiApplicationClipboard:
 
     @staticmethod
     def _text_win32() -> str:
+        # 关键：64 位 Windows 上 ctypes 默认 restype=c_int（32 位），
+        # 但 GetClipboardData / GlobalLock 返回 HGLOBAL/HANDLE（64 位指针），
+        # 高 32 位被截断 → 访问违例 0xC0000005 崩溃。
+        # 必须设置 restype=c_void_p（64 位指针）才能正确接收返回值。
         import ctypes
+        from ctypes import wintypes
         CF_UNICODETEXT = 13
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        user32.OpenClipboard(0)
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+        # 设置函数签名（避免 64 位指针被截断）
+        user32.OpenClipboard.argtypes = [wintypes.HWND]
+        user32.OpenClipboard.restype = wintypes.BOOL
+        user32.GetClipboardData.argtypes = [wintypes.UINT]
+        user32.GetClipboardData.restype = wintypes.HANDLE  # 64 位指针
+        user32.CloseClipboard.argtypes = []
+        user32.CloseClipboard.restype = wintypes.BOOL
+        user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
+        user32.IsClipboardFormatAvailable.restype = wintypes.BOOL
+        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalLock.restype = wintypes.LPVOID  # 64 位指针
+        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+        if not user32.OpenClipboard(0):
+            # 剪贴板被其他程序锁定，重试 3 次（间隔 50ms）
+            import time
+            for _ in range(3):
+                time.sleep(0.05)
+                if user32.OpenClipboard(0):
+                    break
+            else:
+                return ""
         try:
             if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
                 return ""
             handle = user32.GetClipboardData(CF_UNICODETEXT)
             if not handle:
                 return ""
-            ptr = ctypes.cast(handle, ctypes.c_wchar_p)
-            return ptr.value or ""
+            # CF_UNICODETEXT 返回的 handle 是 GlobalMem，需 GlobalLock 获取指针
+            # 锁定后读取宽字符串，再解锁（必须配对，否则内存泄漏）
+            ptr = kernel32.GlobalLock(handle)
+            if not ptr:
+                return ""
+            try:
+                # c_wchar_p 从指针读取以 null 结尾的宽字符串
+                text = ctypes.cast(ptr, ctypes.c_wchar_p).value or ""
+                return text
+            finally:
+                kernel32.GlobalUnlock(handle)
         finally:
             user32.CloseClipboard()
 

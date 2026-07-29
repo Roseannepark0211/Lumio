@@ -69,10 +69,19 @@ def _resolve_conflict_stem(out_dir: Path, stem: str, policy: str) -> str | None:
     """For yt-dlp outtmpl: check if any file matching stem.* exists.
 
     Returns the resolved stem, or None if should skip.
+
+    ⚠️ 不能用 glob(f"{stem}.*")：YouTube 标题常含方括号（如 "[1080p]"），
+    glob 用 fnmatch 模式匹配，[...] 会被解释为字符集，导致检测不到已存在文件
+    → 返回原始 stem → yt-dlp continuedl=True 检测到文件已存在跳过下载
+    → 但 FFmpegMerger 仍触发 postprocessor:started → 卡在"合并中"。
+    用 iterdir() + startswith() 替代，做字面量匹配。
     """
     if policy == "overwrite":
         return stem
-    existing = list(out_dir.glob(f"{stem}.*"))
+    # 字面量匹配：文件名以 "{stem}." 开头（如 "video.mp4" 匹配 stem="video"）
+    # 排除 .part 文件（断点续传的临时文件）
+    existing = [f for f in out_dir.iterdir()
+                if f.name.startswith(f"{stem}.") and not f.name.endswith(".part")]
     if not existing:
         return stem
     if policy == "skip":
@@ -89,7 +98,9 @@ def _resolve_conflict_stem(out_dir: Path, stem: str, policy: str) -> str | None:
     counter = 1
     while True:
         new_stem = f"{stem} ({counter})"
-        if not list(out_dir.glob(f"{new_stem}.*")):
+        existing = [f for f in out_dir.iterdir()
+                    if f.name.startswith(f"{new_stem}.") and not f.name.endswith(".part")]
+        if not existing:
             return new_stem
         counter += 1
 
@@ -651,6 +662,12 @@ def _yt_download_with_pause(task, pause_event, on_progress):
     policy = get_file_conflict_policy()
     resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
     if resolved_stem is None:
+        # skip 策略：文件已存在，直接标记完成。
+        # 必须设置 task.filename，否则 on_done 中 file_valid=False 导致无限重试。
+        existing = [f for f in out_dir.iterdir()
+                    if f.name.startswith(f"{out_name}.") and not f.name.endswith(".part")]
+        if existing:
+            task.filename = str(existing[0])
         task.status = "done"
         task.progress = 100
         return
@@ -690,8 +707,9 @@ def _yt_download_with_pause(task, pause_event, on_progress):
         ydl.download([task.url])
 
     # Verify file exists (yt-dlp rename may fail on Windows)
-    candidates = list(out_dir.glob(f"{out_name}.*"))
-    candidates = [f for f in candidates if not f.suffix.endswith(".part")]
+    # 用 iterdir() + startswith() 替代 glob()，避免文件名含方括号导致匹配失败
+    candidates = [f for f in out_dir.iterdir()
+                  if f.name.startswith(f"{out_name}.") and not f.name.endswith(".part")]
     if not candidates:
         task.status = "error"
         task.error = "下载完成但文件未生成"
@@ -907,6 +925,11 @@ def _x_download_with_pause(task, pause_event, on_progress):
     if len(items) == 1 and items[0].is_video:
         resolved_stem = _resolve_conflict_stem(out_dir, out_name, policy)
         if resolved_stem is None:
+            # skip 策略：文件已存在，设置 filename 避免无限重试
+            existing = [f for f in out_dir.iterdir()
+                        if f.name.startswith(f"{out_name}.") and not f.name.endswith(".part")]
+            if existing:
+                task.filename = str(existing[0])
             task.status = "done"
             task.progress = 100
             return
@@ -926,8 +949,9 @@ def _x_download_with_pause(task, pause_event, on_progress):
         # Verify file actually exists (yt-dlp may report "finished" before rename)
         expected = out_dir / f"{resolved_stem}.mp4"
         if not expected.exists():
-            # Check for .part or other extensions
-            candidates = list(out_dir.glob(f"{resolved_stem}.*"))
+            # 用 iterdir() + startswith() 替代 glob()，避免方括号导致匹配失败
+            candidates = [f for f in out_dir.iterdir()
+                          if f.name.startswith(f"{resolved_stem}.") and not f.name.endswith(".part")]
             if not candidates:
                 task.status = "error"
                 task.error = "下载完成但文件未生成"
@@ -1130,7 +1154,9 @@ def _bilibili_download_with_pause(task, pause_event, on_progress):
     # 验证输出文件
     expected = out_dir / f"{resolved_stem}.mp4"
     if not expected.exists():
-        candidates = list(out_dir.glob(f"{resolved_stem}.*"))
+        # 用 iterdir() + startswith() 替代 glob()，避免方括号导致匹配失败
+        candidates = [f for f in out_dir.iterdir()
+                      if f.name.startswith(f"{resolved_stem}.") and not f.name.endswith(".part")]
         if not candidates:
             task.status = "error"
             task.error = "下载完成但文件未生成"
