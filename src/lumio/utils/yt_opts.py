@@ -73,6 +73,13 @@ def yt_opts(cookie_path: Path | str | None = None) -> dict:
         "embedmetadata": False,
         "writesubtitles": False,
         "writeautomaticsub": False,
+        # 防 YouTube 限流：连续下载多个视频时在请求间添加延迟
+        # yt-dlp 推荐 --sleep-requests 避免 "This content isn't available" 错误
+        # https://github.com/yt-dlp/yt-dlp/wiki/Extractors#this-content-isnt-available-try-again-later
+        "sleep_interval_requests": 1,    # 每次请求间隔至少 1 秒
+        "max_sleep_interval_requests": 3, # 最多随机延迟到 3 秒
+        "sleep_interval": 0,             # 单视频下载内部不延迟（不影响正常速度）
+        "max_sleep_interval": 0,
     }
     if proxy:
         opts["proxy"] = proxy

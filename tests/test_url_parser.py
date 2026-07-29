@@ -46,6 +46,45 @@ class TestYouTubeParsing:
         assert r.kind == "channel"
         assert r.tab == "shorts"
 
+    def test_strips_feature_param(self):
+        """YouTube 地址栏 URL 含 feature=share 跟踪参数，应被移除"""
+        r = parse_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&feature=share")
+        assert r.platform == Platform.YOUTUBE
+        assert r.kind == "video"
+        assert "feature=" not in r.url
+        assert "v=dQw4w9WgXcQ" in r.url
+
+    def test_strips_si_param(self):
+        """YouTube 分享 URL 含 si= 跟踪参数，应被移除"""
+        r = parse_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=ABC123def456")
+        assert r.platform == Platform.YOUTUBE
+        assert "si=" not in r.url
+        assert "v=dQw4w9WgXcQ" in r.url
+
+    def test_strips_all_tracking_params(self):
+        """多跟踪参数（pp/si/feature/t）应全部移除，只保留 v="""
+        r = parse_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&pp=xxx&feature=share&si=ABC&t=120s")
+        assert r.platform == Platform.YOUTUBE
+        assert "pp=" not in r.url
+        assert "feature=" not in r.url
+        assert "si=" not in r.url
+        assert "t=" not in r.url
+        assert "v=dQw4w9WgXcQ" in r.url
+
+    def test_strips_list_param(self):
+        """list= 参数应被移除（避免 yt-dlp 当作播放列表处理）"""
+        r = parse_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123abc")
+        assert r.platform == Platform.YOUTUBE
+        assert "list=" not in r.url
+        assert "v=dQw4w9WgXcQ" in r.url
+
+    def test_strips_short_link_si(self):
+        """youtu.be 短链的 si= 参数应被移除"""
+        r = parse_url("https://youtu.be/dQw4w9WgXcQ?si=ABC123")
+        assert r.platform == Platform.YOUTUBE
+        assert "si=" not in r.url
+        assert "dQw4w9WgXcQ" in r.url
+
 
 class TestInstagramParsing:
     def test_reel_url(self):

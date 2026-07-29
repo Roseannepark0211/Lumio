@@ -60,15 +60,24 @@ def parse_url(raw: str) -> ParsedURL:
                 # segments[0] is username (e.g. "@mkbhd"), segments[1] is tab
                 if len(segments) >= 2:
                     tab = segments[1]
-            # For single video URLs, strip list= to avoid yt-dlp treating it as playlist
+            # For single video URLs, strip all tracking params and keep only v=
+            # YouTube 地址栏 URL 含大量跟踪参数（feature=share, si=..., pp=...,
+            # t=..., start=..., end=..., lc=... 等），这些参数会让 yt-dlp
+            # 触发额外的 token 验证请求导致解析慢，部分参数还会触发限流。
+            # 分享按钮复制的是 youtu.be/ID?si=... 短链，参数少所以快。
+            # 修复：只保留 v= 参数（视频 ID），移除所有其他查询参数。
             clean = text
             if kind == "video":
                 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
                 parsed_url = urlparse(text)
                 qs = parse_qs(parsed_url.query)
-                qs.pop("list", None)
-                clean_query = urlencode(qs, doseq=True)
-                clean = urlunparse(parsed_url._replace(query=clean_query))
+                # 只保留 v=（视频 ID），移除 list=/si=/feature=/pp=/t=/start=/end= 等所有跟踪参数
+                video_id = qs.get("v", [""])[0]
+                if video_id:
+                    clean = urlunparse(parsed_url._replace(query=f"v={video_id}"))
+                else:
+                    # youtu.be/ID 短链无 v= 参数，直接清空 query
+                    clean = urlunparse(parsed_url._replace(query=""))
             return ParsedURL(url=clean, platform=Platform.YOUTUBE, kind=kind, tab=tab)
 
     for pattern, kind in _INSTAGRAM_PATTERNS:
