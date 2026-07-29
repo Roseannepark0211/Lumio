@@ -75,20 +75,30 @@ async function extract(): Promise<PageMeta | null> {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (typeof msg !== "object" || msg === null) return false;
   const { type } = msg as { type?: string };
+  console.log("[Lumio-content] 收到消息:", type);
 
   if (type === "extractNow") {
-    extract().then((fresh) => sendResponse(fresh));
+    extract().then((fresh) => {
+      console.log("[Lumio-content] extract 完成:", fresh ? "有数据" : "空");
+      sendResponse(fresh);
+    });
     return true; // async
   }
 
   // 诊断采集：popup 触发，采集当前页 DOM/State 元信息返回 JSON
   if (type === "diagnose") {
-    diagnose().then((report) => sendResponse(report));
+    console.log("[Lumio-content] 开始诊断采集");
+    diagnose().then((report) => {
+      console.log("[Lumio-content] 诊断采集完成");
+      sendResponse(report);
+    });
     return true; // async
   }
 
   return false;
 });
+
+console.log("[Lumio-content] content script 已注入:", window.location.href);
 
 // ── 阶段 3：SPA 路由监听 ─────────────────────────────────────────────
 //

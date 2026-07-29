@@ -11,7 +11,7 @@ export type Platform =
   | "xiaohongshu"
   | "";
 
-export type MediaType = "url" | "video" | "image";
+export type MediaType = "url" | "video" | "image" | "profile";
 
 export interface MediaItem {
   url: string;

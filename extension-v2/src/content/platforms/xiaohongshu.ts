@@ -61,39 +61,42 @@ function toHttps(url: string): string {
 
 /**
  * 从主世界读取 __INITIAL_STATE__
- * 注入 <script> 标签，读取后通过 postMessage 回传
+ *
+ * ★ CSP 修复：原版用 inline script 注入（script.textContent = "..."）被小红书
+ * CSP 的 script-src 指令拦截（不允许 'unsafe-inline'）。
+ * 改用 chrome.scripting.executeScript({ world: "MAIN" }) 通过 background 中转，
+ * 这是 MV3 标准做法，绕过 CSP 限制（scripting 权限已在 manifest 声明）。
+ *
+ * ★ 卡死修复：原超时 3000ms，小红书 __INITIAL_STATE__ 可能很大（含整个笔记列表），
+ * executeScript({ world: "MAIN" }) 在主线程执行时会阻塞页面渲染。
+ * 降到 1500ms，并在 background 端裁剪返回数据（只返回 noteDetailMap 首个 entry）。
  */
-function readInitialState(timeout = 3000): Promise<XhsState | null> {
+function readInitialState(timeout = 1500): Promise<XhsState | null> {
   return new Promise((resolve) => {
-    const requestId = `xhs-state-${Date.now()}-${Math.random()}`;
+    let resolved = false;
+    const done = (val: XhsState | null) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(val);
+    };
 
-    function handler(event: MessageEvent) {
-      if (event.source !== window) return;
-      const data = event.data;
-      if (data && data.type === "lumio-xhs-state" && data.requestId === requestId) {
-        window.removeEventListener("message", handler);
-        resolve(data.state || null);
-      }
+    // 通过 background 调用 chrome.scripting.executeScript({ world: "MAIN" })
+    try {
+      chrome.runtime.sendMessage({ type: "xhs-read-state" }, (state) => {
+        if (chrome.runtime.lastError) {
+          console.log('[Lumio-XHS] xhs-read-state 错误:', chrome.runtime.lastError.message);
+          done(null);
+          return;
+        }
+        done((state as XhsState | null) || null);
+      });
+    } catch (e) {
+      console.log('[Lumio-XHS] xhs-read-state 异常:', e);
+      done(null);
     }
-    window.addEventListener("message", handler);
 
-    // 注入 <script> 到主世界
-    const script = document.createElement("script");
-    script.textContent = `
-      (function() {
-        var requestId = ${JSON.stringify(requestId)};
-        var state = window.__INITIAL_STATE__ || null;
-        window.postMessage({ type: 'lumio-xhs-state', requestId: requestId, state: state }, '*');
-      })();
-    `;
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
-
-    // 超时
-    setTimeout(() => {
-      window.removeEventListener("message", handler);
-      resolve(null);
-    }, timeout);
+    // 超时兜底（executeScript 异常未回调时）
+    setTimeout(() => done(null), timeout);
   });
 }
 
@@ -130,7 +133,7 @@ export async function extractXiaohongshu(): Promise<ExtractResult | null> {
   const seenUrls = new Set<string>();
 
   // ── 优先级 1：从 __INITIAL_STATE__ 提取（通过 postMessage）────────
-  const state = await readInitialState(3000);
+  const state = await readInitialState();
 
   if (state?.note?.noteDetailMap) {
     const detail =
@@ -178,36 +181,102 @@ export async function extractXiaohongshu(): Promise<ExtractResult | null> {
   }
 
   // ── 优先级 2：DOM 提取（__INITIAL_STATE__ 不可用时）────────
+  // ★ 严格限定在 .media-container .swiper-slide 内，避免抓到评论区/推荐区/头像
+  //
+  // 小红书详情页当前帖子媒体 DOM 结构（从诊断数据逆向）：
+  //   .media-container
+  //     .xhs-slider-container
+  //       .swiper
+  //         .swiper-wrapper
+  //           .swiper-slide[data-swiper-slide-index="0"]  ← 真实 slide
+  //             .img-container
+  //               .note-slider-img
+  //                 <img src="...notes_pre_post/...!nd_dft_wlteh_webp_3">
+  //           .swiper-slide[data-swiper-slide-index="1"]  ← 真实 slide
+  //           .swiper-slide.swiper-slide-duplicate        ← 复制 slide（要排除）
+  //
+  // 评论区图片特征：parentClassName 含 "image-item" / "comment-image"
+  // 推荐区图片特征：parentClassName 含 "cover mask ld"
+  // 头像特征：src 含 "avatar" / class 含 "author-avatar"
   if (media_items.length === 0) {
     await waitForDomMedia(5000, 200);
 
-    const domImgs = document.querySelectorAll(
-      "img[src*='xhscdn'], img[src*='sns-img']",
+    // 优先级 1：从 .media-container .swiper-slide 内提取（最精准）
+    const swiperSlides = document.querySelectorAll(
+      ".media-container .swiper-slide:not(.swiper-slide-duplicate)",
     );
-    for (const img of Array.from(domImgs)) {
-      const src = img.getAttribute("src");
-      if (!src || !src.startsWith("http")) continue;
-      if (src.includes("avatar") || src.includes("ns-avatar")) continue;
-      if (src.includes("/avatar/") || src.includes("cut=")) continue;
-      const httpsSrc = toHttps(src);
-      if (seenUrls.has(httpsSrc)) continue;
-      seenUrls.add(httpsSrc);
-      media_items.push({ url: httpsSrc, is_video: false });
-      if (!thumbnail) thumbnail = httpsSrc;
-    }
+    console.log("[Lumio-XHS] 找到 swiper-slide 数:", swiperSlides.length);
 
-    const domVideos = document.querySelectorAll("video");
-    for (const v of Array.from(domVideos)) {
-      const candidates = [v.src, v.currentSrc].filter(
-        (u): u is string => !!u && u.startsWith("http") && !u.startsWith("blob:"),
-      );
-      for (const u of candidates) {
-        const httpsU = toHttps(u);
-        if (!seenUrls.has(httpsU)) {
-          seenUrls.add(httpsU);
-          media_items.push({ url: httpsU, is_video: true });
+    for (const slide of Array.from(swiperSlides)) {
+      // slide 内的 img（图片帖子）
+      const imgs = slide.querySelectorAll("img[src]");
+      for (const img of Array.from(imgs)) {
+        const src = img.getAttribute("src");
+        if (!src || !src.startsWith("http")) continue;
+        if (src.includes("avatar") || src.includes("ns-avatar")) continue;
+        const httpsSrc = toHttps(src);
+        if (seenUrls.has(httpsSrc)) continue;
+        seenUrls.add(httpsSrc);
+        media_items.push({ url: httpsSrc, is_video: false });
+        if (!thumbnail) thumbnail = httpsSrc;
+      }
+
+      // slide 内的 video（视频帖子）
+      const vids = slide.querySelectorAll("video");
+      for (const v of Array.from(vids)) {
+        const candidates = [v.src, v.currentSrc].filter(
+          (u): u is string => !!u && u.startsWith("http") && !u.startsWith("blob:"),
+        );
+        for (const u of candidates) {
+          const httpsU = toHttps(u);
+          if (!seenUrls.has(httpsU)) {
+            seenUrls.add(httpsU);
+            media_items.push({ url: httpsU, is_video: true });
+          }
+        }
+        // video poster
+        if (v.poster && v.poster.startsWith("http")) {
+          const httpsP = toHttps(v.poster);
+          if (!thumbnail && !seenUrls.has(httpsP)) {
+            thumbnail = httpsP;
+          }
         }
       }
+    }
+
+    // 优先级 2：.media-container 内的 video（视频帖子不一定有 swiper-slide）
+    if (media_items.length === 0) {
+      const mediaContainer = document.querySelector(".media-container");
+      if (mediaContainer) {
+        const vids = mediaContainer.querySelectorAll("video");
+        for (const v of Array.from(vids)) {
+          const candidates = [v.src, v.currentSrc].filter(
+            (u): u is string => !!u && u.startsWith("http") && !u.startsWith("blob:"),
+          );
+          for (const u of candidates) {
+            const httpsU = toHttps(u);
+            if (!seenUrls.has(httpsU)) {
+              seenUrls.add(httpsU);
+              media_items.push({ url: httpsU, is_video: true });
+            }
+          }
+          if (v.poster && v.poster.startsWith("http")) {
+            const httpsP = toHttps(v.poster);
+            if (!thumbnail && !seenUrls.has(httpsP)) {
+              thumbnail = httpsP;
+            }
+          }
+        }
+      }
+    }
+
+    // 优先级 3：og:image 兜底（单图帖子）
+    const ogImg = commonOg().thumbnail;
+    if (media_items.length === 0 && ogImg) {
+      const httpsO = toHttps(ogImg);
+      media_items.push({ url: httpsO, is_video: false });
+      if (!thumbnail) thumbnail = httpsO;
+      seenUrls.add(httpsO);
     }
   }
 

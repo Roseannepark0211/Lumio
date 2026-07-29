@@ -13,7 +13,12 @@
  */
 import type { CapturePayload, CaptureResult, LumioSettings, PageMeta } from "../types";
 import { LumioClient, detectPlatform, extractAuthorFromUrl } from "./api-client";
-import { createContextMenus, buildCapturePayload, safeTabsMessage } from "./contextMenus";
+import {
+  createContextMenus,
+  buildCapturePayload,
+  safeTabsMessage,
+  updateContextMenuOnShown,
+} from "./contextMenus";
 import { DEFAULT_SETTINGS, getSettings, saveSettings } from "./settings";
 import { isDetailPageUrl } from "../shared/detailPage";
 import {
@@ -57,23 +62,68 @@ chrome.runtime.onInstalled.addListener(() => {
   createContextMenus();
 });
 
+// ── 右键菜单显示前动态调整（阶段 4：上下文感知）─────────────────────
+// ★ onShown 仅 Chrome 121+ / Edge 121+ 支持，Firefox 不支持
+// 必须运行时检查存在性，否则旧版浏览器 SW 启动失败导致插件离线
+// @types/chrome 未包含 onShown 事件，需类型断言绕过编译检查
+
+type ContextMenusWithOnShown = typeof chrome.contextMenus & {
+  onShown?: {
+    addListener: (
+      cb: (info: chrome.contextMenus.OnClickData, tab: chrome.tabs.Tab) => void,
+    ) => void;
+  };
+};
+
+const cm = chrome.contextMenus as ContextMenusWithOnShown | undefined;
+if (cm && cm.onShown) {
+  cm.onShown.addListener((info, tab) => {
+    try {
+      updateContextMenuOnShown(info, tab);
+    } catch (e) {
+      console.log("[Lumio] onShown 动态菜单失败:", e);
+    }
+  });
+  console.log("[Lumio] contextMenus.onShown 已注册");
+} else {
+  console.log("[Lumio] contextMenus.onShown 不支持，跳过动态菜单");
+}
+
 // ── 右键菜单点击 ──────────────────────────────────────────────────────
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!tab?.id) return;
 
-  // 阶段 2：先尝试从 content.js / ig_extract.ts 提取元数据
-  const pageMeta = await extractPageMeta(tab.id);
-
-  // ★ 提取失败停止发送：详情页必须有元数据才发送
-  // 非详情页（首页/搜索页）允许裸 URL 发送
+  const menuItemId = String(info.menuItemId);
   const isDetailPage = isDetailPageUrl(tab.url || "");
-  if (isDetailPage && !pageMeta) {
-    console.log("Lumio: 提取失败，停止发送（详情页需要元数据）");
+
+  // ★ 上下文感知：仅在详情页 page/image/video 项尝试提取元数据
+  // 博主主页 / 链接 / 非详情页 → 跳过提取，直接构建载荷（节省 1.5s 超时）
+  // ★ 提取失败不阻塞：buildCapturePayload 会 fallback 到发 URL，由后端再提取
+  //   （硬性阻止会导致 YouTube/X/B站等平台因 1500ms 超时全部失败）
+  let pageMeta: PageMeta | null = null;
+  const needsMeta =
+    isDetailPage &&
+    (menuItemId === "lumio-capture-page" ||
+      menuItemId === "lumio-capture-image" ||
+      menuItemId === "lumio-capture-video");
+
+  if (needsMeta) {
+    pageMeta = await extractPageMeta(tab.id);
+    if (!pageMeta) {
+      console.log("Lumio: 元数据提取失败，fallback 到发 URL 由后端处理");
+    }
+  }
+
+  // ★ 多图场景（IG 轮播帖 / X 多图推文 / 小红书多图笔记）：
+  // 走 sendToLumioFromPageMeta 拆分，每个媒体独立发送为 InboxItem
+  // 否则 buildCapturePayload 只发单条（direct_url=media_items[0]），丢失其余图
+  if (pageMeta && pageMeta.media_items && pageMeta.media_items.length > 1) {
+    await sendToLumioFromPageMeta(pageMeta, tab);
     return;
   }
 
-  const payload = buildCapturePayload(String(info.menuItemId), info, tab, pageMeta);
+  const payload = buildCapturePayload(menuItemId, info, tab, pageMeta);
   if (!payload) return;
 
   await sendToLumio(payload);
@@ -137,6 +187,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ★ CSP 修复：content script 请求在主世界读取 window.__INITIAL_STATE__
   // 小红书 CSP 禁止 inline script，改用 chrome.scripting.executeScript({ world: "MAIN" })
   // 这是 MV3 标准做法，绕过 CSP 限制（scripting 权限已在 manifest 声明）
+  //
+  // ★ 卡死修复：原版返回整个 __INITIAL_STATE__（可能几 MB），序列化阻塞页面。
+  // 改为在主世界内裁剪，只返回 noteDetailMap 首个 entry，大幅减少数据量。
   if (type === "xhs-read-state") {
     const tabId = sender.tab?.id;
     if (!tabId) {
@@ -147,8 +200,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .executeScript({
         target: { tabId },
         world: "MAIN",
-        func: () =>
-          (window as unknown as { __INITIAL_STATE__?: unknown }).__INITIAL_STATE__ || null,
+        func: () => {
+          const s = (window as unknown as {
+            __INITIAL_STATE__?: {
+              note?: {
+                noteDetailMap?: Record<string, unknown>;
+                noteMap?: Record<string, unknown>;
+              };
+            };
+          }).__INITIAL_STATE__;
+          if (!s) return null;
+          // 裁剪：只返回 noteDetailMap 首个 entry，避免序列化整个 state
+          const map = s.note?.noteDetailMap || s.note?.noteMap;
+          if (!map) return { topKeys: Object.keys(s), noteKeys: s.note ? Object.keys(s.note) : [] };
+          const keys = Object.keys(map);
+          if (keys.length === 0) return { noteMapEmpty: true };
+          return {
+            note: {
+              noteDetailMap: { [keys[0]]: map[keys[0]] },
+            },
+            _debug: {
+              totalKeys: keys.length,
+              firstKey: keys[0],
+            },
+          };
+        },
       })
       .then((results) => {
         sendResponse(results?.[0]?.result || null);
@@ -334,24 +410,55 @@ async function sendToLumio(payload: CapturePayload): Promise<CaptureResult> {
 
 async function extractPageMeta(tabId: number): Promise<PageMeta | null> {
   // 所有平台：调 content.js 的 extractNow（IG 已改为常驻 content script）
-  // ★ 小红书/IG 需要更长超时：
-  //   - 小红书：readInitialState(3000ms) + DOM 兜底(5000ms) 共 8000ms
-  //   - IG：waitForMedia(8000ms) + /embed/ fetch(2-3s) 共 10+s
-  //   默认 1500ms 会在等待阶段就超时 → "元数据提取失败"
+  // ★ 超时策略：
+  //   - 小红书/IG：15000ms（readInitialState + DOM 兜底 + /embed/ fetch 慢）
+  //   - YouTube/X/B站等：8000ms（waitForSelector 最多 3000ms + 余量）
+  //   旧值 1500ms 会导致 YouTube waitForSelector 没跑完就超时
   try {
     const tab = await chrome.tabs.get(tabId);
     const url = tab.url || "";
     const needsLongTimeout =
       url.includes("xiaohongshu.com") || url.includes("instagram.com");
-    const timeout = needsLongTimeout ? 15000 : 1500;
-    const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" }, timeout);
+    const timeout = needsLongTimeout ? 15000 : 8000;
+    let meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" }, timeout);
+    if (meta && meta.url) return meta;
+
+    // ★ sendMessage 失败兜底：content script 未注入（页面在插件更新前已打开）
+    // 用 chrome.scripting.executeScript 手动注入 content script bundle，再重试一次
+    // 这是 MV3 标准做法，解决"Receiving end does not exist"问题
+    console.log("[Lumio] extractNow 未响应，尝试手动注入 content script");
+    await injectContentScript(tabId);
+    meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" }, timeout);
     if (meta && meta.url) return meta;
   } catch {
     // tab 查询失败，回退默认超时
-    const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" });
+    const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" }, 8000);
     if (meta && meta.url) return meta;
   }
   return null;
+}
+
+/**
+ * 手动注入 content script（兜底：页面在插件更新/重载前已打开，content script 未注入）
+ * 从 manifest 动态读取 content_scripts.js 路径，避免硬编码 hash 文件名
+ */
+async function injectContentScript(tabId: number): Promise<void> {
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const files = manifest.content_scripts?.[0]?.js || [];
+    if (files.length === 0) {
+      console.log("[Lumio] manifest 无 content_scripts.js 配置");
+      return;
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files,
+    });
+    // 等待 content script 初始化
+    await new Promise((r) => setTimeout(r, 300));
+  } catch (e) {
+    console.log("[Lumio] 手动注入 content script 失败:", e);
+  }
 }
 
 // ── 阶段 3：快捷键 commands ───────────────────────────────────────────

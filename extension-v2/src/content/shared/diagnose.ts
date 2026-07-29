@@ -51,6 +51,20 @@ export interface DiagnoseReport {
   }>;
   /** __INITIAL_STATE__ 关键片段（仅小红书等有此结构的平台） */
   initialState?: unknown;
+  /** 媒体容器 DOM 结构（小红书专用，诊断当前帖子媒体渲染方式） */
+  mediaContainerDom?: {
+    outerHtmlPreview: string;
+    childElements: Array<{
+      tag: string;
+      className: string;
+      src?: string;
+      srcset?: string;
+      bgImage?: string;
+      dataSrc?: string;
+      poster?: string;
+      childCount: number;
+    }>;
+  };
   /** 采集过程中的备注/警告 */
   notes: string[];
 }
@@ -163,6 +177,69 @@ function collectImages(): DiagnoseReport["images"] {
   return out;
 }
 
+/** 采集 .media-container 内的 DOM 结构（小红书专用，诊断当前帖子媒体渲染方式） */
+function collectMediaContainerDom(): {
+  outerHtmlPreview: string;
+  childElements: Array<{
+    tag: string;
+    className: string;
+    src?: string;
+    srcset?: string;
+    bgImage?: string;
+    dataSrc?: string;
+    poster?: string;
+    childCount: number;
+  }>;
+} {
+  const container =
+    document.querySelector(".media-container") ||
+    document.querySelector("[class*='note-detail']") ||
+    document.querySelector(".note-container");
+  if (!container) {
+    return { outerHtmlPreview: "(未找到媒体容器)", childElements: [] };
+  }
+
+  // outerHTML 前 3000 字符
+  const outerHtmlPreview = container.outerHTML.slice(0, 3000);
+
+  // 采集容器内所有子元素（递归 2 层）
+  const childElements: Array<{
+    tag: string;
+    className: string;
+    src?: string;
+    srcset?: string;
+    bgImage?: string;
+    dataSrc?: string;
+    poster?: string;
+    childCount: number;
+  }> = [];
+  const walk = (el: Element, depth: number) => {
+    if (depth > 3) return;
+    for (let i = 0; i < Math.min(el.children.length, 30); i++) {
+      const child = el.children[i];
+      const style = window.getComputedStyle(child);
+      const bgImage = style.backgroundImage;
+      childElements.push({
+        tag: child.tagName.toLowerCase(),
+        className: child.className || "",
+        src: child.getAttribute("src") || undefined,
+        srcset: child.getAttribute("srcset") || undefined,
+        bgImage:
+          bgImage && bgImage !== "none"
+            ? bgImage.slice(0, 500)
+            : undefined,
+        dataSrc: child.getAttribute("data-src") || undefined,
+        poster: child.getAttribute("poster") || undefined,
+        childCount: child.children.length,
+      });
+      walk(child, depth + 1);
+    }
+  };
+  walk(container, 0);
+
+  return { outerHtmlPreview, childElements };
+}
+
 /**
  * 通过 background 中转读取 __INITIAL_STATE__（小红书专用，绕过 CSP）
  * 复用 xhs-read-state 通道
@@ -216,9 +293,11 @@ function trimXhsState(state: unknown): unknown {
  * 主采集函数
  */
 export async function diagnose(): Promise<DiagnoseReport> {
+  console.log("[Lumio-diag] diagnose() 开始");
   const platform = detectPlatform();
   const url = window.location.href;
   const notes: string[] = [];
+  console.log("[Lumio-diag] platform=", platform, "url=", url);
 
   // 1. 通用选择器 + 平台特定选择器
   const platformSelectors =
@@ -236,6 +315,7 @@ export async function diagnose(): Promise<DiagnoseReport> {
       selectors[sel] = countSelector(sel);
     }
   }
+  console.log("[Lumio-diag] selectors 完成", selectors);
 
   // 2. meta 标签
   const metaInfo = {
@@ -251,12 +331,15 @@ export async function diagnose(): Promise<DiagnoseReport> {
   // 3. video / img 元素
   const videos = collectVideos();
   const images = collectImages();
+  console.log("[Lumio-diag] videos=", videos.length, "images=", images.length);
 
   // 4. 平台特定：小红书 __INITIAL_STATE__
   let initialState: unknown;
   if (platform === "xiaohongshu") {
     notes.push("小红书：通过 background 读取 __INITIAL_STATE__");
+    console.log("[Lumio-diag] 读取 __INITIAL_STATE__...");
     const raw = await readInitialStateViaBg(3000);
+    console.log("[Lumio-diag] __INITIAL_STATE__ 返回", typeof raw, raw ? "有数据" : "空");
     initialState = trimXhsState(raw);
     if (!raw) {
       notes.push("⚠️ __INITIAL_STATE__ 读取失败（可能 CSP 拦截或 background 异常）");
@@ -265,7 +348,14 @@ export async function diagnose(): Promise<DiagnoseReport> {
     }
   }
 
-  // 5. 备注：检测明显的提取失败特征
+  // 6. 平台特定：小红书媒体容器 DOM 结构（诊断当前帖子媒体渲染方式）
+  let mediaContainerDom: DiagnoseReport["mediaContainerDom"];
+  if (platform === "xiaohongshu") {
+    mediaContainerDom = collectMediaContainerDom();
+    console.log("[Lumio-diag] mediaContainerDom 子元素数:", mediaContainerDom.childElements.length);
+  }
+
+  // 7. 备注：检测明显的提取失败特征
   if (platform === "xiaohongshu") {
     if (selectors["img[src*='xhscdn']"] === 0 && selectors["img[src*='sns-img']"] === 0) {
       notes.push("⚠️ 小红书 CDN 图片选择器全部 0 命中，可能 DOM 改版");
@@ -280,6 +370,7 @@ export async function diagnose(): Promise<DiagnoseReport> {
     }
   }
 
+  console.log("[Lumio-diag] diagnose() 完成");
   return {
     timestamp: new Date().toISOString(),
     url,
@@ -293,6 +384,7 @@ export async function diagnose(): Promise<DiagnoseReport> {
     videos,
     images,
     initialState,
+    mediaContainerDom,
     notes,
   };
 }

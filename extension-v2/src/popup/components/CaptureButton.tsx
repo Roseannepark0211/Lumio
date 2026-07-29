@@ -132,12 +132,12 @@ export function CaptureButton() {
         tabId: tab.id,
       })) as PageMeta | null;
 
-      // 详情页必须有元数据
+      // ★ 提取失败不阻塞：详情页 fallback 到发裸 URL，由 Lumio 后端再提取
+      //   硬性阻止会导致 content script 未注入/超时时完全无法发送
+      //   （IG 帖子 URL 后端可用 cookie + 移动 API 处理）
       const isDetail = isDetailPageUrl(tab.url);
       if (isDetail && !pageMeta) {
-        setState("err");
-        setMessage("页面元数据提取失败，请刷新页面后重试");
-        return;
+        console.log("Lumio: 元数据提取失败，fallback 到发 URL 由后端处理");
       }
 
       // ★ 阶段 3：有元数据时弹 PreviewPanel 等确认

@@ -25,6 +25,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "scripts", "manifest.config.ts", "vite.config.ts"],
+  "include": ["src", "scripts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
