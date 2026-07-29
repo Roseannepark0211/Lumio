@@ -96,7 +96,19 @@ export function CaptureButton() {
         tabId: tab.id,
       })) as PageMeta | null;
 
-      if (pageMeta && (pageMeta.media_items?.length || pageMeta.thumbnail)) {
+      // ★ 放宽预览触发条件：
+      //   - 有 media_items（多图/视频列表）→ 显示预览
+      //   - 有 thumbnail → 显示预览
+      //   - 有 title 或 author（微博等平台 thumbnail 可能延迟加载）→ 显示预览
+      //   - 都没有 → 回到 idle
+      //   这样微博等无 thumbnail 的平台也能显示预览面板
+      if (
+        pageMeta &&
+        (pageMeta.media_items?.length ||
+          pageMeta.thumbnail ||
+          pageMeta.title ||
+          pageMeta.author)
+      ) {
         setMeta(pageMeta);
         setState("awaiting-confirm");
         setMessage("");
@@ -141,7 +153,15 @@ export function CaptureButton() {
       }
 
       // ★ 阶段 3：有元数据时弹 PreviewPanel 等确认
-      if (pageMeta && (pageMeta.media_items?.length || pageMeta.thumbnail)) {
+      //   放宽条件：有 media_items / thumbnail / title / author 任一即可
+      //   （微博等平台 thumbnail 可能延迟加载，但 title/author 可用）
+      if (
+        pageMeta &&
+        (pageMeta.media_items?.length ||
+          pageMeta.thumbnail ||
+          pageMeta.title ||
+          pageMeta.author)
+      ) {
         setMeta(pageMeta);
         setState("awaiting-confirm");
         setMessage("");

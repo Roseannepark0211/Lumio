@@ -11,6 +11,8 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   bilibili: "B站",
   kuaishou: "快手",
   xiaohongshu: "小红书",
+  douyin: "抖音",
+  weibo: "微博",
   "": "",
 };
 
@@ -22,6 +24,8 @@ export const PLATFORM_LABELS_FULL: Record<Platform, string> = {
   bilibili: "B站",
   kuaishou: "快手",
   xiaohongshu: "小红书",
+  douyin: "抖音",
+  weibo: "微博",
   "": "",
 };
 
@@ -32,5 +36,7 @@ export const PLATFORM_COLORS: Record<Platform, string> = {
   bilibili: "bg-[#FB7299]",
   kuaishou: "bg-[#FF6600]",
   xiaohongshu: "bg-[#FF2741]",
+  douyin: "bg-[#000000]",
+  weibo: "bg-[#E6162D]",
   "": "bg-text-muted",
 };

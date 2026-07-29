@@ -9,6 +9,8 @@ export type Platform =
   | "bilibili"
   | "kuaishou"
   | "xiaohongshu"
+  | "douyin"
+  | "weibo"
   | "";
 
 export type MediaType = "url" | "video" | "image" | "profile";

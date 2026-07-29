@@ -417,9 +417,11 @@ class DouyinProvider(BaseProvider):
             duration = raw_duration // 1000 if raw_duration > 1000 else raw_duration
 
         # 封面
+        # ★ origin_cover 是原始完整封面，cover 是裁剪版（带 image-cut 参数）
+        #   优先 origin_cover 避免下载到被裁剪的封面
         video_info = detail.get("video", {}) or {}
         cover_url = ""
-        cover = video_info.get("cover", {}) or video_info.get("origin_cover", {})
+        cover = video_info.get("origin_cover", {}) or video_info.get("cover", {})
         cover_urls = cover.get("url_list", [])
         if cover_urls:
             cover_url = cover_urls[0]
@@ -674,19 +676,20 @@ class DouyinProvider(BaseProvider):
                         break
 
         # 封面图
-        for m in re.finditer(r'"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\[([^\]]+)\]', html):
-            urls = re.findall(r'"([^"]+)"', m.group(1))
-            for u in urls:
-                u_decoded = u.replace("\\u002F", "/")
-                if u_decoded.startswith("http") and "1080x1080" in u_decoded:
-                    cover_url = u_decoded
+        # ★ 优先 origin_cover（原始完整封面），fallback 到 cover（裁剪版）
+        for field_name in ("origin_cover", "cover"):
+            pattern = rf'"{field_name}"\s*:\s*\{{[^}}]*"url_list"\s*:\s*\[([^\]]+)\]'
+            for m in re.finditer(pattern, html):
+                urls = re.findall(r'"([^"]+)"', m.group(1))
+                for u in urls:
+                    u_decoded = u.replace("\\u002F", "/")
+                    if u_decoded.startswith("http"):
+                        cover_url = u_decoded
+                        break
+                if cover_url:
                     break
             if cover_url:
                 break
-        if not cover_url:
-            m = re.search(r'"cover"\s*:\s*\{[^}]*"url_list"\s*:\s*\["([^"]+)"', html)
-            if m:
-                cover_url = m.group(1).replace("\\u002F", "/")
         if cover_url:
             thumbnail = cover_url
 

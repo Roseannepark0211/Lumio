@@ -54,6 +54,8 @@ export function SettingsGear() {
         "bilibili.com", "b23.tv",
         "kuaishou.com",
         "xiaohongshu.com",
+        "douyin.com",
+        "weibo.com", "weibo.cn",
       ];
       const isSupported = supportedHosts.some((h) => tab.url!.includes(h));
       if (!isSupported) {

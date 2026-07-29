@@ -1039,43 +1039,126 @@ def create_app() -> FastAPI:
 
     @app.post("/api/inbox/items/{item_id}/download")
     async def inbox_download(item_id: str) -> dict:
-        item = _ctx().inbox_manager.get_item(item_id)
+        """Inbox item → Download queue.
+
+        流程（用户手动点击下载按钮触发）：
+        1. 有 direct_url（浏览器扩展已提取直链）→ 直接入队
+        2. 无 direct_url（抖音/小红书/快手/微博等国内平台）→
+           调 extract_info 重新解析，填充 media_items_json，再入队
+           （否则 downloader._run 的 else 分支会因 media_items_json 为空抛错）
+
+        ★ CORS 注意：不能用 raise HTTPException，因为 BaseHTTPMiddleware + HTTPException
+          组合下 CORSMiddleware 不会在异常响应上加 CORS header，浏览器会报 CORS 错误。
+          改用 JSONResponse（正常走中间件链，带 CORS header）。
+        """
+        import asyncio
+        from .downloader import extract_info
+
+        ctx = _ctx()
+        item = ctx.inbox_manager.get_item(item_id)
         if not item:
-            raise HTTPException(404, "item not found")
-        from .queue_manager import QueueTask
-        qt = QueueTask(
-            url=item.url,
-            direct_url=item.direct_url or "",
-            title=item.title or "",
-            platform=item.platform or "",
-            author=item.author or "",
-            post_time=item.post_time or "",
-            thumbnail_url=item.thumbnail_url or None,
-            output_dir=str(get_download_dir()),
-        )
-        _ctx().manager.add_task(qt)
-        _ctx().inbox_manager.mark_status(item_id, "queued")
-        return {"ok": True, "task_id": qt.task_id}
+            return JSONResponse(status_code=404, content={"detail": "item not found"})
+
+        try:
+            # ★ 有 direct_url（浏览器扩展已提取直链），直接入队
+            if item.direct_url:
+                from .queue_manager import QueueTask
+                qt = QueueTask(
+                    url=item.url,
+                    direct_url=item.direct_url,
+                    title=item.title or "",
+                    platform=item.platform or "",
+                    author=item.author or "",
+                    post_time=item.post_time or "",
+                    thumbnail_url=item.thumbnail_url or None,
+                    output_dir=str(get_download_dir()),
+                )
+                ctx.manager.add_task(qt)
+                ctx.inbox_manager.mark_status(item_id, "queued")
+                return {"ok": True, "task_id": qt.task_id}
+
+            # ★ 无 direct_url：调 extract_info 重新解析（填充 media_items_json）
+            # extract_info 是同步阻塞调用（网络请求），用 to_thread 避免阻塞事件循环
+            info = await asyncio.to_thread(extract_info, item.url)
+
+            # 判断 type：有图片项则为 image，否则 video
+            format_type = "image" if any(
+                not it.is_video for it in (info.items or [])
+            ) else "video"
+            # format_id：取 formats[0] 的 format_id（dict 访问，不是属性）
+            # VideoInfo.formats 是 list[dict]，每个 dict 有 "format_id" 键
+            format_id = "best"
+            if info.formats:
+                format_id = info.formats[0].get("format_id", "best") if isinstance(info.formats[0], dict) else "best"
+
+            task_id = ctx.manager.add_task_from_info(
+                info=info,
+                format_id=format_id,
+                format_type=format_type,
+                custom_name="",
+                output_dir=str(get_download_dir()),
+            )
+            ctx.inbox_manager.mark_status(item_id, "queued")
+            return {"ok": True, "task_id": task_id}
+        except Exception as e:
+            logger.exception("inbox_download failed item=%s", item_id)
+            return JSONResponse(
+                status_code=400,
+                content={"detail": f"解析或入队失败: {e}"},
+            )
 
     @app.post("/api/inbox/batch-download")
     async def inbox_batch_download(req: InboxBatchRequest) -> dict:
+        """批量入队下载（用户手动点击批量下载按钮触发）。
+
+        ★ 单项失败不影响其他项，失败项标记为 failed。
+        """
+        import asyncio
+        from .downloader import extract_info
+
+        ctx = _ctx()
         for iid in req.ids:
-            item = _ctx().inbox_manager.get_item(iid)
+            item = ctx.inbox_manager.get_item(iid)
             if not item:
                 continue
-            from .queue_manager import QueueTask
-            qt = QueueTask(
-                url=item.url,
-                direct_url=item.direct_url or "",
-                title=item.title or "",
-                platform=item.platform or "",
-                author=item.author or "",
-                post_time=item.post_time or "",
-                thumbnail_url=item.thumbnail_url or None,
-                output_dir=str(get_download_dir()),
-            )
-            _ctx().manager.add_task(qt)
-            _ctx().inbox_manager.mark_status(iid, "queued")
+            try:
+                # ★ 有 direct_url 直接入队
+                if item.direct_url:
+                    from .queue_manager import QueueTask
+                    qt = QueueTask(
+                        url=item.url,
+                        direct_url=item.direct_url,
+                        title=item.title or "",
+                        platform=item.platform or "",
+                        author=item.author or "",
+                        post_time=item.post_time or "",
+                        thumbnail_url=item.thumbnail_url or None,
+                        output_dir=str(get_download_dir()),
+                    )
+                    ctx.manager.add_task(qt)
+                    ctx.inbox_manager.mark_status(iid, "queued")
+                    continue
+
+                # ★ 无 direct_url，调 extract_info 重新解析
+                info = await asyncio.to_thread(extract_info, item.url)
+                format_type = "image" if any(
+                    not it.is_video for it in (info.items or [])
+                ) else "video"
+                format_id = "best"
+                if info.formats:
+                    format_id = info.formats[0].get("format_id", "best") if isinstance(info.formats[0], dict) else "best"
+
+                ctx.manager.add_task_from_info(
+                    info=info,
+                    format_id=format_id,
+                    format_type=format_type,
+                    custom_name="",
+                    output_dir=str(get_download_dir()),
+                )
+                ctx.inbox_manager.mark_status(iid, "queued")
+            except Exception as e:
+                logger.warning("inbox_batch_download item=%s failed: %s", iid, e)
+                ctx.inbox_manager.mark_status(iid, "failed")
         return {"ok": True}
 
     @app.post("/api/inbox/items/{item_id}/mark-downloaded")

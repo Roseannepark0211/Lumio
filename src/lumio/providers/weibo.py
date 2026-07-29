@@ -181,20 +181,14 @@ def _extract_all_media(data: dict) -> list[MediaItem]:
         item_data = item.get("data", {}) or {}
         if item_type == "video":
             mi = item_data.get("media_info", {}) or {}
-            url = (
-                mi.get("stream_url")
-                or mi.get("mp4_hd_url")
-                or mi.get("mp4_url")
-                or ""
-            ).replace("\\", "")
+            url = _pick_best_weibo_video_url(mi)
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 videos.append(MediaItem(url=url, is_video=True, index=len(videos)))
         elif item_type == "pic":
             # Check for live photo (embedded video data)
             lp_mi = (item_data.get("media_info") or {})
-            lp_vid = lp_mi.get("stream_url") or lp_mi.get("mp4_hd_url") or lp_mi.get("mp4_url") or ""
-            lp_vid = lp_vid.replace("\\", "")
+            lp_vid = _pick_best_weibo_video_url(lp_mi)
             if lp_vid and lp_vid not in seen_urls:
                 seen_urls.add(lp_vid)
                 videos.append(MediaItem(url=lp_vid, is_video=True, index=len(videos)))
@@ -210,12 +204,7 @@ def _extract_all_media(data: dict) -> list[MediaItem]:
     page_info = data.get("page_info", {}) or {}
     if page_info and page_info.get("type") in ("video", "livephoto"):
         mi = page_info.get("media_info", {}) or {}
-        url = (
-            mi.get("stream_url")
-            or mi.get("mp4_hd_url")
-            or mi.get("mp4_url")
-            or ""
-        ).replace("\\", "")
+        url = _pick_best_weibo_video_url(mi)
         if url and url not in seen_urls:
             seen_urls.add(url)
             videos.append(MediaItem(url=url, is_video=True, index=len(videos)))
@@ -502,6 +491,25 @@ def _extract_video_fullinfo(media_info: dict) -> list[FormatOption]:
                 type="video", ext="mp4", width=w, height=h,
             ))
     return formats
+
+
+def _pick_best_weibo_video_url(media_info: dict) -> str:
+    """从 media_info 中选最高画质视频 URL。
+
+    优先级：1080p > 720p(stream_url_hd) > 540p(stream_url) > HD(mp4_hd_url) > SD(mp4_url)
+    与 _extract_video_fullinfo 保持一致（formats 列表用于 Home 页面手动选格式）。
+    """
+    for key in (
+        "video_1080p_url",
+        "stream_url_hd",
+        "stream_url",
+        "mp4_hd_url",
+        "mp4_url",
+    ):
+        url = (media_info.get(key, "") or "").replace("\\", "")
+        if url:
+            return url
+    return ""
 
 def _classify_weibo_type(data: dict) -> str:
     if "mix_media_info" in data or data.get("live_photo") or data.get("live_photos"):

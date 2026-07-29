@@ -18,6 +18,7 @@ import {
   buildCapturePayload,
   safeTabsMessage,
   updateContextMenuOnShown,
+  isContextSensitivePageUrl,
 } from "./contextMenus";
 import { DEFAULT_SETTINGS, getSettings, saveSettings } from "./settings";
 import { isDetailPageUrl } from "../shared/detailPage";
@@ -96,23 +97,35 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const menuItemId = String(info.menuItemId);
   const isDetailPage = isDetailPageUrl(tab.url || "");
+  // ★ 上下文敏感页：微博博主主页等流式帖子列表页
+  // 右键某帖子图片/video 时，extractWeibo 会消费 contextmenu target 元素
+  // 从该元素向上找帖子容器，提取帖子 URL（非博主主页 URL 或单图直链）
+  const isContextSensitive = isContextSensitivePageUrl(tab.url || "");
 
-  // ★ 上下文感知：仅在详情页 page/image/video 项尝试提取元数据
+  // ★ 上下文感知：详情页 + 上下文敏感页的 page/image/video 项尝试提取元数据
   // 博主主页 / 链接 / 非详情页 → 跳过提取，直接构建载荷（节省 1.5s 超时）
   // ★ 提取失败不阻塞：buildCapturePayload 会 fallback 到发 URL，由后端再提取
   //   （硬性阻止会导致 YouTube/X/B站等平台因 1500ms 超时全部失败）
   let pageMeta: PageMeta | null = null;
   const needsMeta =
-    isDetailPage &&
+    (isDetailPage || isContextSensitive) &&
     (menuItemId === "lumio-capture-page" ||
       menuItemId === "lumio-capture-image" ||
       menuItemId === "lumio-capture-video");
 
   if (needsMeta) {
     pageMeta = await extractPageMeta(tab.id);
+    console.log(
+      "[Lumio-bg] extractPageMeta 结果:",
+      pageMeta
+        ? `url=${pageMeta.url?.slice(0, 60)}, title=${(pageMeta.title || "").slice(0, 40)}, author=${pageMeta.author || "(空)"}, thumbnail=${pageMeta.thumbnail ? "有" : "无"}, type=${pageMeta.type || "(空)"}`
+        : "null",
+    );
     if (!pageMeta) {
       console.log("Lumio: 元数据提取失败，fallback 到发 URL 由后端处理");
     }
+  } else {
+    console.log("[Lumio-bg] needsMeta=false, 跳过 extractPageMeta");
   }
 
   // ★ 多图场景（IG 轮播帖 / X 多图推文 / 小红书多图笔记）：
@@ -231,6 +244,145 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
       .catch((e) => {
         console.log("[Lumio] xhs-read-state executeScript 失败:", e);
+        sendResponse(null);
+      });
+    return true;
+  }
+
+  // ★ 微博 SSR 数据读取（诊断 + extractWeibo 用）
+  // - weibo-read-state：weibo.com PC 版的 window.__INITIAL_STATE__
+  // - weibo-read-render-data：m.weibo.cn 移动版的 window.$render_data
+  // 两者都在 isolated JS 不可见，需通过 background 中转到 MAIN world 读取
+  //
+  // ★ 与小红书不同：微博 SSR 数据结构未知，先返回顶层结构 + 首个 entry
+  //   （等诊断数据回来后再决定裁剪策略）
+  if (type === "weibo-read-state") {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse(null);
+      return false;
+    }
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () => {
+          const s = (window as unknown as {
+            __INITIAL_STATE__?: unknown;
+          }).__INITIAL_STATE__;
+          if (!s) return null;
+          // 裁剪：返回顶层 keys + 每个顶层 key 的子结构预览（避免 SSR 数据过大）
+          try {
+            const top = s as Record<string, unknown>;
+            const topKeys = Object.keys(top);
+            const result: Record<string, unknown> = {
+              __topKeys: topKeys,
+            };
+            // 每个顶层 key 输出子结构预览（最多 10 个 key，每个限 1000 字符）
+            for (const key of topKeys.slice(0, 15)) {
+              const v = top[key];
+              if (v && typeof v === "object") {
+                try {
+                  const json = JSON.stringify(v);
+                  result[`__${key}_preview`] = (json || "").slice(0, 1000);
+                  result[`__${key}_keys`] = Object.keys(v as object).slice(0, 20);
+                } catch {
+                  result[`__${key}_error`] = "serialize_failed";
+                }
+              } else {
+                result[`__${key}_type`] = typeof v;
+                result[`__${key}_value`] = String(v).slice(0, 200);
+              }
+            }
+            return result;
+          } catch (e) {
+            return { __error: String(e), __topKeys: Object.keys(s as object) };
+          }
+        },
+      })
+      .then((results) => {
+        sendResponse(results?.[0]?.result || null);
+      })
+      .catch((e) => {
+        console.log("[Lumio] weibo-read-state executeScript 失败:", e);
+        sendResponse(null);
+      });
+    return true;
+  }
+
+  if (type === "weibo-read-render-data") {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse(null);
+      return false;
+    }
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () => {
+          // m.weibo.cn 用 $render_data 全局变量存储 SSR
+          const rd = (window as unknown as {
+            $render_data?: unknown;
+            render_data?: unknown;
+          }).$render_data || (window as unknown as { render_data?: unknown }).render_data;
+          if (!rd) {
+            // 列出 window 顶层变量，帮助定位真实的 SSR 数据名
+            const win = window as unknown as Record<string, unknown>;
+            const candidates: string[] = [];
+            for (const key of Object.keys(win)) {
+              const v = win[key];
+              if (v && typeof v === "object" && !Array.isArray(v)) {
+                const s = JSON.stringify(v);
+                if (s && s.length > 200 && (s.includes("status") || s.includes("weibo") || s.includes("pic") || s.includes("video"))) {
+                  candidates.push(`${key}(${s.length}chars)`);
+                }
+              }
+            }
+            return {
+              __error: "未找到 $render_data",
+              __candidates: candidates.slice(0, 20),
+            };
+          }
+          // 裁剪：返回顶层 keys + 每个顶层 key 的预览（限 50000 字符）
+          try {
+            const top = rd as Record<string, unknown>;
+            const topKeys = Object.keys(top);
+            const result: Record<string, unknown> = {
+              __topKeys: topKeys,
+            };
+            let totalLen = 0;
+            for (const key of topKeys.slice(0, 20)) {
+              const v = top[key];
+              if (v && typeof v === "object") {
+                try {
+                  const json = JSON.stringify(v);
+                  if (totalLen + (json?.length || 0) > 50000) {
+                    result[`__${key}_skipped`] = "size_limit";
+                    continue;
+                  }
+                  result[`__${key}_preview`] = (json || "").slice(0, 5000);
+                  result[`__${key}_keys`] = Object.keys(v as object).slice(0, 20);
+                  totalLen += (json?.length || 0);
+                } catch {
+                  result[`__${key}_error`] = "serialize_failed";
+                }
+              } else {
+                result[`__${key}_type`] = typeof v;
+                result[`__${key}_value`] = String(v).slice(0, 200);
+              }
+            }
+            return result;
+          } catch (e) {
+            return { __error: String(e) };
+          }
+        },
+      })
+      .then((results) => {
+        sendResponse(results?.[0]?.result || null);
+      })
+      .catch((e) => {
+        console.log("[Lumio] weibo-read-render-data executeScript 失败:", e);
         sendResponse(null);
       });
     return true;

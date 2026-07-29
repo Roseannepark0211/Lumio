@@ -11,5 +11,7 @@ export function detectPlatform(): Platform {
   if (hostname.includes("bilibili.com") || hostname.includes("b23.tv")) return "bilibili";
   if (hostname.includes("kuaishou.com")) return "kuaishou";
   if (hostname.includes("xiaohongshu.com")) return "xiaohongshu";
+  if (hostname.includes("douyin.com")) return "douyin";
+  if (hostname.includes("weibo.com") || hostname.includes("weibo.cn")) return "weibo";
   return "";
 }

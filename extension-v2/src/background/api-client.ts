@@ -21,6 +21,7 @@ export function detectPlatform(url: string): Platform {
   ) {
     return "xiaohongshu";
   }
+  if (url.includes("douyin.com") || url.includes("v.douyin.com")) return "douyin";
   return "";
 }
 
@@ -59,6 +60,10 @@ export function extractAuthorFromUrl(url: string): string {
 
     if (host.includes("xiaohongshu.com")) {
       if (parts[0] === "user" && parts[1] === "profile") return parts[2] || "";
+    }
+
+    if (host.includes("douyin.com")) {
+      if (parts[0] === "user") return parts[1] || "";
     }
   } catch {
     /* ignore */

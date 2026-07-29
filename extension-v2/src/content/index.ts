@@ -22,6 +22,8 @@ import { extractX } from "./platforms/x";
 import { extractBilibili } from "./platforms/bilibili";
 import { extractKuaishou } from "./platforms/kuaishou";
 import { extractXiaohongshu } from "./platforms/xiaohongshu";
+import { extractDouyin } from "./platforms/douyin";
+import { extractWeibo, setContextMenuTarget as setWeiboContextTarget } from "./platforms/weibo";
 import { diagnose } from "./shared/diagnose";
 import { isDetailPageUrl } from "../shared/detailPage";
 
@@ -49,6 +51,12 @@ async function extract(): Promise<PageMeta | null> {
       break;
     case "xiaohongshu":
       detailed = await extractXiaohongshu();
+      break;
+    case "douyin":
+      detailed = await extractDouyin();
+      break;
+    case "weibo":
+      detailed = await extractWeibo();
       break;
   }
 
@@ -158,6 +166,24 @@ function onUrlChanged(): void {
 
 // 监听 popstate（浏览器前进/后退）
 window.addEventListener("popstate", onUrlChanged);
+
+// ★ 监听 contextmenu 事件，记录右键目标元素
+// 用于微博博主主页：右键某帖子的图片/video → extractWeibo 从该元素向上找帖子容器
+// 提取该帖子 URL 发送给后端（而非发整个博主主页触发批量）
+// ★ capture: true 捕获阶段记录，避免被 stopPropagation 阻止
+// ★ 仅在微博页面有效，其他平台调用 setWeiboContextTarget 是 no-op（模块变量被消费即可）
+window.addEventListener(
+  "contextmenu",
+  (e: Event) => {
+    const target = e.target;
+    if (target instanceof Element) {
+      setWeiboContextTarget(target);
+    } else {
+      setWeiboContextTarget(null);
+    }
+  },
+  true,
+);
 
 // hook pushState / replaceState（SPA 内部路由跳转）
 // ★ 必须在 content script 顶层执行一次，hook 原生方法

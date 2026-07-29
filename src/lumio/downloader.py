@@ -1363,6 +1363,7 @@ def _items_download_with_pause(
 
     读取 task.media_items_json 中的媒体列表，逐个下载。
     图片和视频均通过 requests 直链下载，支持断点续传（视频）。
+    ★ B站 DASH 模式：下载完音视频流后用 ffmpeg 合并（media_type=audio 的项）
     """
     import json as _json
 
@@ -1404,8 +1405,24 @@ def _items_download_with_pause(
     downloaded_any = False
     failed_count = 0
 
+    # ★ 记录 B站音视频文件路径，下载完后用 ffmpeg 合并
+    bilibili_video_file: Path | None = None
+    bilibili_audio_file: Path | None = None
+
     for idx, item in enumerate(media_items):
-        ext = "mp4" if item.is_video else "jpg"
+        # ★ 扩展名判断：audio 用 m4a，video 用 mp4，image 用 jpg（content-type 后会修正）
+        item_media_type = ""
+        if isinstance(items_data[idx].get("media_type"), str):
+            item_media_type = items_data[idx]["media_type"]
+        if item_media_type == "audio":
+            ext = "m4a"
+        elif item.is_video:
+            ext = "mp4"
+        else:
+            ext = "jpg"
+        # 优先用 item.extension（如果 Provider 指定了）
+        if hasattr(item, "extension") and item.extension:
+            ext = item.extension
         suffix = f"_{str(idx + 1).zfill(pad)}" if total > 1 else ""
         filename = post_out_dir / f"{name_stem}{suffix}.{ext}"
 
@@ -1418,7 +1435,8 @@ def _items_download_with_pause(
         filename = resolved
 
         try:
-            if item.is_video:
+            # ★ audio 走视频下载分支（支持 Range + 大文件流式）
+            if item.is_video or item_media_type == "audio":
                 headers = _resume_headers(filename)
                 # Add provider-specific headers (Referer, UA, etc.)
                 _wb_cookies = {}
@@ -1533,6 +1551,13 @@ def _items_download_with_pause(
             task.filename = str(filename)
             if on_progress:
                 on_progress(task)
+
+            # ★ 记录 B站音视频文件路径（用于后续 ffmpeg 合并）
+            if task.platform and "bilibili" in str(task.platform).lower():
+                if item_media_type == "audio":
+                    bilibili_audio_file = filename
+                elif item.is_video:
+                    bilibili_video_file = filename
         except _CancelledError:
             raise
         except Exception as e:
@@ -1544,13 +1569,56 @@ def _items_download_with_pause(
         _cleanup_empty_dir(post_out_dir)
         raise ValueError(f"所有 {total} 个媒体项目都下载失败")
 
+    # ★ B站 DASH 音视频合并：如果同时下载了视频流和音频流，用 ffmpeg 合并
+    if bilibili_video_file and bilibili_audio_file:
+        try:
+            from .utils.yt_opts import find_ffmpeg
+            import subprocess as _sp
+            ffmpeg_bin = find_ffmpeg()
+            if not ffmpeg_bin:
+                logger.warning("B站音视频合并跳过：未找到 ffmpeg")
+            else:
+                merged_path = bilibili_video_file.with_suffix(".merged.mp4")
+                # ffmpeg 合并：视频流 + 音频流 → mp4（-c copy 不重新编码，速度快）
+                cmd = [
+                    ffmpeg_bin, "-y",
+                    "-i", str(bilibili_video_file),
+                    "-i", str(bilibili_audio_file),
+                    "-c", "copy",
+                    "-movflags", "+faststart",
+                    str(merged_path),
+                ]
+                task.status = "merging"
+                if on_progress:
+                    on_progress(task)
+                result = _sp.run(cmd, capture_output=True, text=True, timeout=300)
+                if result.returncode == 0 and merged_path.exists():
+                    # 合并成功：删除原始音视频流文件，用合并后的文件替换
+                    bilibili_video_file.unlink(missing_ok=True)
+                    bilibili_audio_file.unlink(missing_ok=True)
+                    # 重命名 merged.mp4 → 原视频文件名
+                    merged_path.rename(bilibili_video_file)
+                    task.filename = str(bilibili_video_file)
+                    logger.info("B站音视频合并成功: %s", bilibili_video_file)
+                else:
+                    logger.warning("B站音视频合并失败: %s", result.stderr[-500:] if result.stderr else "unknown")
+                    # 合并失败：保留视频流文件（至少有画面）
+                    if merged_path.exists():
+                        merged_path.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning("B站音视频合并异常: %s", e)
+
     task.status = "done"
     task.progress = 100
     # 单文件下载：保持循环内已设置的实际文件路径，避免 infer_media_type 扫描目录
     # 误判（如小红书单项图片在 simple 模式下被 output_dir 中其他视频文件污染）
     # 多文件下载：用目录路径表示合集
     if total > 1:
-        task.filename = str(post_out_dir)
+        # ★ B站合并后只有单个 mp4，不应再用目录路径
+        if bilibili_video_file and bilibili_audio_file:
+            task.filename = str(bilibili_video_file)
+        else:
+            task.filename = str(post_out_dir)
     if failed_count:
         logger.info('Downloaded %d/%d items for %s (%d failed)', downloaded_any, total, task.url, failed_count)
 
@@ -1577,9 +1645,15 @@ def start_download_with_pause(
             elif parsed.platform == Platform.X:
                 _x_download_with_pause(task, pause_event, on_progress)
             elif parsed.platform == Platform.BILIBILI:
-                _bilibili_download_with_pause(task, pause_event, on_progress)
+                # ★ B站优先用 media_items（DASH 直链）走 items 下载
+                #   避免 yt-dlp 重新调 B站 web API 触发 412（buvid3 失效时）
+                #   extract_info 已拿到直链，直接用更可靠
+                if task.media_items_json:
+                    _items_download_with_pause(task, pause_event, on_progress)
+                else:
+                    _bilibili_download_with_pause(task, pause_event, on_progress)
             else:
-                # Phase 2: domestic platform items download (Weibo, Bilibili, etc.)
+                # Phase 2: domestic platform items download (Weibo, Douyin, etc.)
                 if task.media_items_json:
                     _items_download_with_pause(task, pause_event, on_progress)
                 else:

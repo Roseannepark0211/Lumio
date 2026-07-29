@@ -41,6 +41,10 @@ const SUPPORTED_PATTERNS = [
   "*://*.b23.tv/*",
   "*://*.kuaishou.com/*",
   "*://*.xiaohongshu.com/*",
+  "*://*.douyin.com/*",
+  "*://*.weibo.com/*",
+  "*://*.weibo.cn/*",
+  "*://*.t.cn/*",
 ];
 
 export function createContextMenus() {
@@ -72,6 +76,29 @@ function isDetailPageUrl(url: string): boolean {
     /kuaishou\.com\/short-video\//.test(url) || // 快手
     /weibo\.com\/\d+\/[A-Za-z0-9]+/.test(url) // 微博
   );
+}
+
+/**
+ * 判断是否为"上下文敏感页" —— 非详情页但右键元素可定位到具体帖子
+ *
+ * ★ 微博主主页 + 分组浏览页：流式帖子列表，右键某帖子的图片/video 可通过
+ *   extractWeibo 的 contextmenu target 机制定位到该帖子，发送帖子 URL
+ *   而非页面 URL 或单张图片直链
+ *
+ * ★ 实测页面：
+ *   - 博主主页 weibo.com/u/{uid}
+ *   - 分组浏览 weibo.com/mygroups?gid=...&layerid=...（明星/分组浮层）
+ */
+export function isContextSensitivePageUrl(url: string): boolean {
+  if (!url) return false;
+  // 1. 微博博主主页（/u/{uid} 或 /n/{name} 或自定义昵称）
+  if (/weibo\.com\/u\/\d+/.test(url)) return true;
+  if (/weibo\.com\/n\//.test(url)) return true;
+  // 2. 微博分组浏览页（mygroups）
+  if (/weibo\.com\/mygroups/.test(url)) return true;
+  // 3. 其他 weibo.com 子路径（自定义昵称主页等），排除详情页
+  if (/weibo\.com\//.test(url) && !isDetailPageUrl(url) && !url.includes("/detail/")) return true;
+  return false;
 }
 
 /** 判断是否为博主主页 */
@@ -119,6 +146,10 @@ function platformLabel(platform: Platform): string {
       return "快手";
     case "xiaohongshu":
       return "小红书";
+    case "douyin":
+      return "抖音";
+    case "weibo":
+      return "微博";
     default:
       return "";
   }
@@ -186,9 +217,9 @@ export function updateContextMenuOnShown(
     chrome.contextMenus.update("lumio-capture-link", { visible: false });
   }
 
-  // image 项：详情页右键图片时显示"发送整帖"
+  // image 项：详情页或上下文敏感页右键图片时显示"发送整帖"
   if (info.mediaType === "image" && info.srcUrl) {
-    if (isDetailPageUrl(tabUrl)) {
+    if (isDetailPageUrl(tabUrl) || isContextSensitivePageUrl(tabUrl)) {
       chrome.contextMenus.update("lumio-capture-image", {
         title: `发送当前${platformLabel(platform)}帖子到 Lumio`,
         visible: true,
@@ -203,9 +234,9 @@ export function updateContextMenuOnShown(
     chrome.contextMenus.update("lumio-capture-image", { visible: false });
   }
 
-  // video 项：详情页右键视频时显示"发送整帖"
+  // video 项：详情页或上下文敏感页右键视频时显示"发送整帖"
   if (info.mediaType === "video") {
-    if (isDetailPageUrl(tabUrl)) {
+    if (isDetailPageUrl(tabUrl) || isContextSensitivePageUrl(tabUrl)) {
       chrome.contextMenus.update("lumio-capture-video", {
         title: `发送当前${platformLabel(platform)}帖子到 Lumio`,
         visible: true,
@@ -333,8 +364,13 @@ export function buildCapturePayload(
 
     case "lumio-capture-video":
     case "lumio-capture-image": {
-      // 详情页右键图片/视频：优先发整帖（用 pageMeta）
-      if (isDetailPageUrl(tabUrl) && pageMeta && pageMeta.url && pageMeta.platform) {
+      // 详情页或上下文敏感页右键图片/视频：优先发整帖（用 pageMeta）
+      // ★ 微博博主主页是上下文敏感页：extractWeibo 会从右键元素提取帖子 URL
+      //   pageMeta.url 是帖子 URL（非博主主页 URL），后端解析此 URL 拿所有媒体
+      if (
+        (isDetailPageUrl(tabUrl) || isContextSensitivePageUrl(tabUrl)) &&
+        pageMeta && pageMeta.url && pageMeta.platform
+      ) {
         return {
           url: pageMeta.url,
           title: pageMeta.title || tab.title || "",

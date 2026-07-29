@@ -216,9 +216,10 @@ class BilibiliProvider(BaseProvider):
                     width=0, height=height,
                 ))
 
-            # 2. DASH 模式：从 dash.video[] 选最高画质视频流
-            #    （仅用于预览展示，实际下载走 yt-dlp 路径，自动处理 DASH + ffmpeg 合并音视频）
+            # 2. DASH 模式：从 dash.video[] 选最高画质视频流 + dash.audio[] 选最高音质
+            #    ★ 音视频分离存储，下载后需 ffmpeg 合并（在 _items_download_with_pause 处理）
             dash = pf_info.get("dash", {})
+            audio_stream_url = ""  # DASH 音频流 URL
             if dash:
                 videos = dash.get("video", []) or []
                 if videos:
@@ -235,6 +236,16 @@ class BilibiliProvider(BaseProvider):
                             video_stream_url = backup[0]
                     best_qn = int(best.get("id", 0))
                     best_height = _QN_MAP.get(best_qn, ("", 0))[1]
+                # ★ 提取音频流（选 id 最大即最高音质）
+                audios = dash.get("audio", []) or []
+                if audios:
+                    sorted_a = sorted(audios, key=lambda a: -int(a.get("id", 0)))
+                    best_a = sorted_a[0]
+                    audio_stream_url = best_a.get("baseUrl", "") or best_a.get("base_url", "") or ""
+                    if not audio_stream_url:
+                        backup_a = best_a.get("backupUrl") or best_a.get("backup_url") or []
+                        if backup_a:
+                            audio_stream_url = backup_a[0]
 
             # 3. Fallback: 无 DASH 时用 durl（合流 MP4，封顶 720P）
             if not video_stream_url:
@@ -250,7 +261,7 @@ class BilibiliProvider(BaseProvider):
             # 封面作为图片项（可下载）
             items.append(MediaItem(url=pic, is_video=False, index=0))
 
-        # 视频项（URL 仅供预览展示，B站视频下载走 yt-dlp 路径）
+        # 视频项（DASH 视频流，下载后需与音频流 ffmpeg 合并）
         if video_stream_url:
             v_item = MediaItem(
                 url=video_stream_url,
@@ -262,6 +273,18 @@ class BilibiliProvider(BaseProvider):
                 quality=_QN_MAP.get(best_qn, (f"qn={best_qn}",))[0],
             )
             items.append(v_item)
+
+        # ★ 音频项（DASH 音频流，B站 DASH 模式下音视频分离）
+        #   下载后由 _items_download_with_pause 用 ffmpeg 合并到视频
+        if audio_stream_url:
+            a_item = MediaItem(
+                url=audio_stream_url,
+                is_video=False,  # 防止被当作图片直接下载
+                index=len(items),
+                extension="m4a",
+                media_type=MediaType.AUDIO,
+            )
+            items.append(a_item)
 
         return MediaInfo(
             platform=Platform.BILIBILI,
