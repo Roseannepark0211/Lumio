@@ -1,12 +1,16 @@
 /**
  * electron-builder 配置 — 三平台完整支持。
  *
- * ⚠️ 文件扩展名必须是 `.cjs`：package.json 设了 `"type": "module"`，`.js` 会被
- * Node 当 ESM 解析，electron-builder 用 require() 加载会失败并静默回退到默认
- * 配置（oneClick: true 静默安装 / 无 extraResources / 无 icon 等），导致：
- *   - 安装包双击直接静默安装，无向导
- *   - 打包后 splash.html / python-backend / icon.png 全部缺失 → 黑屏
- *   - 托盘图标透明、右键菜单不出现
+ * ⚠️ 文件名必须是 `electron-builder.cjs`（不能带 `.config` 中缀，也不能用 `.js`）：
+ *   - electron-builder 24.x 自动发现只匹配 `electron-builder.{yml,yaml,json,json5,toml,cjs,js,ts}`
+ *     不匹配 `electron-builder.config.*`。如果命名为 `electron-builder.config.cjs`，
+ *     CI 命令 `npx electron-builder --publish always`（无 --config 参数）会找不到
+ *     配置文件，静默回退到默认配置（oneClick: true 静默安装 / 无 extraResources / 无 icon），导致：
+ *       - 安装包双击直接静默安装，无向导
+ *       - 打包后 splash.html / python-backend / icon.png 全部缺失 → 黑屏
+ *       - 托盘图标透明、右键菜单不出现
+ *   - package.json 设了 `"type": "module"`，`.js` 会被 Node 当 ESM 解析，
+ *     electron-builder 用 require() 加载会失败，所以必须用 `.cjs` 扩展名。
  *
  * 打包架构（参见 AGENTS.md "架构迁移规则"）：
  *
@@ -26,7 +30,7 @@ module.exports = {
   appId: "io.lumio.desktop",
   productName: "Lumio",
   directories: {
-    output: "release",
+    output: "release3",
     buildResources: "build",
   },
   files: [
@@ -111,7 +115,7 @@ module.exports = {
   // macOS — DMG（单架构，由 CI 矩阵分别构建 x64 / arm64）
   // ============================================================
   // 关键设计：
-  //   - 不在 electron-builder.config.cjs 里指定 mac.arch / target.arch，
+  //   - 不在 electron-builder.cjs 里指定 mac.arch / target.arch，
   //     让 electron-builder 默认用当前主机架构打包
   //   - CI 矩阵用 macos-13 (Intel x64) + macos-14 (Apple Silicon arm64)
   //     分别跑一次构建，每次产出单一架构的 DMG

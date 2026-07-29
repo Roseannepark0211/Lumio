@@ -1,7 +1,7 @@
 {
   "name": "lumio",
   "private": true,
-  "version": "4.4.0",
+  "version": "4.4.1",
   "type": "module",
   "description": "Lumio desktop app frontend (Electron + React + Vite)",
   "repository": {
@@ -21,7 +21,7 @@
     "electron": "electron .",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build:backend": "node scripts/build-backend.js",
-    "build:all": "npm run build:backend && npm run build && npm run build:electron && electron-builder --config electron-builder.config.cjs",
+    "build:all": "npm run build:backend && npm run build && npm run build:electron && electron-builder --publish never",
     "package": "npm run build:all",
     "postinstall": "electron-builder install-app-deps"
   },

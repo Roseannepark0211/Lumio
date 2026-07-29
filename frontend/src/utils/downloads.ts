@@ -20,6 +20,8 @@ export function normStatus(s: string): string {
     已完成: "completed",
     失败: "failed",
     已取消: "cancelled",
+    合并中: "merging",
+    解析中: "parsing",
   };
   return m[s] || s;
 }
@@ -31,6 +33,7 @@ export function statusPillClass(s: string): string {
   if (n === "downloading" || n === "retrying") return "pill-accent";
   if (n === "failed" || n === "cancelled") return "pill-danger";
   if (n === "paused" || n === "interrupted") return "pill bg-warning/15 text-warning border border-warning/30";
+  if (n === "merging" || n === "parsing") return "pill bg-accent/15 text-accent border border-accent/30";
   return "pill bg-white/5 text-text-muted";
 }
 

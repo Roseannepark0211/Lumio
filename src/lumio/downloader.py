@@ -606,6 +606,40 @@ def _download_hook_with_pause(
     return hook
 
 
+def _postprocessor_hook_with_pause(
+    task: DownloadTask,
+    pause_event: threading.Event,
+    on_progress: ProgressCallback | None,
+):
+    """yt-dlp postprocessor hook：在 FFmpegMerger 启动时切到 "合并中" 状态。
+
+    yt-dlp 多流下载完成后会触发 FFmpegMerger 后处理合并音视频，
+    该阶段可能持续数秒到数十秒（高清大文件更久）。
+    若不区分，UI 会卡在 100% + "下载中" 让用户误以为死机。
+
+    触发流程：
+        [downloading] video → [finished] video
+        → [downloading] audio → [finished] audio
+        → [postprocessor:started] FFmpegMerger  ← 这里切到 "合并中"
+        → [postprocessor:finished] FFmpegMerger ← 不还原，由后续 on_done 接管
+    """
+    def hook(d: dict):
+        if task._cancelled:
+            raise _CancelledError()
+        # 合并阶段不可暂停（ffmpeg 已启动），但仍检测 cancel 让用户能中止
+        if task._cancelled:
+            raise _CancelledError()
+
+        if d.get("status") == "started":
+            # 进入后处理：标记为 "合并中"，progress 保留为 1.0
+            task.status = "merging"
+            task.progress = 100.0  # 1.0 in 0..1 scale, normalized by on_progress
+            if on_progress:
+                on_progress(task)
+
+    return hook
+
+
 def _yt_download_with_pause(task, pause_event, on_progress):
     cookie = get_cookie_path()
     opts = _yt_opts(cookie)
@@ -624,6 +658,8 @@ def _yt_download_with_pause(task, pause_event, on_progress):
 
     opts["outtmpl"] = str(out_dir / f"{out_name}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+    # 后处理 hook：ffmpeg 合并阶段切到 "合并中" 状态，避免 UI 卡 100% 误导用户
+    opts["postprocessor_hooks"] = [_postprocessor_hook_with_pause(task, pause_event, on_progress)]
 
     if task.format_id and task.format_id not in ("best", "___sep"):
         if task.format_type == "video":
@@ -641,7 +677,11 @@ def _yt_download_with_pause(task, pause_event, on_progress):
         )
     opts["merge_output_format"] = "mp4"
 
-    task.status = "downloading"
+    # 解析阶段：yt-dlp 调 ydl.download() 时先做 URL 提取（可能持续数秒），
+    # 期间 progress_hooks 不会被调用，UI 会卡在 0% 让用户误以为死机。
+    # 设置 "parsing" 状态让前端显示「客官不急，正在解剖中...」
+    # 第一个 progress_hook 回调会把状态切回 "downloading"
+    task.status = "parsing"
     if on_progress:
         on_progress(task)
 
@@ -663,6 +703,10 @@ def _yt_download_with_pause(task, pause_event, on_progress):
 
 
 def _ig_download_with_pause(task, pause_event, on_progress):
+    # 解析阶段：IG 移动 API 请求可能持续数秒
+    task.status = "parsing"
+    if on_progress:
+        on_progress(task)
     shortcode = _ig_shortcode_from_url(task.url)
 
     media = _ig_get_media_info(shortcode)
@@ -752,6 +796,10 @@ def _apify_download_with_pause(task, pause_event, on_progress):
     """Download IG post via Apify API (replaces _ig_download_with_pause in API mode)."""
     from .apify_client import get_apify_client as _get_apify_client
     import json as _json
+    # 解析阶段：Apify Actor run 可能持续数秒到数十秒
+    task.status = "parsing"
+    if on_progress:
+        on_progress(task)
     # Use pre-resolved media items if available (from batch enumeration),
     # otherwise fetch via Apify Actor run.
     if task.media_items_json:
@@ -841,6 +889,10 @@ def _apify_download_with_pause(task, pause_event, on_progress):
 
 
 def _x_download_with_pause(task, pause_event, on_progress):
+    # 解析阶段：X GraphQL API 请求可能持续数秒
+    task.status = "parsing"
+    if on_progress:
+        on_progress(task)
     session = _x_api_session()
     tweet_id = _x_tweet_id_from_url(task.url)
     tweet_result = _x_get_tweet_info(session, tweet_id)
@@ -862,6 +914,7 @@ def _x_download_with_pause(task, pause_event, on_progress):
         opts = _yt_opts(cookie)
         opts["outtmpl"] = str(out_dir / f"{resolved_stem}.%(ext)s")
         opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+        opts["postprocessor_hooks"] = [_postprocessor_hook_with_pause(task, pause_event, on_progress)]
         opts["format"] = "best[ext=mp4]/best"
         opts["merge_output_format"] = "mp4"
         task.status = "downloading"
@@ -1044,6 +1097,7 @@ def _bilibili_download_with_pause(task, pause_event, on_progress):
     opts = _yt_opts(cookie)
     opts["outtmpl"] = str(out_dir / f"{resolved_stem}.%(ext)s")
     opts["progress_hooks"] = [_download_hook_with_pause(task, pause_event, on_progress)]
+    opts["postprocessor_hooks"] = [_postprocessor_hook_with_pause(task, pause_event, on_progress)]
     # B站：注入 buvid3 防止 412 Precondition Failed
     # yt-dlp 的 BiliBiliIE._real_extract 不会自动获取 buvid3（与 BiliBiliSearchIE 不同），
     # B站近期强制要求 buvid3 才能调 api.bilibili.com/x/web-interface/view。
@@ -1058,7 +1112,8 @@ def _bilibili_download_with_pause(task, pause_event, on_progress):
     # B站：选最高画质，合并音视频为 mp4
     opts["format"] = "bestvideo+bestaudio/best"
     opts["merge_output_format"] = "mp4"
-    task.status = "downloading"
+    # 解析阶段：B站 extractor 调 web API 解析 DASH 流可能持续数秒
+    task.status = "parsing"
     if on_progress:
         on_progress(task)
     import yt_dlp  # C4 lazy import

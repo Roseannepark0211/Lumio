@@ -725,6 +725,7 @@ export function LibraryPage() {
         <MediaPreviewDialog
           item={previewItem}
           onClose={() => setPreviewItem(null)}
+          onDeleteRecord={onDeleteItem}
         />
       )}
     </div>

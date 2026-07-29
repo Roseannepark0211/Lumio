@@ -138,7 +138,7 @@ coll = COLLECT(
 #   2. 符合 macOS 应用结构约定（Contents/MacOS/LumioAPI + Contents/Resources/）
 #   3. 用户可通过双击 .app 直接运行 Python 后端（开发期调试用）
 #
-# 注意：electron-builder.config.cjs 的 extraResources 仍指向 "python-backend"，
+# 注意：electron-builder.cjs 的 extraResources 仍指向 "python-backend"，
 # 构建 macOS 时需要把 dist/LumioAPI.app/ 复制到 frontend/python-backend/LumioAPI.app/
 # （build-backend.js 脚本会处理这个细节，根据 sys.platform 选择复制 .app 还是文件夹）
 if sys.platform == "darwin":
@@ -150,8 +150,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "LumioAPI",
             "CFBundleDisplayName": "Lumio API",
-            "CFBundleShortVersionString": "4.4.0",
-            "CFBundleVersion": "4.4.0",
+            "CFBundleShortVersionString": "4.4.1",
+            "CFBundleVersion": "4.4.1",
             "LSMinimumSystemVersion": "10.13",
             "LSBackgroundOnly": True,  # 后台服务，不显示 Dock 图标
             "NSHighResolutionCapable": True,

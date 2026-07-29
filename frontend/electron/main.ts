@@ -153,6 +153,39 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// ============================================================
+// 单例锁：禁止多开
+// ============================================================
+// 用户通过快捷方式或拖拽文件到图标上可能触发多次启动，每次都会 spawn 一个
+// FastAPI 子进程并占用端口，导致多个后台进程同时运行。
+// app.requestSingleInstanceLock() 在应用启动最早阶段获取系统级锁，
+// 第二个实例启动时获取锁失败 → 直接 quit，并通知主实例激活窗口。
+//
+// got-second-instance 事件回调中：
+//   1. 如果窗口最小化/关闭，恢复并显示
+//   2. 如果有 splash 窗口，也一并恢复
+//   3. focus 主窗口确保用户看到应用已运行
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // 第二个实例：立即退出，不执行后续任何初始化（不 spawn FastAPI、不创建窗口）
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    // 主实例收到第二个实例启动通知：激活并聚焦主窗口
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+    // splash 窗口可能仍然存在（FastAPI 未就绪时）
+    if (splashWindow) {
+      if (splashWindow.isMinimized()) splashWindow.restore();
+      if (!splashWindow.isVisible()) splashWindow.show();
+      splashWindow.focus();
+    }
+  });
+}
+
 // D5: 立即 spawn FastAPI 子进程——与 Electron 主进程后续初始化（Chromium 启动 +
 // V8 初始化 + whenReady 触发 + splash 窗口创建）完全并行，节省 1-3 秒。
 // startFastApi 是函数声明（function declaration），会被提升到模块顶部，可在此调用。
@@ -187,11 +220,20 @@ const MIME_TYPES: Record<string, string> = {
   // 图片
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".jfif": "image/jpeg",
+  ".pjpeg": "image/jpeg",
+  ".pjp": "image/jpeg",
   ".png": "image/png",
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".bmp": "image/bmp",
   ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".tiff": "image/tiff",
+  ".tif": "image/tiff",
+  ".avif": "image/avif",
+  ".heic": "image/heic",
+  ".heif": "image/heif",
 };
 
 /** 在 10000-60000 之间挑一个看起来没被占用的端口。 */
@@ -299,7 +341,7 @@ function killProcessTree(pid: number): void {
  *  打包后 __dirname 在 app.asar/dist-electron/，上一级是 app.asar/，
  *  app.asar/build/icon.png 不存在（build/ 不在 files 列表里，不在 asar 内）。
  *  必须用 process.resourcesPath（指向 app.asar 同级的 resources/ 目录），
- *  electron-builder.config.cjs 的 extraResources 把 build/icon.png 复制到这里。
+ *  electron-builder.cjs 的 extraResources 把 build/icon.png 复制到这里。
  *
  *  nativeImage.createFromPath 无法读取 asar 内的文件，必须用 extraResources
  *  把图标复制到 asar 外部才能被 Tray / BrowserWindow 加载。
@@ -393,7 +435,7 @@ function startFastApi(): Promise<void> {
     //   Windows: <app>/resources/python-backend/LumioAPI.exe
     //   macOS:   <app>/Contents/Resources/python-backend/LumioAPI
     //   Linux:   <app>/resources/python-backend/LumioAPI
-    // electron-builder extraResources 配置见 electron-builder.config.cjs
+    // electron-builder extraResources 配置见 electron-builder.cjs
     let exePath: string;
     let cwdPath: string;
     let env: NodeJS.ProcessEnv;
@@ -510,7 +552,7 @@ function startFastApi(): Promise<void> {
   });
 }
 
-/** 优雅关闭 FastAPI：先发 /api/shutdown，等 3 秒，再强制 kill。 */
+/** 优雅关闭 FastAPI：发 /api/shutdown，等进程退出（最多 3 秒），超时强制 kill。 */
 async function stopFastApi(): Promise<void> {
   if (!fastapiProc) return;
 
@@ -540,8 +582,27 @@ async function stopFastApi(): Promise<void> {
     // ignore
   }
 
-  // 2. 等 3 秒优雅退出
-  await new Promise((r) => setTimeout(r, 3000));
+  // 2. 等进程退出（最多 3 秒），退出立即继续，避免固定 3 秒延迟
+  await new Promise<void>((resolve) => {
+    const proc = fastapiProc;
+    if (!proc) {
+      resolve();
+      return;
+    }
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    // 进程退出 → 立即 resolve
+    proc.once("exit", () => {
+      console.log("[electron] FastAPI exited gracefully");
+      finish();
+    });
+    // 3 秒兜底超时
+    setTimeout(finish, 3000);
+  });
 
   // 3. 强制 kill 残留进程树（兜底）—— M1 修复：跨平台杀进程树
   if (fastapiProc) {
@@ -808,18 +869,31 @@ app.whenReady().then(async () => {
   //   Range 请求处理不可靠，<video> 标签会拒绝播放（无声卡死或黑屏）
   // - 改用 fs.createReadStream 直接读取文件，手动处理 Range 请求头
   // - 根据文件扩展名推断 MIME，强制设置 Content-Type（video 标签要求 video/mp4 等）
-  protocol.handle("lumio-file", (request) => {
+  // 诊断日志：记录所有 lumio-file:// 请求到文件，用于排查 packaged 模式下播放器加载失败
+  const debugLogPath = path.join(app.getPath("home"), ".lumio", "lumio-file-debug.log");
+  const debugLog = (msg: string) => {
     try {
-      // request.url 形如 lumio-file:///C%3A/Users/.../foo.mp4
-      // URL 解析后 pathname 是 /C:/Users/.../foo.mp4（前导斜杠+盘符）
+      const ts = new Date().toISOString();
+      fs.appendFileSync(debugLogPath, `[${ts}] ${msg}\n`);
+    } catch {}
+  };
+  debugLog(`protocol.handle registered. isPackaged=${app.isPackaged}`);
+  protocol.handle("lumio-file", (request) => {
+    debugLog(`REQUEST url=${request.url} range=${request.headers.get("range") || "none"}`);
+    try {
+      // request.url 形如 lumio-file://localhost/C%3A/Users/.../foo.mp4
+      // host=localhost（固定），pathname=/C%3A/Users/.../foo.mp4
+      // decodeURIComponent 后 /C:/Users/.../foo.mp4 → 去前导斜杠 → C:/Users/...
       const u = new URL(request.url);
       let p = decodeURIComponent(u.pathname);
       // Windows 路径前导斜杠去掉：/C:/foo → C:/foo
       if (process.platform === "win32" && /^\/[A-Za-z]:\//.test(p)) {
         p = p.slice(1);
       }
+      debugLog(`PATH decoded=${p} exists=${fs.existsSync(p)}`);
       // 安全校验：必须存在且是文件
       if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
+        debugLog(`404 NOT FOUND path=${p}`);
         return new Response("Not found", { status: 404 });
       }
       // 推断 MIME（<video> 标签要求 video/mp4 等，application/octet-stream 会拒绝播放）
@@ -869,7 +943,7 @@ app.whenReady().then(async () => {
 
       // 图片缩略图不变 → 长缓存（二次进入 LibraryPage 零 I/O）
       // 视频/其他 → no-cache（用户可能在外部修改，且 <video> Range 请求需要新鲜状态）
-      const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
+      const imageExts = [".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".heic", ".heif"];
       const isImage = imageExts.includes(ext);
       const headers: Record<string, string> = {
         "Content-Type": mime,
@@ -883,11 +957,13 @@ app.whenReady().then(async () => {
         headers["Content-Range"] = `bytes ${start}-${end}/${fileSize}`;
       }
 
+      debugLog(`OK path=${p} mime=${mime} size=${fileSize} range=${start}-${end} status=${isPartial ? 206 : 200}`);
       return new Response(webStream, {
         status: isPartial ? 206 : 200,
         headers,
       });
     } catch (e) {
+      debugLog(`500 ERROR: ${e}`);
       console.error("[electron] lumio-file handler error:", e);
       return new Response(`Internal error: ${e}`, { status: 500 });
     }

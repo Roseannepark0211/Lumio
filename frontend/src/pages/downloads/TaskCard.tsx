@@ -52,13 +52,18 @@ function TaskCardImpl({
   // QML 用 format_type 判断 audio/video 占位图标，但 _task_to_dict 未返回此字段
   // 改用 media_type 字段判断（更准确）
   const isAudio = task.media_type === "audio";
-  const isActive = n === "downloading" || n === "retrying";
+  const isActive = n === "downloading" || n === "retrying" || n === "merging" || n === "parsing";
+  const isMerging = n === "merging";
+  const isParsing = n === "parsing";
 
   // 开始/暂停/继续按钮的图标和点击行为
   const toggleIcon =
     n === "downloading" ? "⏸" : n === "paused" || n === "interrupted" ? "▶" : "▶";
+  // 合并阶段不允许暂停（ffmpeg 已启动，暂停会破坏输出文件）
+  // 解析阶段也不允许暂停（yt-dlp 已开始网络请求，暂停逻辑无法中断）
   const toggleEnabled =
-    n === "waiting" || n === "paused" || n === "interrupted" || n === "downloading";
+    !isMerging && !isParsing &&
+    (n === "waiting" || n === "paused" || n === "interrupted" || n === "downloading");
   const onToggleClick = () => {
     if (n === "downloading") onPause(task.task_id);
     else if (n === "paused" || n === "interrupted") onResume(task.task_id);
@@ -68,9 +73,9 @@ function TaskCardImpl({
   // 重试按钮可见性
   const retryVisible = n === "failed" || n === "cancelled";
 
-  // 取消按钮可用性
+  // 取消按钮可用性（合并/解析阶段允许取消，会终止 ffmpeg / yt-dlp 进程）
   const cancelEnabled =
-    n === "downloading" || n === "paused" || n === "waiting" || n === "retrying";
+    n === "downloading" || n === "paused" || n === "waiting" || n === "retrying" || n === "merging" || n === "parsing";
 
   return (
     <div className="library-card flex items-center gap-3.5 p-3.5">
@@ -118,9 +123,9 @@ function TaskCardImpl({
         />
       </div>
 
-      {/* 进度百分比 */}
+      {/* 进度百分比（解析/合并阶段显示文字提示） */}
       <div className="shrink-0 font-mono text-xs font-semibold text-text-muted">
-        {formatPct(task.progress)}
+        {isParsing ? tr("parsing_prompt") : isMerging ? tr("status_merging") : formatPct(task.progress)}
       </div>
 
       {/* 状态 Badge */}

@@ -260,7 +260,9 @@ class NotificationManager(QObject):
             self._check_ig_risk()
             self._check_software_recommendations()  # 新增：配套软件建议永久通知
             self._check_version_periodic()
-            self._check_cache_status()    # 新增：系统分类始终有缓存概览通知
+            # Bug 7: 移除内存清理相关的缓存概览通知
+            self._remove_by_source_key("cache_status")
+            self._remove_by_source_key("cache_cleaned")
             self._cleanup_expired()
         finally:
             with self._lock:
@@ -300,39 +302,43 @@ class NotificationManager(QObject):
         # 可选依赖缺失不发通知（避免噪音），已有 recommend_* 永久通知引导用户
 
     def _check_network_proxy(self) -> None:
-        """检查系统代理配置（国外平台需 VPN/代理）。
+        """检测外网连通性（国外平台需 VPN/代理）。
 
-        国内平台（B站/抖音/快手/微博/小红书）不需要代理；
-        国外平台（YouTube/Instagram/X/Twitter CDN）必须代理。
-        检测 HTTP_PROXY/HTTPS_PROXY 环境变量 + Windows 注册表代理。
+        Bug 7: 精简系统代理通知
+        - 不再检测系统代理 env/注册表，改为直接测试外网连通性
+        - 通知文案精简，移除「去配置」跳转按钮
         """
-        import os
+        import socket
         import urllib.request
 
-        proxy_configured = False
-        # 1. 环境变量
-        if os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY"):
-            proxy_configured = True
-        # 2. 系统代理（Windows/macOS）
-        if not proxy_configured:
-            try:
-                proxies = urllib.request.getproxies()
-                if proxies:
-                    proxy_configured = True
-            except Exception:
-                pass
+        # 检测外网连通性：尝试连接 YouTube（5秒超时）
+        # 成功 = 已有代理/VPN；失败 = 需要代理
+        external_reachable = False
+        try:
+            socket.setdefaulttimeout(5)
+            # 尝试 DNS 解析 + TCP 连接 youtube.com:443
+            sock = socket.create_connection(("www.youtube.com", 443), timeout=5)
+            sock.close()
+            external_reachable = True
+        except Exception:
+            pass
+        finally:
+            socket.setdefaulttimeout(None)
 
-        if not proxy_configured:
+        if not external_reachable:
             self.add_notification(Notification(
                 category="deps",
                 type="warning",
                 priority="high",
                 title=t("notif_proxy_missing_title"),
                 message=t("notif_proxy_missing_msg"),
-                action="open_page:settings",
-                action_text=t("notif_action_configure"),
+                action="",
+                action_text="",
                 source_key="proxy_missing",
             ))
+        else:
+            # 外网可达 → 清理之前的 proxy_missing 通知
+            self._remove_by_source_key("proxy_missing")
 
     def _check_ffmpeg(self) -> None:
         try:
@@ -458,14 +464,15 @@ class NotificationManager(QObject):
         - VPN（high）> 扩展/播放器（normal）> Telegram/Apify（low）
         """
         # 1. VPN/代理（必需，high priority）
+        # Bug 7: 精简文案，移除「去配置」跳转按钮
         self.add_notification(Notification(
             category="system",
             type="warning",
             priority="high",
             title=t("recommend_vpn_title"),
             message=t("recommend_vpn_msg"),
-            action="open_page:settings",
-            action_text=t("notif_action_configure"),
+            action="",
+            action_text="",
             source_key="recommend_vpn",
             dismissable=False,
         ))
@@ -816,30 +823,15 @@ class NotificationManager(QObject):
     def notify_cache_cleaned(self, files_cleaned: int, size_freed: int) -> None:
         """缓存清理完成通知。
 
-        只有当确实清理了文件时才通知（files_cleaned > 0），避免频繁点击产生噪音。
+        Bug 7: 移除内存清理相关的通知中心通知
+        - 不再添加到通知中心，仅通过 toast（WS toast 事件）提示用户
+        - 清理已有通知中心的 cache_cleaned 通知
         """
         if files_cleaned <= 0:
             return  # 没清理任何东西，静默
 
-        # 格式化 size
-        if size_freed >= 1024 * 1024:
-            size_str = f"{size_freed / 1024 / 1024:.1f} MB"
-        elif size_freed >= 1024:
-            size_str = f"{size_freed / 1024:.1f} KB"
-        else:
-            size_str = f"{size_freed} B"
-
-        # 移除旧的清理通知，添加新的（每次清理只保留最新一条）
-        with self._lock:
-            self._remove_by_source_key("cache_cleaned")
-        self.add_notification(Notification(
-            category="system",
-            type="info",
-            priority="low",
-            title=t("notif_cache_cleaned_title"),
-            message=t("notif_cache_cleaned_msg", files_cleaned, size_str),
-            source_key="cache_cleaned",
-        ))
+        # 清理之前可能存在的 cache_cleaned 通知（历史遗留）
+        self._remove_by_source_key("cache_cleaned")
 
     def notify_inbox_new(self, count: int = 1) -> None:
         """Inbox 新内容到达通知。

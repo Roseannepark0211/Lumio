@@ -57,6 +57,8 @@ class TaskStatus(str, Enum):
     COMPLETED = "已完成"
     FAILED = "失败"
     CANCELLED = "已取消"
+    MERGING = "合并中"
+    PARSING = "解析中"
 
 
 _RETRY_INTERVALS = [5, 15, 30]  # exponential backoff in seconds
@@ -505,6 +507,32 @@ class DownloadManager(QObject):
             if t.status == "done":
                 return
 
+            # 合并阶段（ffmpeg post-processing）：切换状态为 "合并中"
+            # 让 UI 显示「合并中」替代 100% 进度，避免长时间卡 100% 误以为死机
+            if t.status == "merging":
+                qt.status = TaskStatus.MERGING.value
+                qt.progress = 1.0  # 进度条保持填满状态
+                self.task_status_changed.emit(qt.task_id, qt.status)
+                # 仍 emit progress 事件，让前端刷新进度条
+                self.task_progress.emit(qt.task_id, 1.0, t.speed, t.filename)
+                return
+
+            # 解析阶段（URL 提取 / API 请求）：切换状态为 "解析中"
+            # 大体积视频下载前的链接解析可能持续数秒到数十秒，
+            # 让 UI 显示「客官不急，正在解剖中...」替代 0% 进度，避免误以为死机
+            if t.status == "parsing":
+                qt.status = TaskStatus.PARSING.value
+                self.task_status_changed.emit(qt.task_id, qt.status)
+                # 仍 emit progress 事件，让前端刷新（保留 0 进度但状态变化）
+                self.task_progress.emit(qt.task_id, 0.0, t.speed, t.filename)
+                return
+
+            # 非 merging 状态下，若 qt 当前为 "合并中" 或 "解析中"，需切回 "下载中"
+            # （部分场景合并 hook 未触发 finished，由后续 downloading 状态自动恢复）
+            if qt.status in (TaskStatus.MERGING.value, TaskStatus.PARSING.value):
+                qt.status = TaskStatus.DOWNLOADING.value
+                self.task_status_changed.emit(qt.task_id, qt.status)
+
             p = t.progress
             if p > 1.0:
                 p = p / 100.0
@@ -550,6 +578,11 @@ class DownloadManager(QObject):
                 # （适用于所有平台：视频/图片/音频，yt-dlp/直链/媒体项下载）
                 self.task_status_changed.emit(qt.task_id, qt.status)
                 self.task_finished.emit(qt.task_id, True, "")
+                # Bug 6: 已完成任务自动从队列移除（延迟 1.5s 让用户看到"已完成"状态）
+                completed_tid = qt.task_id
+                timer = threading.Timer(1.5, lambda tid=completed_tid: self._auto_remove_completed(tid))
+                timer.daemon = True
+                timer.start()
             else:
                 qt.retry_count += 1
                 if qt.retry_count < qt.max_retries:
@@ -587,6 +620,19 @@ class DownloadManager(QObject):
     def _cleanup_task(self, task_id: str):
         with self._lock:
             self._do_cleanup(task_id)
+
+    def _auto_remove_completed(self, task_id: str):
+        """Bug 6: 已完成任务延迟自动移除（避免队列堆积已完成任务）"""
+        with self._lock:
+            qt = self._tasks.get(task_id)
+            # 仅移除仍为"已完成"状态的任务（用户可能在此期间手动操作）
+            if qt and qt.status == TaskStatus.COMPLETED.value:
+                self._tasks.pop(task_id, None)
+                self._do_cleanup(task_id)
+                # 锁外发射信号避免死锁
+            else:
+                return
+        self.queue_changed.emit()
 
     def _do_cleanup(self, task_id: str):
         self._active.pop(task_id, None)

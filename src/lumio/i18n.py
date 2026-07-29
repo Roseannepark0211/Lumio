@@ -144,8 +144,12 @@ _TRANSLATIONS = {
         "status_retrying": "重试中",
         "status_interrupted": "已中断",
         "status_completed": "已完成",
+        "task_completed_toast": "下载完成：{title}",
         "status_failed": "失败",
         "status_cancelled": "已取消",
+        "status_merging": "合并中",
+        "status_parsing": "解析中",
+        "parsing_prompt": "客官不急，正在解剖中...",
         "error_cookie": "Cookie 已失效，请前往设置重新导入",
         "error_network": "网络异常，请检查网络连接",
         "error_rate_limited": "平台限流，稍后自动重试",
@@ -416,8 +420,8 @@ _TRANSLATIONS = {
         "notif_python_deps_missing_msg": "以下依赖缺失，部分功能将不可用：{0}",
 
         # 网络代理检查
-        "notif_proxy_missing_title": "未检测到系统代理",
-        "notif_proxy_missing_msg": "国外平台（YouTube/Instagram/X）解析和下载需要 VPN 或系统代理。国内平台（B站/抖音/快手/微博/小红书）不受影响。请在系统设置或环境变量中配置代理。",
+        "notif_proxy_missing_title": "外网连通性检测失败",
+        "notif_proxy_missing_msg": "需要解析国外平台链接请自备 VPN 代理工具，Lumio 会自动检测外网连通性。国内平台不受影响。",
 
         # FFmpeg 检查
         "notif_ffmpeg_missing_title": "FFmpeg 未安装",
@@ -433,13 +437,13 @@ _TRANSLATIONS = {
         "notif_extension_tip_title": "安装浏览器插件",
         "notif_extension_tip_msg": "从浏览器一键发送链接到 Lumio，支持 YouTube、X 等平台。插件可在 GitHub 仓库下载。",
 
-        # IG 风险提示 + Apify 替代方案（永久通知，已合并）
-        "notif_ig_risk_title": "Instagram 下载风险与应对方案",
-        "notif_ig_risk_msg": "Instagram 对自动化行为检测严格，频繁下载可能导致账号受限或封禁。\n\n应对方案（按推荐顺序）：\n· 浏览器扩展：右键 IG 页面时一次性注入提取直链，不调用 IG API，风险最低（强烈推荐）\n· Apify Token：通过 Apify Actor 代理替代直接 API 调用，避免账号风控\n    - Free plan 每月 $5 额度（约 500 次 IG 解析）\n    - 在设置中填入 Token 即可启用，配额耗尽自动回退到 Cookie 模式\n    - 适合需要批量下载 IG 的用户\n· 小号 Cookie：用小号 Cookie 不要用主号\n· 控制频率：不要频繁批量抓取主页帖子，单个帖子不要连续重复下载",
+        # IG 风险提示（精简版）
+        "notif_ig_risk_title": "Instagram 下载风险提示",
+        "notif_ig_risk_msg": "频繁调用 IG API 可能导致账号受限。建议：使用浏览器扩展右键提取直链（风险最低），或配置 Apify Token 代理。批量下载请用小号 Cookie 并控制频率。",
 
         # 配套软件建议（永久通知）
         "recommend_vpn_title": "国外平台需配置 VPN/代理",
-        "recommend_vpn_msg": "YouTube / Instagram / X 在中国大陆无法直接访问，解析和下载必须配置 VPN 或系统代理。\n\n国内平台（B站/抖音/快手/微博/小红书）无需代理。\n\n配置方式：在系统设置或环境变量（HTTP_PROXY/HTTPS_PROXY）中配置代理，Lumio 会自动读取。",
+        "recommend_vpn_msg": "YouTube / Instagram / X 在中国大陆需自备 VPN 代理工具。国内平台不受影响。Lumio 会自动检测外网连通性。",
         "recommend_extension_title": "推荐安装浏览器扩展",
         "recommend_extension_msg": "从浏览器一键发送链接到 Lumio，支持 YouTube、X、Instagram 等平台。右键菜单发送页面/链接/视频/图片，无需复制粘贴。\n\n插件支持 Chrome/Edge，可在 GitHub 仓库下载。",
         "recommend_player_title": "推荐安装媒体播放器",
@@ -534,6 +538,11 @@ _TRANSLATIONS = {
         # HomePage 子组件
         "video_load_failed": "视频加载失败",
         "video_play_failed": "视频播放失败",
+        "video_codec_unsupported": "视频编码不支持内置播放（如 HEVC/H.265、部分 MKV），请用系统播放器打开",
+        "image_load_failed": "图片加载失败",
+        "audio_play_failed": "音频播放失败",
+        "open_in_system_player": "用系统播放器打开",
+        "delete_missing_record": "删除此记录",
         "no_detail": "无详细信息",
         "xsou_search_placeholder": "搜索 X 内容（@username 转 from: 搜索）",
         "url_or_search_placeholder": "粘贴链接 或 输入关键词搜索 X 内容…",
@@ -675,6 +684,10 @@ _TRANSLATIONS = {
         "settings_group_account": "账号",
         "settings_group_download": "下载",
         "settings_group_system": "系统",
+        "settings_extension_section": "浏览器扩展",
+        "extension_port_label": "Flask 服务端口",
+        "extension_port_desc": "浏览器扩展通过此端口与 Lumio 通信（/health /capture /stats）。与 LumioAPI 随机端口（38910-38999）无关，仅在端口冲突时才需修改。",
+        "extension_port_restart_hint": "修改后需重启 Lumio 生效",
         "settings_group_account_desc": "Cookie、Telegram 集成等账号级配置",
         "settings_group_download_desc": "下载目录、冲突策略、缓存与并发",
         "settings_group_system_desc": "版本、更新检查与软件信息",
@@ -895,8 +908,12 @@ _TRANSLATIONS = {
         "status_retrying": "Retrying",
         "status_interrupted": "Interrupted",
         "status_completed": "Completed",
+        "task_completed_toast": "Download complete: {title}",
         "status_failed": "Failed",
         "status_cancelled": "Cancelled",
+        "status_merging": "Merging",
+        "status_parsing": "Parsing",
+        "parsing_prompt": "Analyzing content, please wait...",
         "error_cookie": "Cookie expired — re-import in Settings",
         "error_network": "Network error — check your connection",
         "error_rate_limited": "Rate limited — will retry automatically",
@@ -1167,8 +1184,8 @@ _TRANSLATIONS = {
         "notif_python_deps_missing_msg": "The following dependencies are missing, some features will be unavailable: {0}",
 
         # Network proxy check
-        "notif_proxy_missing_title": "No System Proxy Detected",
-        "notif_proxy_missing_msg": "Foreign platforms (YouTube/Instagram/X) require VPN or system proxy for parsing and downloading. Domestic platforms (Bilibili/Douyin/Kuaishou/Weibo/Xiaohongshu) are not affected. Please configure proxy in system settings or environment variables.",
+        "notif_proxy_missing_title": "External Network Unreachable",
+        "notif_proxy_missing_msg": "VPN/proxy required for foreign platforms (YouTube/Instagram/X). Lumio auto-detects external connectivity. Domestic platforms are not affected.",
 
         # FFmpeg check
         "notif_ffmpeg_missing_title": "FFmpeg Not Installed",
@@ -1184,13 +1201,13 @@ _TRANSLATIONS = {
         "notif_extension_tip_title": "Install Browser Extension",
         "notif_extension_tip_msg": "Send links to Lumio directly from your browser with one click. Supports YouTube, X, and more. Download from GitHub repository.",
 
-        # IG risk notice + Apify alternative (permanent, merged)
-        "notif_ig_risk_title": "Instagram Download Risk & Mitigations",
-        "notif_ig_risk_msg": "Instagram has strict automation detection. Frequent downloads may lead to account restrictions or bans.\n\nMitigations (in order of recommendation):\n· Browser extension: one-time injection extracts direct links from DOM, no IG API call, lowest risk (strongly recommended)\n· Apify Token: proxy via Apify Actor instead of direct API calls to avoid account risk\n    - Free plan: $5 monthly quota (~500 IG parses)\n    - Enter Token in Settings to enable; auto-fallback to Cookie mode when quota exhausted\n    - Suitable for users who need batch IG downloads\n· Secondary account cookie: use a secondary account's cookie, not your primary\n· Rate limit: avoid frequent batch scraping of profile posts; do not repeatedly download the same post",
+        # IG risk notice (simplified)
+        "notif_ig_risk_title": "Instagram Download Risk",
+        "notif_ig_risk_msg": "Frequent IG API calls may lead to account restrictions. Recommended: use browser extension right-click to extract direct links (lowest risk), or configure Apify Token proxy. Use secondary account cookie for batch downloads and control frequency.",
 
         # Software recommendations (permanent)
         "recommend_vpn_title": "VPN/Proxy Required for Foreign Platforms",
-        "recommend_vpn_msg": "YouTube / Instagram / X are inaccessible in mainland China. VPN or system proxy is required for parsing and downloading.\n\nDomestic platforms (Bilibili/Douyin/Kuaishou/Weibo/Xiaohongshu) do not require proxy.\n\nConfigure via system settings or environment variables (HTTP_PROXY/HTTPS_PROXY). Lumio reads them automatically.",
+        "recommend_vpn_msg": "YouTube / Instagram / X require VPN/proxy in mainland China. Domestic platforms are not affected. Lumio auto-detects external connectivity.",
         "recommend_extension_title": "Install Browser Extension",
         "recommend_extension_msg": "Send links to Lumio directly from your browser with one click. Supports YouTube, X, Instagram, and more. Right-click to send page/link/video/image — no copy-paste needed.\n\nSupports Chrome/Edge. Download from GitHub repository.",
         "recommend_player_title": "Install a Media Player",
@@ -1285,6 +1302,11 @@ _TRANSLATIONS = {
         # HomePage subcomponents
         "video_load_failed": "Video load failed",
         "video_play_failed": "Video playback failed",
+        "video_codec_unsupported": "Video codec not supported by in-app player (e.g., HEVC/H.265, some MKV). Please open with system player.",
+        "image_load_failed": "Image load failed",
+        "audio_play_failed": "Audio playback failed",
+        "open_in_system_player": "Open in system player",
+        "delete_missing_record": "Delete this record",
         "no_detail": "No details",
         "xsou_search_placeholder": "Search X content (@username → from: query)",
         "url_or_search_placeholder": "Paste a link or enter keywords to search X…",
@@ -1418,14 +1440,18 @@ _TRANSLATIONS = {
         "untitled": "Untitled",
         "settings_general_section": "General",
         "settings_download_section": "Download",
-        "settings_cookie_section": "Cookie Management",
-        "settings_cache_section": "Cache Management",
+        "settings_cookie_section": "Cookies",
+        "settings_cache_section": "Cache",
         "settings_telegram_section": "Telegram",
         "settings_about_section": "About",
         "settings_subtitle": "Manage credentials, download behavior and system config",
         "settings_group_account": "Account",
         "settings_group_download": "Download",
         "settings_group_system": "System",
+        "settings_extension_section": "Browser Extension",
+        "extension_port_label": "Flask Server Port",
+        "extension_port_desc": "Browser extension communicates with Lumio via this port (/health /capture /stats). Unrelated to LumioAPI random port (38910-38999); only modify on port conflict.",
+        "extension_port_restart_hint": "Restart Lumio to apply changes",
         "settings_group_account_desc": "Cookie, Telegram integration and account-level config",
         "settings_group_download_desc": "Download dir, conflict policy, cache and concurrency",
         "settings_group_system_desc": "Version, update check and app info",

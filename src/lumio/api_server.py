@@ -62,7 +62,10 @@ _ALLOWED_PREFIXES = ("chrome-extension://", "moz-extension://")
 @app.after_request
 def _add_cors(response):
     origin = request.headers.get("Origin", "")
-    if any(origin.startswith(p) for p in _ALLOWED_PREFIXES) or origin == "http://127.0.0.1:38900":
+    # Bug 3: 允许任意端口的 localhost 通信（用户可在 Lumio 设置中自定义 Flask 端口）
+    if any(origin.startswith(p) for p in _ALLOWED_PREFIXES):
+        response.headers["Access-Control-Allow-Origin"] = origin
+    elif origin.startswith(("http://127.0.0.1:", "http://localhost:")):
         response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"

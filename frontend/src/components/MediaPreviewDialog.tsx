@@ -10,15 +10,22 @@
  *   4. 选择后进入对应面板，左右箭头/键盘 ←→ 在同类型内切换
  *
  * 混合帖子策略：用户主动选择，不强制视频优先。
+ *
+ * Bug 2 修复：
+ * - 视频编码不支持（HEVC/H.265、部分 MKV）时显示友好提示 + 系统播放器 fallback
+ * - 图片加载失败也提供系统播放器 fallback
+ * - 文件缺失时直接在预览对话框内提供「删除此记录」按钮（不依赖 file_missing 事件）
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { api, lumioFileUrl, type LibraryItem } from "../api";
+import { api, lumioFileUrl, subscribeEvents, type LibraryItem } from "../api";
 import { useI18n } from "../i18n";
 
 interface Props {
   item: LibraryItem;
   onClose: () => void;
+  /** 删除当前素材记录（由 LibraryPage 提供，用于文件缺失时直接删除） */
+  onDeleteRecord?: (itemId: string) => Promise<void>;
 }
 
 interface PreviewItem {
@@ -28,11 +35,12 @@ interface PreviewItem {
 
 type LoadState = "loading" | "select" | "viewing" | "error";
 
-export function MediaPreviewDialog({ item, onClose }: Props) {
+export function MediaPreviewDialog({ item, onClose, onDeleteRecord }: Props) {
   const { tr } = useI18n();
   const [state, setState] = useState<LoadState>("loading");
   const [items, setItems] = useState<PreviewItem[]>([]);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [isFileMissing, setIsFileMissing] = useState(false);
 
   // 用户选择的类型筛选（"video" / "image" / "audio"）
   // 选择后 currentIndex 在该类型的子集内导航
@@ -63,11 +71,13 @@ export function MediaPreviewDialog({ item, onClose }: Props) {
     let cancelled = false;
     setState("loading");
     setErrorMsg("");
+    setIsFileMissing(false);
     (async () => {
       const fp = item.file_path || "";
       if (!fp) {
         if (!cancelled) {
           setErrorMsg(tr("preview_file_missing"));
+          setIsFileMissing(true);
           setState("error");
         }
         return;
@@ -77,6 +87,7 @@ export function MediaPreviewDialog({ item, onClose }: Props) {
         if (cancelled) return;
         if (!r.items || r.items.length === 0) {
           setErrorMsg(tr("preview_file_missing"));
+          setIsFileMissing(true);
           setState("error");
           return;
         }
@@ -103,6 +114,44 @@ export function MediaPreviewDialog({ item, onClose }: Props) {
       cancelled = true;
     };
   }, [item, tr]);
+
+  // —— 监听 file_missing 事件：后端检测到文件不存在时，关闭预览对话框 ——
+  // 父组件 LibraryPage 会弹「是否删除本条记录」对话框，避免双弹窗冲突
+  useEffect(() => {
+    const fp = item.file_path || "";
+    if (!fp) return;
+    const unsub = subscribeEvents((e) => {
+      if (e.type === "file_missing") {
+        const p = e.data as { path?: string; source?: string } | null;
+        if (p?.source === "library" && p.path === fp) {
+          onClose();
+        }
+      }
+    });
+    return unsub;
+  }, [item.file_path, onClose]);
+
+  // —— 用系统默认播放器打开（视频 codec 不支持时的 fallback） ——
+  const onOpenInSystemPlayer = useCallback(async () => {
+    const fp = item.file_path || "";
+    if (!fp) return;
+    try {
+      await api.openFile(fp, "library");
+    } catch (e) {
+      console.warn("open in system player failed:", e);
+    }
+  }, [item.file_path]);
+
+  // —— 删除当前素材记录（文件缺失时由用户主动触发） ——
+  const onDeleteMissingRecord = useCallback(async () => {
+    if (!onDeleteRecord || !item.id) return;
+    try {
+      await onDeleteRecord(item.id);
+      onClose();
+    } catch (e) {
+      console.warn("delete missing record failed:", e);
+    }
+  }, [onDeleteRecord, item.id, onClose]);
 
   // —— 键盘 ←/→ 切换（仅在 viewing 状态） ——
   useEffect(() => {
@@ -203,7 +252,21 @@ export function MediaPreviewDialog({ item, onClose }: Props) {
           <div className="text-sm text-white/60">加载中…</div>
         )}
 
-        {state === "error" && <ErrorPanel message={errorMsg} />}
+        {state === "error" && (
+          <ErrorPanel
+            message={errorMsg}
+            actionLabel={
+              isFileMissing && onDeleteRecord && item.id
+                ? tr("delete_missing_record")
+                : undefined
+            }
+            onAction={
+              isFileMissing && onDeleteRecord && item.id
+                ? onDeleteMissingRecord
+                : undefined
+            }
+          />
+        )}
 
         {/* 选择面板 — 混合类型时显示 */}
         {state === "select" && (
@@ -266,11 +329,21 @@ export function MediaPreviewDialog({ item, onClose }: Props) {
             )}
 
             <div className="flex h-full w-full items-center justify-center">
-              {currentItem.media_type === "video" && <VideoPanel src={src} tr={tr} />}
-              {currentItem.media_type === "image" && <ImagePanel src={src} tr={tr} />}
-              {currentItem.media_type === "audio" && <AudioPanel src={src} tr={tr} />}
+              {currentItem.media_type === "video" && (
+                <VideoPanel src={src} tr={tr} onOpenInSystemPlayer={onOpenInSystemPlayer} />
+              )}
+              {currentItem.media_type === "image" && (
+                <ImagePanel src={src} tr={tr} onOpenInSystemPlayer={onOpenInSystemPlayer} />
+              )}
+              {currentItem.media_type === "audio" && (
+                <AudioPanel src={src} tr={tr} onOpenInSystemPlayer={onOpenInSystemPlayer} />
+              )}
               {!["video", "image", "audio"].includes(currentItem.media_type) && (
-                <ErrorPanel message={tr("preview_format_error")} />
+                <ErrorPanel
+                  message={tr("preview_format_error")}
+                  actionLabel={tr("open_in_system_player")}
+                  onAction={onOpenInSystemPlayer}
+                />
               )}
             </div>
 
@@ -377,15 +450,35 @@ function AudioIcon() {
 // 视频面板
 // ============================================================
 
-function VideoPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<string, string | number>) => string }) {
+function VideoPanel({
+  src,
+  tr,
+  onOpenInSystemPlayer,
+}: {
+  src: string;
+  tr: (k: string, p?: Record<string, string | number>) => string;
+  onOpenInSystemPlayer: () => void;
+}) {
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [isCodecUnsupported, setIsCodecUnsupported] = useState(false);
 
   useEffect(() => {
     setVideoError(null);
+    setIsCodecUnsupported(false);
   }, [src]);
 
   if (videoError) {
-    return <ErrorPanel message={`${tr("video_play_failed")}\n${videoError}`} />;
+    // Bug 2: 对 MEDIA_ERR_SRC_NOT_SUPPORTED（code=4）显示更友好的提示
+    // Chromium 内置播放器不支持 HEVC/H.265、部分 MKV 等编码，
+    // 错误信息含 "DEMUXER ERROR" / "open context failed" 时判定为编码不支持
+    const msg = isCodecUnsupported ? tr("video_codec_unsupported") : `${tr("video_play_failed")}\n${videoError}`;
+    return (
+      <ErrorPanel
+        message={msg}
+        actionLabel={tr("open_in_system_player")}
+        onAction={onOpenInSystemPlayer}
+      />
+    );
   }
 
   return (
@@ -399,14 +492,21 @@ function VideoPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
         const v = e.currentTarget;
         const code = v.error?.code;
         const msg = v.error?.message || "";
-        const codeMap: Record<number, string> = {
-          1: "MEDIA_ERR_ABORTED",
-          2: "MEDIA_ERR_NETWORK",
-          3: "MEDIA_ERR_DECODE",
-          4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
-        };
-        const label = code ? codeMap[code] || `code ${code}` : "unknown";
-        setVideoError(`${label}: ${msg}`);
+        // code=4 = MEDIA_ERR_SRC_NOT_SUPPORTED（常见于 HEVC/H.265、MKV 等编码不支持）
+        // Chromium 错误信息含 "DEMUXER ERROR" / "open context failed" 也是编码不支持
+        if (code === 4 || /demuxer|open context|codec/i.test(msg)) {
+          setIsCodecUnsupported(true);
+          setVideoError(msg);
+        } else {
+          const codeMap: Record<number, string> = {
+            1: "MEDIA_ERR_ABORTED",
+            2: "MEDIA_ERR_NETWORK",
+            3: "MEDIA_ERR_DECODE",
+            4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+          };
+          const label = code ? codeMap[code] || `code ${code}` : "unknown";
+          setVideoError(`${label}: ${msg}`);
+        }
       }}
     />
   );
@@ -416,7 +516,15 @@ function VideoPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
 // 图片面板 — 滚轮缩放 + 拖拽平移 + 双击重置
 // ============================================================
 
-function ImagePanel({ src, tr }: { src: string; tr: (k: string, p?: Record<string, string | number>) => string }) {
+function ImagePanel({
+  src,
+  tr,
+  onOpenInSystemPlayer,
+}: {
+  src: string;
+  tr: (k: string, p?: Record<string, string | number>) => string;
+  onOpenInSystemPlayer: () => void;
+}) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [ty, setTy] = useState(0);
@@ -460,7 +568,14 @@ function ImagePanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
   const onMouseUp = useCallback(() => setDragging(false), []);
 
   if (imgError) {
-    return <ErrorPanel message={tr("video_load_failed")} />;
+    // Bug 2: 图片加载失败时也提供系统播放器 fallback（可能是路径问题或格式不支持）
+    return (
+      <ErrorPanel
+        message={tr("image_load_failed")}
+        actionLabel={tr("open_in_system_player")}
+        onAction={onOpenInSystemPlayer}
+      />
+    );
   }
 
   return (
@@ -511,7 +626,15 @@ function ImagePanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
 // 音频面板 — 占位封面 + 播放器
 // ============================================================
 
-function AudioPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<string, string | number>) => string }) {
+function AudioPanel({
+  src,
+  tr,
+  onOpenInSystemPlayer,
+}: {
+  src: string;
+  tr: (k: string, p?: Record<string, string | number>) => string;
+  onOpenInSystemPlayer: () => void;
+}) {
   const [audioError, setAudioError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -519,7 +642,13 @@ function AudioPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
   }, [src]);
 
   if (audioError) {
-    return <ErrorPanel message={`${tr("video_play_failed")}\n${audioError}`} />;
+    return (
+      <ErrorPanel
+        message={`${tr("audio_play_failed")}\n${audioError}`}
+        actionLabel={tr("open_in_system_player")}
+        onAction={onOpenInSystemPlayer}
+      />
+    );
   }
 
   return (
@@ -552,7 +681,15 @@ function AudioPanel({ src, tr }: { src: string; tr: (k: string, p?: Record<strin
 // 错误面板
 // ============================================================
 
-function ErrorPanel({ message }: { message: string }) {
+function ErrorPanel({
+  message,
+  actionLabel,
+  onAction,
+}: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-danger/15">
@@ -565,6 +702,14 @@ function ErrorPanel({ message }: { message: string }) {
       <div className="max-w-md whitespace-pre-line text-sm text-text-muted">
         {message}
       </div>
+      {actionLabel && onAction && (
+        <button
+          onClick={onAction}
+          className="mt-2 rounded-lg bg-white/10 px-4 py-1.5 text-sm font-medium text-text transition-colors hover:bg-white/20"
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
   type QueueTask,
 } from "../api";
 import { useI18n } from "../i18n";
+import { useToast } from "../App";
 import { TaskCard } from "./downloads/TaskCard";
 import {
   applyFilter,
@@ -32,6 +33,7 @@ import {
 
 export function DownloadsPage() {
   const { tr } = useI18n();
+  const showToast = useToast();
   // —— 任务列表状态 ——
   const [tasks, setTasks] = useState<QueueTask[]>([]);
   const [filterStatus] = useState<FilterStatus>("all");
@@ -136,6 +138,12 @@ export function DownloadsPage() {
           const tid = p.task_id;
           const success = !!p.success;
           const err = p.error || "";
+          // Bug 6: 任务完成后自动移除，需 toast 通知用户下载结果
+          if (success) {
+            const t = tasksRef.current.find((x) => x.task_id === tid);
+            const title = t?.title || t?.url || "";
+            showToast(tr("task_completed_toast", { title: title.slice(0, 40) }));
+          }
           setTasks((prev) =>
             prev.map((t) =>
               t.task_id === tid

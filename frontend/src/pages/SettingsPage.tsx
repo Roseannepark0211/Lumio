@@ -1108,6 +1108,26 @@ export function SettingsPage() {
           </div>
         </SettingsCard>
 
+        {/* ---------- 浏览器扩展 ---------- */}
+        <SettingsCard
+          icon="🔌"
+          iconColor="text-info"
+          title={tr("settings_extension_section")}
+          desc={tr("extension_port_desc")}
+        >
+          <Row label={tr("extension_port_label")}>
+            <SpinBox
+              min={1024}
+              max={65535}
+              value={(config.api_port as number) || 38900}
+              onChange={(v) => saveConfig("api_port", v)}
+            />
+          </Row>
+          <p className="text-[10px] text-text-dim">
+            ⚠ {tr("extension_port_restart_hint")}
+          </p>
+        </SettingsCard>
+
         {/* ---------- 关于 ---------- */}
         <SettingsCard icon="ℹ" iconColor="text-info" title={tr("about")} desc="Lumio © 2026">
           <Row label={tr("version")}>

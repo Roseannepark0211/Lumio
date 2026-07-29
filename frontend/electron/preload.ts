@@ -40,23 +40,46 @@ try {
 
 /**
  * 把本地文件绝对路径转成 lumio-file:// URL。
- * 例：C:\Users\foo\bar.mp4 → lumio-file:///C:/Users/foo/bar.mp4
+ * 例：C:\Users\foo\bar.mp4 → lumio-file://localhost/C%3A/Users/foo/bar.mp4
  * 渲染进程用 <video src={lumioFileUrl(path)}> 播放本地视频。
  *
- * 关键：不对路径做 encodeURIComponent！
- * - encodeURIComponent("C:") = "C%3A"，导致 URL 形如 lumio-file:///C%3A/Users/...
- * - Chromium 的 URL safety check 会拒绝带 %3A 的路径，
- *   <video> 报错 "Media load rejected by URL safety check"
- * - lumio-file:// 是自定义 protocol，路径部分直接拼接即可，
- *   main.ts 的 handler 用 decodeURIComponent 兜底解码
+ * ⚠️ URL 格式设计（关键 Bug 修复）：
+ *   lumio-file 协议注册为 standard: true（见 main.ts registerSchemesAsPrivileged），
+ *   Chromium 会按 RFC 3986 规范化 URL。
+ *
+ *   错误格式 lumio-file:///C:/Users/... 会被 Chromium 把 "C:" 当成 host:port，
+ *   规范化为 lumio-file://c/Users/...（host=c，pathname 丢失盘符）。
+ *   当 Lumio 安装在非 C 盘时，fs.existsSync("/Users/...") 解析为当前驱动器根目录
+ *   → 文件找不到 → 404。
+ *
+ *   即便去掉冒号 lumio-file:///C/Users/...，Chromium 仍会把单字母 "C" 当成 host。
+ *
+ *   解决方案：使用固定 host "localhost"，把完整路径（含盘符冒号）放在 pathname 中。
+ *   lumio-file://localhost/C%3A/Users/foo/bar.mp4
+ *   - host=localhost（固定，不会变化）
+ *   - pathname=/C%3A/Users/foo/bar.mp4（盘符冒号 URL 编码为 %3A，不会与 URL 语法冲突）
+ *   - handler 中 decodeURIComponent(pathname) 还原为 /C:/Users/... → 去前导斜杠 → C:/Users/...
+ *
+ *   protocol.handle 会拦截所有 lumio-file:// 的请求，不管 host 是什么，
+ *   所以使用 "localhost" 作为 host 不会触发实际网络请求。
  */
 function lumioFileUrl(p: string): string {
   if (!p) return "";
   // 反斜杠 → 正斜杠（Windows 路径兼容）
   const normalized = p.replace(/\\/g, "/");
-  // lumio-file:/// + 路径（带前导斜杠表示 absolute）
-  // 不做 URL 编码，保留 C: 形式
-  return `lumio-file:///${normalized}`;
+  // 按分隔符拆分，每段单独编码后拼接
+  const segments = normalized.split("/");
+  const encoded = segments
+    .map((seg) => {
+      // 空段（前导斜杠产生）保留
+      if (seg === "") return seg;
+      // 所有段（含盘符）统一 encodeURIComponent
+      // "C:" → "C%3A"，不会被 Chromium 当成 authority
+      return encodeURIComponent(seg);
+    })
+    .join("/");
+  // 使用 localhost 作为固定 host，pathname 以 / 开头
+  return `lumio-file://localhost/${encoded}`;
 }
 
 /** 文件过滤器（与 Electron FileFilter 对齐） */
@@ -92,6 +115,10 @@ contextBridge.exposeInMainWorld("lumio", {
     quitApp: () => ipcRenderer.send("tray:close-dialog", "quit"),
     // 前端 render() 后报告菜单实际高度，主进程据此调整 BrowserWindow 高度
     reportHeight: (height: number) => ipcRenderer.send("tray:report-height", height),
+    /** 监听主进程发来的"重新加载数据"事件（每次菜单显示时触发） */
+    onReload: (callback: () => void) => {
+      ipcRenderer.on("tray:reload", () => callback());
+    },
   },
   /** 监听托盘菜单导航事件（主进程 → 渲染进程） */
   onNavigate: (callback: (page: string) => void) => {

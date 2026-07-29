@@ -497,6 +497,8 @@ html, body {
   }
 
   // —— 数据加载 ——
+  let loadRetryCount = 0;
+  let loadRetryTimer = null;
   async function loadAll() {
     try {
       const [cfg, queue, inbox, i18n] = await Promise.all([
@@ -511,11 +513,21 @@ html, body {
       state.tasks = queue || [];
       state.inboxCount = (inbox && inbox.count) || 0;
       state.i18n = i18n || {};
+      loadRetryCount = 0; // 成功后重置重试计数
       applyTheme();
       render();
     } catch (e) {
-      document.getElementById("menu").innerHTML =
-        '<div class="tray-empty">连接失败</div>';
+      // 连接失败时自动重试（最多 3 次，间隔 1.5s），避免一次性失败永久卡在"连接失败"
+      if (loadRetryCount < 3) {
+        loadRetryCount++;
+        document.getElementById("menu").innerHTML =
+          '<div class="tray-empty">连接中… (' + loadRetryCount + '/3)</div>';
+        if (loadRetryTimer) clearTimeout(loadRetryTimer);
+        loadRetryTimer = setTimeout(loadAll, 1500);
+      } else {
+        document.getElementById("menu").innerHTML =
+          '<div class="tray-empty" style="cursor:pointer" onclick="loadRetryCount=0;loadAll()">连接失败，点击重试</div>';
+      }
     }
   }
 
@@ -618,6 +630,21 @@ html, body {
   // —— 初始化 ——
   loadAll();
   connectWS();
+
+  // 监听主进程的 reload 事件：每次菜单显示时重新拉取数据
+  // 解决：菜单窗口复用（show/hide），首次加载后不再调 loadAll，
+  //       导致 FastAPI 重启后菜单永久显示"连接失败"
+  if (TRAY.onReload) {
+    TRAY.onReload(() => {
+      // 重置重试计数，让 loadAll 能重新尝试
+      loadRetryCount = 0;
+      if (loadRetryTimer) {
+        clearTimeout(loadRetryTimer);
+        loadRetryTimer = null;
+      }
+      loadAll();
+    });
+  }
 })();
 </script>
 </body>

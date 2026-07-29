@@ -453,9 +453,9 @@ def _first_openable_media(folder: str) -> str | None:
 
 
 # 视频优先 → 图片 → 音频，用于 mixed 类型预览
-_PREVIEW_VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv"}
-_PREVIEW_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-_PREVIEW_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"}
+_PREVIEW_VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".m4v"}
+_PREVIEW_IMAGE_EXTS = {".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".heic", ".heif"}
+_PREVIEW_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"}
 
 
 def _resolve_preview_target(file_path: str, media_type: str) -> tuple[str, str]:
@@ -1495,6 +1495,9 @@ def create_app() -> FastAPI:
                         )
                     except Exception:
                         pass
+                    # Bug 7: 缓存清理结果改为 toast 通知（替代通知中心通知）
+                    size_str = _format_size(total_size)
+                    _bus().publish("toast", {"message": t("cache_cleaned_toast", total_files, size_str)})
                 _bus().publish("cache_cleaned", {
                     "files": total_files, "size": total_size,
                 })
@@ -1519,6 +1522,9 @@ def create_app() -> FastAPI:
                         )
                     except Exception:
                         pass
+                    # Bug 7: 缓存清理结果改为 toast 通知
+                    size_str = _format_size(total_size)
+                    _bus().publish("toast", {"message": t("cache_cleaned_toast", total_files, size_str)})
                 _bus().publish("cache_cleaned", {
                     "files": total_files, "size": total_size,
                 })
@@ -1582,8 +1588,20 @@ def create_app() -> FastAPI:
 
         前端 MediaPreviewDialog 用此列表实现上下项切换。
         单文件返回 [{path, media_type}]。
+
+        文件不存在时推 file_missing 事件（source="library"），让前端
+        弹「是否删除本条记录」对话框。修复 Bug 2：原来仅显示「文件不存在」
+        但用户无法直接删除记录，需手动找到素材再删除。
         """
+        # 文件不存在 → 推 file_missing 事件让前端弹删除确认对话框
+        if req.file_path and not os.path.exists(req.file_path):
+            _bus().publish("file_missing", {"path": req.file_path, "source": "library"})
+            return {"items": []}
         items = _list_preview_items(req.file_path)
+        # 目录存在但内部无可预览文件（空目录或文件被外部删除）→ 同样推 file_missing
+        if not items and req.file_path and os.path.isdir(req.file_path):
+            # 仅当原本应是 library 来源时触发（路径非空）
+            _bus().publish("file_missing", {"path": req.file_path, "source": "library"})
         return {"items": items}
 
     @app.post("/api/open-external-url")

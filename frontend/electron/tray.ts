@@ -207,6 +207,8 @@ export class TrayManager {
         this.positionMenu(bounds);
         this.suppressBlurUntil = Date.now() + 200;
         this.menuWin.show();
+        // 首次显示也触发一次 reload，让渲染进程拉取最新数据
+        this.menuWin.webContents.send("tray:reload");
         // 不调 focus() — show() 已激活窗口，focus 是冗余的二次激活事件，
         // 会触发 Windows 窗口管理器的额外动画导致闪烁
       });
@@ -243,6 +245,8 @@ export class TrayManager {
     this.positionMenu(bounds);
     this.suppressBlurUntil = Date.now() + 200;
     this.menuWin.show();
+    // 每次显示都触发重新加载，避免菜单显示旧数据或"连接失败"残留
+    this.menuWin.webContents.send("tray:reload");
   }
 
   /** 隐藏托盘菜单弹窗 */

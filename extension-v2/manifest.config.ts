@@ -35,8 +35,9 @@ export const manifest = defineManifest({
     "*://*.xiaohongshu.com/*",
     "*://*.xhslink.com/*",
     "*://*.xhslink.cn/*",
-    "http://127.0.0.1:38900/*",
-    "http://localhost:38900/*",
+    // Bug 3: 允许任意端口的 localhost 通信（用户可在 Lumio 设置中自定义 Flask 端口）
+    "http://127.0.0.1/*",
+    "http://localhost/*",
   ],
   background: {
     service_worker: "src/background/index.ts",
