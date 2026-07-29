@@ -30,7 +30,7 @@ module.exports = {
   appId: "io.lumio.desktop",
   productName: "Lumio",
   directories: {
-    output: "release3",
+    output: "release4",
     buildResources: "build",
   },
   files: [
