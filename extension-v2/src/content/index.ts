@@ -24,7 +24,6 @@ import { extractKuaishou } from "./platforms/kuaishou";
 import { extractXiaohongshu } from "./platforms/xiaohongshu";
 import { extractDouyin } from "./platforms/douyin";
 import { extractWeibo, setContextMenuTarget as setWeiboContextTarget } from "./platforms/weibo";
-import { diagnose } from "./shared/diagnose";
 import { isDetailPageUrl } from "../shared/detailPage";
 
 async function extract(): Promise<PageMeta | null> {
@@ -89,16 +88,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     extract().then((fresh) => {
       console.log("[Lumio-content] extract 完成:", fresh ? "有数据" : "空");
       sendResponse(fresh);
-    });
-    return true; // async
-  }
-
-  // 诊断采集：popup 触发，采集当前页 DOM/State 元信息返回 JSON
-  if (type === "diagnose") {
-    console.log("[Lumio-content] 开始诊断采集");
-    diagnose().then((report) => {
-      console.log("[Lumio-content] 诊断采集完成");
-      sendResponse(report);
     });
     return true; // async
   }

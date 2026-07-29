@@ -387,9 +387,9 @@ function queryPostContainer(): Element | null {
  * ★ 提取规则：header 内找 a[href]，href 匹配 weibo.com/{uid}/{post_id}
  *   排除 /u/{uid}（头像/作者名链接）和 s.weibo.com（搜索链接）
  *
- * ★ 诊断数据示例：
- *   <a class="_time_1tpft_33" href="https://weibo.com/5644764907/R6Nus6Xqq">7-2 12:00</a>
- *   <a href="//weibo.com/5644764907/HvyZekN7R">14小时前</a>  ← 相对协议
+ * ★ 诊断数据示例（已脱敏）：
+ *   <a class="_time_xxx" href="https://weibo.com/{uid}/{post_id}">7-2 12:00</a>
+ *   <a href="//weibo.com/{uid}/{post_id}">14小时前</a>  ← 相对协议
  */
 function extractPostUrlFromContainer(container: Element): string {
   // 在 header 内找帖子 URL（时间链接）
