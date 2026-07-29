@@ -10,7 +10,7 @@
  * ★ 详情页无元数据时直接报错（不弹 PreviewPanel）
  * ★ 非详情页（首页/搜索页）无元数据时跳过 PreviewPanel 直接发送裸 URL
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useConnectionStore } from "../store/connection";
 import { useHistoryStore } from "../store/history";
 import { PreviewPanel } from "./PreviewPanel";
@@ -25,6 +25,93 @@ export function CaptureButton() {
   const [state, setState] = useState<SendState>("idle");
   const [message, setMessage] = useState("");
   const [meta, setMeta] = useState<PageMeta | null>(null);
+
+  // ── 阶段3：监听 SPA 路由变化 ──────────────────────────────────────
+  // 场景：用户在 IG/小红书博主主页（瀑布流）点击帖子 → URL 变成详情页
+  // 但 popup 已打开，不会自动重新提取。这里监听 content script 的 urlChanged 消息，
+  // URL 变化时自动重新提取并刷新预览。
+  //
+  // ★ 只在 popup 打开时生效（popup 关闭时 listener 自动清理）
+  // ★ 只处理"进入详情页"和"切换帖子"，"离开详情页"时清空预览
+  useEffect(() => {
+    // ★ popup 打开时：如果当前已在详情页，自动解析
+    // 场景：用户直接访问 /p/{id}/ 后才打开 popup，此时没有 urlChanged 事件
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.url && isDetailPageUrl(tab.url)) {
+          setState("extracting");
+          setMessage("解析当前页面...");
+          autoExtract();
+        }
+      } catch {
+        // 忽略
+      }
+    })();
+
+    const handler = (msg: unknown) => {
+      if (typeof msg !== "object" || msg === null) return;
+      const { type, transition } = msg as { type?: string; transition?: string };
+      if (type !== "urlChanged") return;
+
+      if (transition === "leave-detail") {
+        // 离开详情页：清空预览回到 idle
+        setState("idle");
+        setMessage("");
+        setMeta(null);
+        return;
+      }
+
+      // enter-detail / switch-detail：自动重新提取
+      // ★ 只在非工作状态时触发，避免打断用户正在进行的发送
+      setState((prev) => {
+        if (prev === "extracting" || prev === "sending" || prev === "awaiting-confirm") {
+          return prev; // 不打断进行中的操作
+        }
+        // 触发重新提取（复用 handleSend 逻辑）
+        // ★ 用 setTimeout 避免在 setState 回调里调 setState
+        setTimeout(() => {
+          autoExtract();
+        }, 0);
+        return "extracting";
+      });
+    };
+
+    chrome.runtime.onMessage.addListener(handler);
+    return () => chrome.runtime.onMessage.removeListener(handler);
+  }, []);
+
+  /** 自动提取（不发送，仅刷新预览） */
+  const autoExtract = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url) {
+        setState("idle");
+        return;
+      }
+
+      setMessage("检测到帖子切换，重新解析...");
+      const pageMeta = (await chrome.runtime.sendMessage({
+        type: "extractPageMeta",
+        tabId: tab.id,
+      })) as PageMeta | null;
+
+      if (pageMeta && (pageMeta.media_items?.length || pageMeta.thumbnail)) {
+        setMeta(pageMeta);
+        setState("awaiting-confirm");
+        setMessage("");
+      } else {
+        // 提取失败或无媒体：回到 idle
+        setState("idle");
+        setMessage("");
+        setMeta(null);
+      }
+    } catch {
+      setState("idle");
+      setMessage("");
+      setMeta(null);
+    }
+  };
 
   const handleSend = async () => {
     if (!connected || state === "extracting" || state === "sending") return;
