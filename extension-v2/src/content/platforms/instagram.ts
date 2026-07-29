@@ -18,8 +18,8 @@
  *   - /embed/ 失败时尝试 /embed/captioned/
  *   - srcset 解析支持 webp 格式
  */
-import type { MediaItem } from "../types";
-import type { ExtractResult } from "./shared/types";
+import type { MediaItem } from "../../types";
+import type { ExtractResult } from "../shared/types";
 
 /** 判断是否为头像 URL */
 function isAvatarUrl(url: string, alt?: string): boolean {

@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS: LumioSettings = {
   theme: "system",
 };
 
-export const SETTINGS_KEY = "lumio_settings";
+const SETTINGS_KEY = "lumio_settings";
 
 export async function getSettings(): Promise<LumioSettings> {
   const { [SETTINGS_KEY]: settings } = await chrome.storage.local.get(SETTINGS_KEY);

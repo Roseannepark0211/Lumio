@@ -9,7 +9,7 @@ export function meta(prop: string): string {
   return el?.getAttribute("content") || "";
 }
 
-export interface OgInfo {
+interface OgInfo {
   title: string;
   thumbnail: string;
   author: string;

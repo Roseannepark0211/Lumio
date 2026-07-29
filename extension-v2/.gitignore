@@ -7,7 +7,8 @@ dist-electron
 # 自动生成的图标（从 frontend/build/icon.png 生成）
 src/assets/icons/*.png
 
-# tsx 运行时编译产物（精确排除，避免误伤源码）
+# tsx/tsc 编译产物（精确排除，避免误伤源码）
+# composite 模式 (tsconfig.node.json) 会为 vite.config.ts / manifest.config.ts 生成 .d.ts 和 .js
 manifest.config.d.ts
 manifest.config.js
 vite.config.d.ts

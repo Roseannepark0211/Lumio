@@ -18,6 +18,8 @@
  */
 import type { CapturePayload, PageMeta, Platform } from "../types";
 import { detectPlatform, extractAuthorFromUrl } from "./api-client";
+import { isDetailPageUrl } from "../shared/detailPage";
+import { platformLabel } from "../shared/platformLabels";
 
 const MENU_ITEMS = [
   { id: "lumio-capture-page", title: "发送当前页面到 Lumio", contexts: ["page"] as const },
@@ -61,22 +63,9 @@ export function createContextMenus() {
 
 // ── 页面类型识别 ──────────────────────────────────────────────────────
 
-/** 判断是否为详情页（与 shared/detailPage.ts 保持一致，但加抖音/快手） */
-function isDetailPageUrl(url: string): boolean {
-  if (!url) return false;
-  return (
-    url.includes("/watch") || // YouTube
-    /\/(p|reel)\//.test(url) || // Instagram
-    /\/status\//.test(url) || // X
-    /\/video\/(BV|av)/i.test(url) || // B站
-    /\/(explore|discovery\/item)\//.test(url) || // 小红书
-    /\/note\//.test(url) || // 小红书笔记
-    /douyin\.com\/video\//.test(url) || // 抖音视频
-    /douyin\.com\/note\//.test(url) || // 抖音图文
-    /kuaishou\.com\/short-video\//.test(url) || // 快手
-    /weibo\.com\/\d+\/[A-Za-z0-9]+/.test(url) // 微博
-  );
-}
+// ★ isDetailPageUrl 已统一到 ../shared/detailPage.ts，避免本地副本与共享版分叉
+//   旧本地副本缺失：抖音 modal_id 模式 / m.weibo.cn / weibo.com/detail/{id}
+//   导致右键菜单对这些页面误判为"非详情页"，不触发元数据提取
 
 /**
  * 判断是否为"上下文敏感页" —— 非详情页但右键元素可定位到具体帖子
@@ -131,29 +120,7 @@ function isProfileUrl(url: string): boolean {
 
 // ── 菜单标题动态生成 ──────────────────────────────────────────────────
 
-/** 平台中文名 */
-function platformLabel(platform: Platform): string {
-  switch (platform) {
-    case "youtube":
-      return "YouTube";
-    case "instagram":
-      return "Instagram";
-    case "x":
-      return "X";
-    case "bilibili":
-      return "B站";
-    case "kuaishou":
-      return "快手";
-    case "xiaohongshu":
-      return "小红书";
-    case "douyin":
-      return "抖音";
-    case "weibo":
-      return "微博";
-    default:
-      return "";
-  }
-}
+// ★ platformLabel 已抽到 ../shared/platformLabels.ts，与 popup 共用一份映射表
 
 /** 根据上下文生成 page 项标题 */
 function pageMenuItemTitle(url: string, platform: Platform): string {

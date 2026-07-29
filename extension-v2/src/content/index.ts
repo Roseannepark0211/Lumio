@@ -17,7 +17,7 @@ import type { PageMeta } from "../types";
 import { detectPlatform } from "./shared/detector";
 import { toPageMeta, type ExtractResult } from "./shared/types";
 import { extractYouTube } from "./platforms/youtube";
-import { extractInstagram } from "./ig_extract";
+import { extractInstagram } from "./platforms/instagram";
 import { extractX } from "./platforms/x";
 import { extractBilibili } from "./platforms/bilibili";
 import { extractKuaishou } from "./platforms/kuaishou";
