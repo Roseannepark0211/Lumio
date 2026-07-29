@@ -117,6 +117,7 @@ class QueueTask:
             batch_id=self.batch_id,
             direct_url=self.direct_url,
             media_items_json=self.media_items_json,
+            title=self.title,  # ★ 修复：传递 title 给 DownloadTask（原遗漏导致 task.title AttributeError）
         )
 
     def to_dict(self) -> dict:

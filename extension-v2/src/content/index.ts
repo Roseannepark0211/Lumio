@@ -21,6 +21,7 @@ import { extractX } from "./platforms/x";
 import { extractBilibili } from "./platforms/bilibili";
 import { extractKuaishou } from "./platforms/kuaishou";
 import { extractXiaohongshu } from "./platforms/xiaohongshu";
+import { diagnose } from "./shared/diagnose";
 
 async function extract(): Promise<PageMeta | null> {
   const platform = detectPlatform();
@@ -70,9 +71,19 @@ async function extract(): Promise<PageMeta | null> {
 // 改为：popup 打开时由 popup 主动发 extractNow 消息，content script 才提取。
 // 右键菜单走独立路径（contextMenus.ts → buildCapturePayload），不依赖此自动提取。
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (typeof msg === "object" && msg !== null && (msg as { type?: string }).type === "extractNow") {
+  if (typeof msg !== "object" || msg === null) return false;
+  const { type } = msg as { type?: string };
+
+  if (type === "extractNow") {
     extract().then((fresh) => sendResponse(fresh));
     return true; // async
   }
+
+  // 诊断采集：popup 触发，采集当前页 DOM/State 元信息返回 JSON
+  if (type === "diagnose") {
+    diagnose().then((report) => sendResponse(report));
+    return true; // async
+  }
+
   return false;
 });

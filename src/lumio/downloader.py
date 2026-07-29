@@ -162,6 +162,7 @@ class DownloadTask:
     batch_id: str = ""
     direct_url: str = ""  # Pre-resolved download URL (e.g. from X-Sou)
     media_items_json: str = ""  # Pre-resolved media items JSON (Apify, avoids re-fetching)
+    title: str = ""  # ★ 修复：downloader.py 内部多处访问 task.title，原 DownloadTask 缺此字段
     status: str = "pending"
     progress: float = 0.0
     speed: str = ""

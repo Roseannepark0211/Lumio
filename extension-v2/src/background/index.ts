@@ -31,14 +31,19 @@ import {
 let client = new LumioClient(DEFAULT_SETTINGS.apiBaseUrl);
 let connected = false;
 
-// 启动时加载设置
-getSettings().then((settings) => {
+// ★ MV3 Service Worker 会在空闲时被销毁，再次唤醒时顶层代码重新执行。
+// 此时 client 会用 DEFAULT_SETTINGS.apiBaseUrl 初始化，getSettings() 是异步的，
+// 如果 checkHealth/capture 在 settings 加载完成前执行，会用到默认端口。
+// 修复：保存 settings 加载 Promise，所有请求前 await 它。
+const settingsReady = getSettings().then((settings) => {
   client.updateBaseUrl(settings.apiBaseUrl);
+  return settings;
 });
 
 // ── 健康轮询 ──────────────────────────────────────────────────────────
 
 async function checkHealth() {
+  await settingsReady; // 确保 settings 已加载，避免用默认端口
   connected = await client.health();
   chrome.runtime.sendMessage({ type: "status", connected }).catch(() => {});
 }
@@ -129,6 +134,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // ★ CSP 修复：content script 请求在主世界读取 window.__INITIAL_STATE__
+  // 小红书 CSP 禁止 inline script，改用 chrome.scripting.executeScript({ world: "MAIN" })
+  // 这是 MV3 标准做法，绕过 CSP 限制（scripting 权限已在 manifest 声明）
+  if (type === "xhs-read-state") {
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse(null);
+      return false;
+    }
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () =>
+          (window as unknown as { __INITIAL_STATE__?: unknown }).__INITIAL_STATE__ || null,
+      })
+      .then((results) => {
+        sendResponse(results?.[0]?.result || null);
+      })
+      .catch((e) => {
+        console.log("[Lumio] xhs-read-state executeScript 失败:", e);
+        sendResponse(null);
+      });
+    return true;
+  }
+
   // 阶段 2：历史记录管理
   if (type === "getHistory") {
     const limit = (msg as { limit?: number }).limit ?? 50;
@@ -206,6 +237,7 @@ async function sendToLumioFromPageMeta(
   data: Partial<PageMeta>,
   tab: chrome.tabs.Tab | undefined,
 ): Promise<CaptureResult> {
+  await settingsReady; // 确保 settings 已加载（MV3 SW 重启后端口可能未加载）
   const url = data.url || tab?.url || "";
   const baseMeta = {
     title: data.title || tab?.title || "",
@@ -215,15 +247,23 @@ async function sendToLumioFromPageMeta(
     duration: data.duration ?? null,
   };
 
-  // 多媒体场景（IG 轮播帖 / X 多图推文）
+  // 多媒体场景（IG 轮播帖 / X 多图推文 / 小红书多图笔记）
+  // 每个媒体单独发送为独立 InboxItem，每个任务有自己的缩略图
   if (data.media_items && data.media_items.length > 1) {
     const results: CaptureResult[] = [];
     for (let i = 0; i < data.media_items.length; i++) {
       const item = data.media_items[i];
       const itemUrl = `${url}#media-${i + 1}`;
+      // ★ 每个任务缩略图正确：
+      // - 图片类型：用媒体自身的 URL 作为缩略图（inbox 预览直接显示）
+      // - 视频类型：用帖子主缩略图（视频无法直接预览）
+      const itemThumbnail = item.is_video
+        ? (baseMeta.thumbnail || "")
+        : item.url;
       const payload: CapturePayload = {
         url: itemUrl,
         ...baseMeta,
+        thumbnail: itemThumbnail,
         source: "browser",
         type: item.is_video ? "video" : "image",
         direct_url: item.url,
@@ -242,14 +282,20 @@ async function sendToLumioFromPageMeta(
   // 单媒体场景
   let directUrl = data.direct_url || "";
   let type = data.type || "url";
+  let singleThumbnail = baseMeta.thumbnail;
   if (data.media_items && data.media_items.length > 0) {
     directUrl = data.media_items[0].url;
     type = data.media_items[0].is_video ? "video" : "image";
+    // ★ 单媒体也修正缩略图：图片类型用自身 URL
+    if (!data.media_items[0].is_video) {
+      singleThumbnail = data.media_items[0].url;
+    }
   }
 
   const payload: CapturePayload = {
     url,
     ...baseMeta,
+    thumbnail: singleThumbnail,
     source: "browser",
     type,
     direct_url: directUrl,
@@ -257,13 +303,14 @@ async function sendToLumioFromPageMeta(
 
   const result = await client.capture(payload);
   if (result.success) {
-    await saveToHistory({ ...baseMeta, url, source: "browser", type } as PageMeta, result);
+    await saveToHistory({ ...baseMeta, url, source: "browser", type, thumbnail: singleThumbnail } as PageMeta, result);
   }
   return result;
 }
 
 /** 右键菜单专用：从 CapturePayload 直接发送（不走 media_items 拆分） */
 async function sendToLumio(payload: CapturePayload): Promise<CaptureResult> {
+  await settingsReady; // 确保 settings 已加载（MV3 SW 重启后端口可能未加载）
   const result = await client.capture(payload);
   if (result.success) {
     await saveToHistory(
@@ -287,8 +334,23 @@ async function sendToLumio(payload: CapturePayload): Promise<CaptureResult> {
 
 async function extractPageMeta(tabId: number): Promise<PageMeta | null> {
   // 所有平台：调 content.js 的 extractNow（IG 已改为常驻 content script）
-  const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" });
-  if (meta && meta.url) return meta;
+  // ★ 小红书/IG 需要更长超时：
+  //   - 小红书：readInitialState(3000ms) + DOM 兜底(5000ms) 共 8000ms
+  //   - IG：waitForMedia(8000ms) + /embed/ fetch(2-3s) 共 10+s
+  //   默认 1500ms 会在等待阶段就超时 → "元数据提取失败"
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const url = tab.url || "";
+    const needsLongTimeout =
+      url.includes("xiaohongshu.com") || url.includes("instagram.com");
+    const timeout = needsLongTimeout ? 15000 : 1500;
+    const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" }, timeout);
+    if (meta && meta.url) return meta;
+  } catch {
+    // tab 查询失败，回退默认超时
+    const meta = await safeTabsMessage<PageMeta>(tabId, { type: "extractNow" });
+    if (meta && meta.url) return meta;
+  }
   return null;
 }
 
