@@ -1,0 +1,142 @@
+---
+/**
+ * 404.astro — 页面未找到
+ * 复用主站 Layout，保持直角基调 + 暗夜流星雨
+ * 简洁的「返回首页」CTA
+ */
+import Layout from '../layouts/Layout.astro';
+import Logo3DGlow from '../components/Logo3DGlow.astro';
+---
+
+<Layout title="404 · 页面未找到 — Lumio">
+  <main class="error-main">
+    <div class="error-container reveal">
+      <Logo3DGlow size="md" />
+
+      <div class="error-code">404</div>
+
+      <h1 class="error-title">页面未找到</h1>
+      <p class="error-desc">
+        这里什么都没有，可能链接已失效或被移动。
+      </p>
+
+      <div class="error-actions">
+        <a href="/" class="btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+          </svg>
+          返回首页
+        </a>
+        <a href="https://github.com/Roseannepark0211/Lumio" target="_blank" rel="noopener" class="btn-ghost">
+          GitHub
+        </a>
+      </div>
+
+      <div class="error-hint">
+        <span class="eyebrow">§ Error</span>
+        <span class="font-mono text-xs">HTTP 404 · Resource Not Found</span>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .error-main {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.5rem;
+  }
+
+  .error-container {
+    max-width: 32rem;
+    width: 100%;
+    text-align: center;
+    /* 半透明卡片背景 — 暗夜模式下防流星干扰 */
+    padding: 3rem 2.5rem;
+    background: rgb(var(--color-bg-elevated) / 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgb(var(--color-border) / 0.10);
+  }
+
+  .error-code {
+    font-family: var(--font-mono);
+    font-size: clamp(4rem, 12vw, 7rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin: 1.5rem 0 0.5rem;
+    /* 渐变字 — 呼应 Logo 处理 */
+    background: linear-gradient(180deg,
+      rgb(var(--color-text)) 0%,
+      rgb(var(--color-text-muted)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .error-title {
+    font-family: var(--font-sans);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+    margin-bottom: 0.625rem;
+    letter-spacing: -0.01em;
+  }
+
+  .error-desc {
+    font-size: 0.9375rem;
+    color: rgb(var(--color-text-muted));
+    margin-bottom: 2rem;
+    line-height: 1.6;
+  }
+
+  .error-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .error-actions .btn-primary,
+  .error-actions .btn-ghost {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  .error-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    color: rgb(var(--color-text-dim));
+  }
+
+  /* 动画 — 进入时上移 + 淡入 */
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: error-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes error-reveal {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>

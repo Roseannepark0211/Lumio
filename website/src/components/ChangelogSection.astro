@@ -1,0 +1,315 @@
+---
+/**
+ * ChangelogSection.astro — 更新日志区块（自动获取模式）
+ *
+ * 数据策略：
+ *   1. 服务端渲染 FALLBACK_RELEASES（保证首屏有内容 + SEO + 无 JS 也能看）
+ *   2. 客户端 fetch GitHub Releases API，成功则替换 DOM
+ *   3. fetch 失败 / 限流 / 网络不可达 → 保留 fallback
+ *
+ * 修改 fallback：发版时同步更新 src/scripts/changelog.ts 的 FALLBACK_RELEASES
+ */
+import { FALLBACK_RELEASES, getReleases, formatDate, parseInline } from '../scripts/changelog';
+
+// 服务端渲染用 fallback（client 端会尝试覆盖）
+const INITIAL_RELEASES = FALLBACK_RELEASES;
+const latestVersion = INITIAL_RELEASES[0]?.version || '4.4.2';
+---
+
+<section id="changelog" class="section">
+  <div class="container-narrow">
+    <div class="max-w-2xl mx-auto mb-8 reveal">
+      <span class="eyebrow" data-i18n="changelog.eyebrow">§ Changelog</span>
+      <h2 class="text-4xl md:text-5xl font-bold mt-4 tracking-tight" data-i18n-html="changelog.title">
+        更新<span class="text-gradient">日志</span>
+      </h2>
+      <p class="text-[rgb(var(--color-text-muted))] mt-4">
+        <span data-i18n="changelog.latest">最新版本</span> <span class="font-mono text-[rgb(var(--color-text))]">V{latestVersion}</span>
+      </p>
+    </div>
+
+    <details class="changelog reveal" style="transition-delay: 0.1s;" open>
+      <summary class="changelog__summary">
+        <span class="changelog__title">
+          <span data-i18n="changelog.summary">更新日志</span>
+          <span class="changelog__version" data-latest-version>V{latestVersion}</span>
+        </span>
+        <span class="changelog__hint" data-i18n="changelog.hint">点击展开</span>
+      </summary>
+
+      <div class="changelog__body" data-changelog-body>
+        {INITIAL_RELEASES.map((release, idx) => (
+          <div class={`changelog__entry${idx === 0 ? ' changelog__entry--latest' : ''}`}>
+            <div class="changelog__entry-head">
+              <span class="changelog__entry-version">V{release.version}</span>
+              <span class="changelog__entry-date">{formatDate(release.date)}</span>
+            </div>
+            <div class="changelog__entry-body">
+              {release.sections.map((section) => (
+                <>
+                  <h4>{section.title}</h4>
+                  <ul>
+                    {section.items.map((item) => (
+                      <li set:html={parseInline(item)}></li>
+                    ))}
+                  </ul>
+                </>
+              ))}
+            </div>
+            {release.url && (
+              <a href={release.url} target="_blank" rel="noopener" class="changelog__entry-link" data-i18n="changelog.entry.link">
+                查看完整 Release →
+              </a>
+            )}
+          </div>
+        ))}
+
+        <div class="changelog__footer">
+          <a
+            href="https://github.com/Roseannepark0211/Lumio/releases"
+            target="_blank"
+            rel="noopener"
+            class="faq-link"
+            data-i18n="changelog.footer.link"
+          >
+            查看所有版本 →
+          </a>
+        </div>
+      </div>
+    </details>
+  </div>
+</section>
+
+<script>
+  import { getReleases, formatDate, parseInline } from '../scripts/changelog';
+
+  /**
+   * 客户端 hydration：
+   *   - fetch GitHub API
+   *   - 成功 → 重渲染所有 entry
+   *   - 失败 → 保留 fallback（无需操作）
+   */
+  async function hydrateChangelog() {
+    const body = document.querySelector<HTMLElement>('[data-changelog-body]');
+    const versionBadge = document.querySelector<HTMLElement>('[data-latest-version]');
+    if (!body) return;
+
+    const releases = await getReleases();
+    if (!releases || releases.length === 0) return;
+
+    // fallback 与 remote 的最新版本号相同 → 无需更新
+    const firstVersion = body.querySelector('.changelog__entry .changelog__entry-version')?.textContent?.trim();
+    if (firstVersion && firstVersion === `V${releases[0].version}`) return;
+
+    // 更新顶部版本徽章
+    if (versionBadge) versionBadge.textContent = `V${releases[0].version}`;
+
+    // 重建 entries
+    const entriesHtml = releases.map((release, idx) => {
+      const sectionsHtml = release.sections.map((section) => {
+        const itemsHtml = section.items.map((item) => `<li>${parseInline(item)}</li>`).join('');
+        return `<h4>${section.title}</h4><ul>${itemsHtml}</ul>`;
+      }).join('');
+
+      const linkHtml = release.url
+        ? `<a href="${release.url}" target="_blank" rel="noopener" class="changelog__entry-link" data-i18n="changelog.entry.link">查看完整 Release →</a>`
+        : '';
+
+      return `
+        <div class="changelog__entry${idx === 0 ? ' changelog__entry--latest' : ''}">
+          <div class="changelog__entry-head">
+            <span class="changelog__entry-version">V${release.version}</span>
+            <span class="changelog__entry-date">${formatDate(release.date)}</span>
+          </div>
+          <div class="changelog__entry-body">${sectionsHtml}</div>
+          ${linkHtml}
+        </div>
+      `;
+    }).join('');
+
+    const footerHtml = `
+      <div class="changelog__footer">
+        <a href="https://github.com/Roseannepark0211/Lumio/releases" target="_blank" rel="noopener" class="faq-link" data-i18n="changelog.footer.link">
+          查看所有版本 →
+        </a>
+      </div>
+    `;
+
+    body.innerHTML = entriesHtml + footerHtml;
+
+    // 重建后重新应用 i18n（保留当前语言）
+    const i18n = (window as any).__lumioI18n;
+    if (i18n) {
+      const currentLang = document.documentElement.getAttribute('data-lang') as 'zh' | 'en' || 'zh';
+      i18n.applyLang(currentLang);
+    }
+  }
+
+  // 不阻塞首屏，idle 时再 fetch
+  if ('requestIdleCallback' in window) {
+    (window as any).requestIdleCallback(hydrateChangelog, { timeout: 3000 });
+  } else {
+    setTimeout(hydrateChangelog, 1500);
+  }
+</script>
+
+<style>
+  /* 折叠面板 */
+  .changelog {
+    border: 1px solid rgb(var(--color-border) / 0.1);
+    background: rgb(var(--color-bg) / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    max-width: 48rem;
+    margin: 0 auto;
+  }
+
+  .changelog__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .changelog__summary::-webkit-details-marker { display: none; }
+
+  .changelog__title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    font-family: 'Geist', sans-serif;
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: rgb(var(--color-text));
+  }
+
+  .changelog__version {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-accent, #0a84ff);
+    letter-spacing: 0.04em;
+  }
+
+  .changelog__hint {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+    letter-spacing: 0.08em;
+  }
+
+  .changelog__body {
+    padding: 0 1.5rem 1.5rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    padding-top: 1.5rem;
+  }
+
+  .changelog__entry {
+    padding: 1.25rem 0;
+    border-bottom: 1px solid rgb(var(--color-border) / 0.06);
+  }
+  .changelog__entry:last-of-type {
+    border-bottom: none;
+  }
+  .changelog__entry--latest {
+    padding-top: 0;
+  }
+
+  .changelog__entry-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .changelog__entry-version {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: rgb(var(--color-text));
+    letter-spacing: 0.02em;
+  }
+
+  .changelog__entry-date {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+  }
+
+  .changelog__entry-body {
+    color: rgb(var(--color-text-muted));
+    font-size: 0.875rem;
+    line-height: 1.7;
+  }
+
+  .changelog__entry-body :global(h4) {
+    font-family: 'Geist', sans-serif;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: rgb(var(--color-text));
+    margin: 1rem 0 0.5rem;
+    letter-spacing: -0.01em;
+  }
+  .changelog__entry-body :global(h4:first-child) {
+    margin-top: 0;
+  }
+
+  .changelog__entry-body :global(ul) {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+  }
+
+  .changelog__entry-body :global(li) {
+    margin-bottom: 0.25rem;
+  }
+
+  .changelog__entry-body :global(strong) {
+    color: rgb(var(--color-text));
+    font-weight: 600;
+  }
+
+  .changelog__entry-body :global(code) {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.85em;
+    background: rgb(var(--color-text) / 0.06);
+    padding: 0.1em 0.4em;
+    color: rgb(var(--color-text));
+  }
+
+  .changelog__entry-link {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--color-accent, #0a84ff);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+  .changelog__entry-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .changelog__footer {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    text-align: center;
+  }
+
+  .changelog__footer .faq-link {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    color: var(--color-accent, #0a84ff);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+  .changelog__footer .faq-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+</style>

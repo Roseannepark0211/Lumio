@@ -1,0 +1,713 @@
+---
+/**
+ * Lumio 官网首页 v4
+ *
+ * v4 调整（用户反馈）：
+ * 1. 字体切换 Geist + 直角基调（去掉所有圆角，呼应几何技术感）
+ * 2. 删除 Instrument Serif 衬线 italic 点睛，避免「存进相册」渲染问题
+ * 3. 定位从「数字相册」改为「媒体库 / 素材库」
+ * 4. 删除卖点 ⑤ Liquid Glass（不再宣传设计语言）
+ * 5. 看看区域重设为「数字资产仪表盘」— 纯 CSS/SVG 渲染，无截图依赖
+ * 6. 暗夜模式 + 机械直角咔哒声音效
+ *
+ * 内容：按宣传任务书 4 大卖点
+ *       ① 高清解析 → ② 无水印 → ③ 浏览器插件 → ④ 素材库（最大卖点）
+ * 去掉：批量下载（迁移后未开始）、Liquid Glass 设计语言宣传
+ */
+import Layout from '../layouts/Layout.astro';
+import Logo3DGlow from '../components/Logo3DGlow.astro';
+import DownloadDialog from '../components/DownloadDialog.astro';
+import ChangelogSection from '../components/ChangelogSection.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+// 真实地址
+const GITHUB_URL = 'https://github.com/Roseannepark0211/Lumio';
+const GITHUB_RELEASES = 'https://github.com/Roseannepark0211/Lumio/releases';
+const VERSION = '4.4.2';
+
+const platforms = [
+  { name: 'YouTube', freq: '523', color: '#FF0000', url: 'https://www.youtube.com', icon: 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z' },
+  { name: 'Instagram', freq: '587', color: '#E4405F', url: 'https://www.instagram.com', icon: 'M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z' },
+  { name: 'X (Twitter)', freq: '659', color: '#000000', url: 'https://x.com', icon: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z' },
+  { name: '微博', freq: '698', color: '#E6162D', url: 'https://weibo.com', icon: 'M10.098 20.323c-3.977.391-7.414-1.406-7.672-4.02-.259-2.609 2.759-5.047 6.74-5.441 3.979-.394 7.413 1.404 7.671 4.018.259 2.6-2.759 5.049-6.737 5.439v.004h-.002zM9.05 17.219c-.384.616-1.208.884-1.829.602-.612-.279-.793-.991-.406-1.593.379-.595 1.176-.861 1.793-.601.624.267.82.973.442 1.592zm1.27-1.627c-.141.237-.449.353-.689.253-.236-.09-.313-.361-.177-.586.138-.227.436-.346.672-.255.239.09.315.36.18.588l.014.05zm.176-2.719c-1.893-.493-4.033.45-4.857 2.118-.836 1.704-.026 3.591 1.886 4.21 1.983.641 4.318-.338 5.132-2.179.799-1.793-.201-3.642-2.161-4.149zm7.563-1.224c-.346-.105-.57-.175-.41-.636.397-1.143.421-2.127.014-2.829-.762-1.312-2.844-1.262-5.219-.014 0-.001-.747.414-.556-.338.366-1.348.296-2.478-.296-3.135-1.378-1.527-5.039.014-8.184 3.446C1.949 11.464.99 13.5.99 15.234c0 3.316 4.193 5.329 8.298 5.329 5.379 0 8.953-3.124 8.953-5.604 0-1.5-1.261-2.354-2.182-2.663v.003zm2.354-5.069c.678-.748 1.005-1.71.897-2.692-.626.063-1.262.384-1.731.899-.703.786-1.02 1.71-.897 2.692.689-.063 1.299-.384 1.731-.899zm2.118-.394c-.947.014-1.782.504-2.273 1.275-.489.771-.489 1.71 0 2.481.491.772 1.326 1.262 2.273 1.248.947-.014 1.782-.504 2.273-1.275.489-.771.489-1.71 0-2.481-.491-.772-1.326-1.262-2.273-1.248z' },
+  { name: '小红书', freq: '784', color: '#FF2442', url: 'https://www.xiaohongshu.com', icon: 'M15.28 0c2.24 0 3.36 0 4.48.56 1.68.56 2.8 2.24 3.36 4.48.56 1.68.56 3.36.56 7.28 0 3.92 0 5.6-.56 7.28-.56 2.24-1.68 3.92-3.36 4.48-1.12.56-2.24.56-4.48.56H8.72c-2.24 0-3.36 0-4.48-.56-1.68-.56-2.8-2.24-3.36-4.48C.32 18.32.32 16.64.32 12.72c0-3.92 0-5.6.56-7.28.56-2.24 1.68-3.92 3.36-4.48C5.36.56 6.48.56 8.72.56h6.56zM12 5.6c-3.36 0-6.16 2.8-6.16 6.16S8.64 17.92 12 17.92s6.16-2.8 6.16-6.16S15.36 5.6 12 5.6zm0 1.68c2.24 0 4.48 1.68 4.48 4.48 0 2.24-1.68 4.48-4.48 4.48-2.24 0-4.48-1.68-4.48-4.48 0-2.24 1.68-4.48 4.48-4.48zm6.72-3.36c-.56 0-1.12.56-1.12 1.12s.56 1.12 1.12 1.12 1.12-.56 1.12-1.12-.56-1.12-1.12-1.12z' },
+  { name: '抖音', freq: '880', color: '#000000', url: 'https://www.douyin.com', icon: 'M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.687a8.182 8.182 0 0 0 4.773 1.526V6.79a4.831 4.831 0 0 1-1.003-.104z' },
+  { name: 'B站', freq: '988', color: '#00A1D6', url: 'https://www.bilibili.com', icon: 'M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.573 3.44c.071.071.134.142.187.213h4.853a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.124.92.373l.027.027c.258.249.387.551.387.907 0 .355-.129.657-.387.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.786 1.894v7.52c.017.764.28 1.395.786 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.786-1.893v-7.52c-.017-.765-.28-1.396-.786-1.894-.507-.497-1.134-.755-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.249-.56.373-.933.373s-.684-.124-.933-.373c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.387-.947.258-.257.574-.386.946-.386zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.249-.56.373-.933.373s-.684-.124-.933-.373c-.25-.249-.383-.569-.4-.96V12.44c0-.373.129-.689.387-.947.258-.257.574-.386.946-.386z' },
+  { name: '快手', freq: '1047', color: '#FF4906', url: 'https://www.kuaishou.com', icon: 'M12.526 9.899c-.395-.028-.738-.063-.738-.063s-.479-.638-.918-1.062c-.441-.427-1.118-.853-1.341-.853-.225 0-.698.339-.698.339L8.83 8.263s.108.142.224.447c.116.305.218.781.218.781l-.626 1.31c-.36.754-1.112 2.33-1.112 2.33l-2.611 5.469-.155.402c-.155.402-.093.738.155.738.247 0 .738-.339.738-.339l3.376-2.839c.247-.224.494-.494.494-.494s.379-.179.626-.179c.247 0 .353-.061.353-.061s.224.224.061.353c-.162.131-.402.179-.402.179l-3.506 3.059c-.479.427-.918.853-.918.853s-.224.224-.061.353c.162.131.738-.061.738-.061l4.338-1.836s.853-.479 1.062-.853c.224-.402.224-1.118.224-1.118l.155-3.106s.061-.479.224-.738c.162-.262.353-.353.353-.353s.224.061.353.061c.131.061.353.224.353.224l.853 1.836s.061.224.061.738c0 .494-.224 1.118-.224 1.118l-.536 1.062s-.353.738-.853 1.118c-.494.353-1.341.494-1.341.494l-1.836.494s-.353.061-.536.061c-.224 0-.738-.061-.738-.061l-.494-.061s-.224-.061-.353.061c-.131.061-.061.353-.061.353l.155.853s.061.224.353.224h.536s.224-.061.353-.061h5.469s.738-.061 1.062-.353c.353-.224.494-.738.494-.738l1.062-2.839s.353-1.062.353-1.836c0-.738-.353-1.836-.353-1.836l-1.341-3.506s-.224-.536-.536-.853c-.353-.353-.853-.536-.853-.536l-.738-.353h-.536l-.536-.061s-.479-.061-.738 0c-.353.061-.853.339-.853.339l-.536.353z' },
+];
+---
+
+<Layout>
+  {/* ==================== 顶部导航 ==================== */}
+  <nav id="top-nav" class="fixed top-0 left-0 right-0 z-40 bg-[rgb(var(--color-bg)/0.72)] border-b border-[rgb(var(--color-border)/0.08)]" style="backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);">
+    <div class="container-narrow flex items-center justify-between py-3.5">
+      <a href="#top" class="flex items-center gap-2">
+        <Logo3DGlow size="sm" breathing={false} shimmer={false} />
+      </a>
+      <div class="flex items-center gap-2">
+        <a href="#features" class="eyebrow hidden md:inline hover:text-[rgb(var(--color-text))] transition-colors px-3 py-2" data-i18n="nav.features">功能</a>
+        <a href="#demo" class="eyebrow hidden md:inline hover:text-[rgb(var(--color-text))] transition-colors px-3 py-2" data-i18n="nav.demo">演示</a>
+        <a href="#faq" class="eyebrow hidden md:inline hover:text-[rgb(var(--color-text))] transition-colors px-3 py-2" data-i18n="nav.faq">FAQ</a>
+        <a href="#download" class="eyebrow hidden md:inline hover:text-[rgb(var(--color-text))] transition-colors px-3 py-2" data-i18n="nav.download">下载</a>
+        <a href={GITHUB_URL} target="_blank" rel="noopener" class="btn-ghost text-sm !py-2 !px-4 ml-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+          </svg>
+          <span class="hidden sm:inline">GitHub</span>
+        </a>
+        {/* 移动端汉堡菜单按钮 — < 768px 显示 */}
+        <button
+          id="mobile-menu-toggle"
+          class="mobile-menu-btn md:hidden"
+          aria-label="打开菜单"
+          data-i18n-attr="aria-label:nav.menu.open"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+        >
+          <svg class="icon-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+          <svg class="icon-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    {/* 移动端下拉面板 */}
+    <div id="mobile-menu" class="mobile-menu md:hidden">
+      <div class="mobile-menu__inner">
+        <a href="#features" class="mobile-menu__link" data-close>
+          <span class="eyebrow">§ 01</span>
+          <span data-i18n="nav.features">功能</span>
+        </a>
+        <a href="#demo" class="mobile-menu__link" data-close>
+          <span class="eyebrow">§ 02</span>
+          <span data-i18n="nav.demo">演示</span>
+        </a>
+        <a href="#faq" class="mobile-menu__link" data-close>
+          <span class="eyebrow">§ 03</span>
+          <span data-i18n="nav.faq">FAQ</span>
+        </a>
+        <a href="#download" class="mobile-menu__link" data-close>
+          <span class="eyebrow">§ 04</span>
+          <span data-i18n="nav.download">下载</span>
+        </a>
+        <a href={GITHUB_URL} target="_blank" rel="noopener" class="mobile-menu__link" data-close>
+          <span class="eyebrow">§ 05</span>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  {/* ==================== Hero ==================== */}
+  <section id="top" class="relative pt-32 pb-20 md:pt-40 md:pb-32 overflow-hidden">
+    <div class="container-narrow relative">
+      <div class="max-w-3xl mx-auto text-center reveal">
+        {/* 巨型字标 — Geist Bold */}
+        <div class="flex justify-center mb-8 reveal" style="transition-delay: 0.1s;">
+          <Logo3DGlow size="xl" />
+        </div>
+
+        {/* 主标语 — v5 调整
+            强调不只是照片，还有视频：舞台直拍 / Live Photo / 视频原档
+            "留下来" 替换 "存进媒体库"，避免在 Hero 用完媒体库一词后其他位置无词可用 */}
+        <h1 class="text-5xl md:text-6xl lg:text-7xl font-bold leading-[1.1] tracking-tight mb-6 reveal" style="transition-delay: 0.2s;" data-i18n-html="hero.title">
+          把喜欢的一切，<br />
+          <span class="text-gradient">留下来</span>
+        </h1>
+
+        <p class="text-lg md:text-xl text-[rgb(var(--color-text-muted))] leading-relaxed mb-10 max-w-2xl mx-auto reveal" style="transition-delay: 0.3s;" data-i18n-html="hero.subtitle">
+          粘贴链接，Lumio 替你整理。<br class="hidden md:inline" />
+          爱豆照片、舞台直拍、Live Photo、视频原档，原画质自动入库。
+        </p>
+
+        {/* CTA */}
+        <div class="flex flex-wrap items-center justify-center gap-3 mb-10 reveal" style="transition-delay: 0.4s;">
+          <button type="button" class="btn-primary" data-download-trigger>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+            </svg>
+            <span data-i18n="hero.cta.download">下载 Lumio</span>
+          </button>
+          <a href={GITHUB_URL} target="_blank" rel="noopener" class="btn-ghost">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+            </svg>
+            <span data-i18n="hero.cta.source">查看源码</span>
+          </a>
+        </div>
+
+        {/* 平台标识 */}
+        <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-[rgb(var(--color-text-dim))] reveal" style="transition-delay: 0.5s;">
+          <span class="font-mono" data-i18n="hero.badge.windows">Windows 10+</span>
+          <span class="opacity-30">·</span>
+          <span class="font-mono">MIT License</span>
+          <span class="opacity-30">·</span>
+          <span class="font-mono" data-i18n="hero.badge.ffmpeg">内置 ffmpeg</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== 痛点 — 情感共鸣 ==================== */}
+  <section class="section !pt-8 !pb-20">
+    <div class="container-narrow">
+      <div class="pain-card max-w-2xl mx-auto text-center reveal">
+        <p class="text-2xl md:text-3xl font-medium leading-relaxed text-[rgb(var(--color-text-muted))]">
+          <span data-i18n="pain.l1">看到的，</span><br />
+          <span class="text-[rgb(var(--color-text))]" data-i18n="pain.l2">留不住</span>。<br />
+          <span class="text-[rgb(var(--color-text-dim))] text-xl md:text-2xl mt-3 inline-block" data-i18n="pain.l3">水印挡脸，视频被压缩，文件夹越堆越乱，想找的图永远在收藏夹里吃灰。</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== 平台支持 — 8 个徽章一排 ==================== */}
+  <section class="section !py-12">
+    <div class="container-narrow">
+      <p class="eyebrow text-center mb-10 reveal" data-i18n="platforms.eyebrow">8 大平台，一粘贴就识别</p>
+
+      <div class="platform-grid reveal" style="transition-delay: 0.1s;">
+        {platforms.map((p, i) => (
+          <a
+            class="platform-tile"
+            href={p.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-sound-freq={p.freq}
+            data-index={i}
+            aria-label={`访问 ${p.name} 官网`}
+            title={`${p.name} · ${p.url}`}
+          >
+            <svg class="platform-icon" width="28" height="28" viewBox="0 0 24 24" fill={p.color} aria-hidden="true">
+              <path d={p.icon}/>
+            </svg>
+            <span class="platform-name">{p.name}</span>
+            <span class="platform-freq">{p.freq} Hz</span>
+          </a>
+        ))}
+      </div>
+
+      <p class="platform-hint reveal" data-i18n="platforms.hint" style="transition-delay: 0.2s;">
+        点击图标跳转官网
+      </p>
+    </div>
+  </section>
+
+  {/* ==================== 功能展示 — 4 大卖点（v4 删除卖点 ⑤ Liquid Glass） ==================== */}
+  <section id="features" class="section">
+    <div class="container-narrow">
+      <div class="max-w-2xl mb-20 reveal">
+        <span class="eyebrow" data-i18n="features.eyebrow">§ Features</span>
+        <h2 class="text-4xl md:text-5xl font-bold mt-4 mb-4 tracking-tight" data-i18n-html="features.title">
+          不只是下载器，<br />是<span class="text-gradient">你的素材库</span>
+        </h2>
+        <p class="text-lg text-[rgb(var(--color-text-muted))]" data-i18n="features.desc">
+          从保存到管理，Lumio 覆盖媒体收藏的完整链路。图片、视频、Live Photo，原档入库。
+        </p>
+      </div>
+
+      {/* ===================================================
+          卖点 ① 高清解析
+          截图：主页.png（保留）
+          =================================================== */}
+      <div class="grid md:grid-cols-2 gap-12 items-center mb-20 reveal">
+        <div>
+          <span class="eyebrow" data-i18n="features.01.eyebrow">§ 01 — Parse</span>
+          <h3 class="text-3xl font-bold mt-4 mb-4" data-i18n-html="features.01.title">解析<br />原档位，无折损</h3>
+          <p class="text-[rgb(var(--color-text-muted))] leading-relaxed mb-6" data-i18n="features.01.desc">
+            粘贴微博、小红书、抖音、B站、Instagram、YouTube、X 的分享链接，
+            自动识别平台，秒级解析出高清图片和视频。不用选平台，不用调参数。
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="pill pill-soft" data-i18n="features.01.pill1">图片+视频</span>
+            <span class="pill pill-soft" data-i18n="features.01.pill2">原画质</span>
+            <span class="pill pill-soft" data-i18n="features.01.pill3">自动识别</span>
+            <span class="pill pill-soft" data-i18n="features.01.pill4">缩略图预览</span>
+          </div>
+        </div>
+        <div class="browser-frame">
+          <div class="browser-bar">
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · Home</div>
+          </div>
+          <img src="/screenshots/主页.png" alt="Lumio 主页 — 链接解析" loading="lazy" class="w-full block" />
+        </div>
+      </div>
+
+      {/* ===================================================
+          卖点 ② 无水印
+          截图：内置播放器.png — ⚠️ 涉及人脸，等待打码后新版截图
+          =================================================== */}
+      <div class="grid md:grid-cols-2 gap-12 items-center mb-20 reveal">
+        <div class="md:order-2">
+          <span class="eyebrow" data-i18n="features.02.eyebrow">§ 02 — No Watermark</span>
+          <h3 class="text-3xl font-bold mt-4 mb-4" data-i18n-html="features.02.title">画质<br />CDN 直链，无水印</h3>
+          <p class="text-[rgb(var(--color-text-muted))] leading-relaxed mb-6" data-i18n="features.02.desc">
+            直接抓取平台 CDN 原始媒体，跳过二次压缩或水印处理。
+            爱豆照片、舞台直拍、Live Photo、视频原档，全部原画质保存。
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="pill pill-soft" data-i18n="features.02.pill1">CDN 直链</span>
+            <span class="pill pill-soft" data-i18n="features.02.pill2">无水印</span>
+            <span class="pill pill-soft" data-i18n="features.02.pill3">视频原档</span>
+            <span class="pill pill-soft" data-i18n="features.02.pill4">Live Photo</span>
+          </div>
+        </div>
+        <div class="md:order-1 browser-frame">
+          <div class="browser-bar">
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 内部播放器</div>
+          </div>
+          <img src="/screenshots/内部播放器.png" alt="Lumio 内部播放器 — 原画质播放" loading="lazy" class="w-full block" />
+        </div>
+      </div>
+
+      {/* ===================================================
+          卖点 ③ 浏览器插件
+          截图：插件.png（2026-07 新截图）
+          图片缩放：max-width 80% + 居中，避免视觉过重
+          =================================================== */}
+      <div class="grid md:grid-cols-2 gap-12 items-center mb-20 reveal">
+        <div>
+          <span class="eyebrow" data-i18n="features.03.eyebrow">§ 03 — Extension</span>
+          <h3 class="text-3xl font-bold mt-4 mb-4" data-i18n-html="features.03.title">插件<br />右键即送，免复制</h3>
+          <p class="text-[rgb(var(--color-text-muted))] leading-relaxed mb-6" data-i18n="features.03.desc">
+            Chrome / Edge 浏览器扩展，右键即可发送到 Lumio。
+            桌面端自动收到，Inbox 收件箱预览，点击下载。
+            IG 一次性注入提取直链，不调 API，不触发风控。
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="pill pill-soft" data-i18n="features.03.pill1">右键即存</span>
+            <span class="pill pill-soft" data-i18n="features.03.pill2">Chrome / Edge</span>
+            <span class="pill pill-soft" data-i18n="features.03.pill3">IG 安全提取</span>
+          </div>
+        </div>
+        <div class="browser-frame extension-frame">
+          <div class="browser-bar">
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 浏览器插件</div>
+          </div>
+          <img src="/screenshots/插件.png" alt="Lumio 浏览器扩展 — 右键发送到 Inbox" loading="lazy" class="w-full block" />
+        </div>
+      </div>
+
+      {/* ===================================================
+          卖点 ④ 素材库
+          截图：素材库.png（2026-07 新截图）
+          =================================================== */}
+      <div class="grid md:grid-cols-2 gap-12 items-center reveal">
+        <div class="md:order-2">
+          <span class="eyebrow" data-i18n="features.04.eyebrow">§ 04 — Library</span>
+          <h3 class="text-3xl font-bold mt-4 mb-4" data-i18n-html="features.04.title">管理<br />搜索、分类、收藏</h3>
+          <p class="text-[rgb(var(--color-text-muted))] leading-relaxed mb-6" data-i18n="features.04.desc">
+            下载后的内容不会散落在各个文件夹。所有图片视频自动进入素材库，
+            支持按标题、作者、URL、文件路径全文搜索，
+            缩略图网格、收藏、Collections 分类、内置播放器。
+            再也不用满电脑找图片，找视频也不用切文件夹。
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="pill pill-soft" data-i18n="features.04.pill1">图片+视频</span>
+            <span class="pill pill-soft" data-i18n="features.04.pill2">全文搜索</span>
+            <span class="pill pill-soft" data-i18n="features.04.pill3">缩略图网格</span>
+            <span class="pill pill-soft" data-i18n="features.04.pill4">Collections 分类</span>
+            <span class="pill pill-soft" data-i18n="features.04.pill5">收藏</span>
+            <span class="pill pill-soft" data-i18n="features.04.pill6">内置播放器</span>
+          </div>
+        </div>
+        <div class="md:order-1">
+          <div class="browser-frame">
+            <div class="browser-bar">
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 媒体库</div>
+            </div>
+            <img src="/screenshots/素材库.png" alt="Lumio 媒体库 — 缩略图网格 + 搜索 + 分类" loading="lazy" class="w-full block" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== 演示区 — 两个录屏视频 ====================
+      v4 设计：替代原数字资产仪表盘
+      - 解析全链路.mp4：粘贴 → 解析 → 入队
+      - 插件发送.mp4：浏览器右键 → Inbox 收件
+      视频用 browser-frame 包装，与卖点区视觉一致
+      懒加载策略：data-src 延迟加载，IntersectionObserver 进入视口才 play
+      muted + loop + playsinline 保证跨浏览器静音循环播放 */}
+  <section id="demo" class="section">
+    <div class="container-narrow">
+      <div class="max-w-2xl mb-16 reveal">
+        <span class="eyebrow" data-i18n="demo.eyebrow">§ Demo</span>
+        <h2 class="text-4xl md:text-5xl font-bold mt-4 tracking-tight" data-i18n-html="demo.title">
+          <span class="text-gradient">演示</span>
+        </h2>
+        <p class="text-lg text-[rgb(var(--color-text-muted))] mt-4" data-i18n="demo.desc">
+          从粘贴链接到入队下载，从右键扩展到收件箱，完整链路演示。
+        </p>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-8 reveal" style="transition-delay: 0.1s;">
+        {/* ── 演示 01：解析全链路 ── */}
+        <div class="demo-card">
+          <div class="browser-frame">
+            <div class="browser-bar">
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">lumio · 解析全链路</div>
+              <span class="demo-pill">REC</span>
+            </div>
+            <video
+              data-src="/recordings/解析全链路.mp4"
+              muted
+              loop
+              playsinline
+              preload="none"
+              class="w-full block demo-video"
+              aria-label="链接解析全过程演示"
+            />
+          </div>
+          <div class="demo-meta">
+            <span class="eyebrow" data-i18n="demo.01.eyebrow">§ Demo 01</span>
+            <h3 class="text-xl font-bold mt-2 mb-2" data-i18n="demo.01.title">粘贴链接 → 解析 → 入队</h3>
+            <p class="text-sm text-[rgb(var(--color-text-muted))] leading-relaxed" data-i18n="demo.01.desc">
+              自动识别 8 大平台，秒级解析出高清图片和视频，缩略图预览后一键入队。
+            </p>
+          </div>
+        </div>
+
+        {/* ── 演示 02：浏览器插件发送 ── */}
+        <div class="demo-card" style="transition-delay: 0.2s;">
+          <div class="browser-frame">
+            <div class="browser-bar">
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">lumio · 浏览器插件发送</div>
+              <span class="demo-pill">REC</span>
+            </div>
+            <video
+              data-src="/recordings/插件发送.mp4"
+              muted
+              loop
+              playsinline
+              preload="none"
+              class="w-full block demo-video"
+              aria-label="浏览器插件发送演示"
+            />
+          </div>
+          <div class="demo-meta">
+            <span class="eyebrow" data-i18n="demo.02.eyebrow">§ Demo 02</span>
+            <h3 class="text-xl font-bold mt-2 mb-2" data-i18n="demo.02.title">打开详情帖 → 插件 → 发送</h3>
+            <p class="text-sm text-[rgb(var(--color-text-muted))] leading-relaxed" data-i18n="demo.02.desc">
+              在社交媒体详情页打开 Lumio 插件，自动解析提取当前页媒体元数据，一键发送到 Inbox 收件箱。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 演示区尾部说明 — 半透明背景层防流星干扰 */}
+      <div class="demo-features mt-12 grid md:grid-cols-3 gap-4 text-sm text-[rgb(var(--color-text-muted))] reveal" style="transition-delay: 0.3s;">
+        <div class="demo-feature">
+          <span class="eyebrow block mb-1">§ 01</span>
+          <span data-i18n="demo.feature.01">零配置，开箱即用</span>
+        </div>
+        <div class="demo-feature">
+          <span class="eyebrow block mb-1">§ 02</span>
+          <span data-i18n="demo.feature.02">原画质，无水印</span>
+        </div>
+        <div class="demo-feature">
+          <span class="eyebrow block mb-1">§ 03</span>
+          <span data-i18n="demo.feature.03">自动入库，统一管理</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== FAQ — 常见问题 ==================== */}
+  <section id="faq" class="section">
+    <div class="container-narrow">
+      <div class="max-w-2xl mx-auto mb-12 reveal">
+        <span class="eyebrow" data-i18n="faq.eyebrow">§ FAQ</span>
+        <h2 class="text-4xl md:text-5xl font-bold mt-4 tracking-tight" data-i18n-html="faq.title">
+          常见<span class="text-gradient">问题</span>
+        </h2>
+        <p class="text-[rgb(var(--color-text-muted))] mt-4" data-i18n="faq.desc">
+          关于下载、画质、平台支持、隐私的几个核心问题。
+        </p>
+      </div>
+
+      <div class="max-w-3xl mx-auto reveal" style="transition-delay: 0.1s;">
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q1">Lumio 需要登录账号吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>不需要。Lumio 是纯本地工具，无需注册、无需登录。下载 Instagram 内容需要导入你的 IG cookie（Netscape 格式），下载 X 图片和批量枚举需要导入 auth_token + ct0 cookie，其他 6 大平台（YouTube / B站 / 抖音 / 快手 / 微博 / 小红书）开箱即用，无需任何凭证。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q2">下载的画质是原画质吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>是的。所有平台默认下载 API 返回档位内的最高画质：</p>
+            <ul>
+              <li><strong>YouTube</strong>：4K / 8K + 自动合并音频（用户手动选择格式）</li>
+              <li><strong>Instagram</strong>：视频取 width 最大档位，图片取 image_versions2.candidates 最大档位</li>
+              <li><strong>X (Twitter)</strong>：图片请求原图（?format=jpg&name=orig），视频取最高 bitrate</li>
+              <li><strong>B站</strong>：DASH fnval=16 + qn=127 + fourk=1 请求最高档</li>
+              <li><strong>抖音</strong>：aweme detail API 遍历 bit_rate[] 取最高档（已知限制：60 帧 H.265 超高清原画需 app API）</li>
+              <li><strong>微博 / 小红书 / 快手</strong>：取 API 返回的最高分辨率</li>
+            </ul>
+            <p>所有下载均无平台水印。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q3">会触发风控或封号吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>Lumio 在设计上避免触发风控：</p>
+            <ul>
+              <li><strong>Instagram</strong>：右键 IG 页面时浏览器扩展一次性注入提取 DOM 直链，不调 IG API，不触发自动化检测</li>
+              <li><strong>X</strong>：用 GraphQL API + 你的 cookie，频率克制，不批量爬取</li>
+              <li><strong>抖音</strong>：自动获取 ttwid 访客标识，无需用户 cookie 或 a_bogus 签名</li>
+              <li><strong>批量下载</strong>：内建指数退避重试（5s → 15s → 30s），控制节奏</li>
+            </ul>
+            <p>但仍建议合理使用，避免短时间内下载几百条内容。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q4">支持 macOS 和 Linux 吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>V4.4.0 已完成跨平台 CI/CD 构建（GitHub Actions 三平台矩阵），提供：</p>
+            <ul>
+              <li><strong>Windows</strong>：NSIS 安装包（路径选择 + 卸载清理）</li>
+              <li><strong>macOS</strong>：DMG（分 x64 / arm64 架构）</li>
+              <li><strong>Linux</strong>：AppImage / .deb / .rpm</li>
+            </ul>
+            <p>安装包即将发布，敬请期待。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q5">下载的内容存在哪里？数据安全吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>所有数据完全本地存储，不上传任何服务器：</p>
+            <ul>
+              <li><strong>素材库</strong>：~/.lumio/library.db（SQLite，含元数据 + content_hash）</li>
+              <li><strong>下载历史</strong>：~/.lumio/history.json</li>
+              <li><strong>配置</strong>：~/.lumio/config.json</li>
+              <li><strong>下载队列</strong>：~/.lumio/queue.json（原子写入防崩溃截断）</li>
+              <li><strong>媒体文件</strong>：用户指定目录，自动入库</li>
+            </ul>
+            <p>Lumio 不收集任何用户数据，不发送任何遥测。删除 ~/.lumio/ 即可完全清除。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q6">浏览器扩展怎么用？安全吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>Chrome / Edge 浏览器扩展（Manifest V3）使用流程：</p>
+            <ol>
+              <li>在社交媒体详情页打开 Lumio 插件</li>
+              <li>插件自动解析提取当前页媒体元数据</li>
+              <li>点击发送，一键发送到 Inbox 收件箱</li>
+            </ol>
+            <p>安全方面：</p>
+            <ul>
+              <li>扩展仅读取页面 DOM 元数据，不读取你的私信或聊天</li>
+              <li>数据通过本地 API（127.0.0.1:38900）发送到桌面端，不经过任何外部服务器</li>
+              <li>IG 一次性注入提取直链，不常驻 content script，不调 IG API</li>
+              <li>开源代码，可自行审计</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q7">是开源的吗？收费吗？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>Lumio 是 <strong>MIT 协议开源</strong>，完全免费，无任何付费功能。源码托管在 <a href={GITHUB_URL} target="_blank" rel="noopener" class="faq-link">GitHub</a>，欢迎 Star / Issue / PR。</p>
+          </div>
+        </details>
+
+        {/* ── v5 新增：网络代理 / 国外平台下载 ── */}
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q8">需要代理吗？国外平台怎么下载？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p><strong>分平台说明：</strong></p>
+            <ul>
+              <li><strong>国内平台</strong>（微博 / 小红书 / 抖音 / B站 / 快手）—— 无需代理，直接使用。</li>
+              <li><strong>国外平台</strong>（YouTube / Instagram / X）—— 中国大陆网络环境下需要自备代理工具。</li>
+            </ul>
+            <p>Lumio 启动时会自动检测外网连通性（尝试连接 youtube.com:443），失败会推送通知提醒。</p>
+            <p><strong>代理配置：</strong>Lumio 会自动读取系统代理（HTTP_PROXY / HTTPS_PROXY 环境变量），无需额外设置。直链下载用 <code>requests.Session(trust_env=True)</code> 尊重系统代理。</p>
+            <p><strong>Apify 模式</strong>：Instagram 下载也可走 Apify 代理（详见下一条），但 Apify API 服务器和 CDN 都在境外，仍需代理。</p>
+          </div>
+        </details>
+
+        {/* ── v5 新增：Apify Token 获取 ── */}
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q9">Apify Token 是什么？怎么获取？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>Apify 是第三方爬虫代理平台，Lumio 通过它提取 Instagram 数据，<strong>替代直接调用 IG 移动 API，避免账号风控</strong>。Token 是免费的，个人使用足够。</p>
+            <p><strong>获取步骤：</strong></p>
+            <ol>
+              <li>注册 Apify 账号：<a href="https://console.apify.io/sign-up" target="_blank" rel="noopener" class="faq-link">console.apify.io/sign-up</a>（注意是 .io 不是 .com）</li>
+              <li>登录后进入 Console → 右上角 <strong>Settings</strong> → <strong>Integrations</strong> 页面</li>
+              <li>复制 <strong>Your API token</strong>（格式 <code>apify_api_xxxxxxxxxxxx</code>）</li>
+              <li>在 Lumio Settings 页面「Cookie/API 凭证管理」区粘贴 Token</li>
+              <li>Actor ID 默认填 <code>shu8hvrXbJbY3Eb9W</code>（Instagram Scraper 官方 Actor）</li>
+              <li>点「验证连接」即可启用</li>
+            </ol>
+            <p><strong>免费额度：</strong>Apify 每月提供 <strong>$5 免费额度</strong>，个人使用足够。用量在 <a href="https://console.apify.io" target="_blank" rel="noopener" class="faq-link">console.apify.io</a> 首页查看。</p>
+            <p><strong>注意：</strong>Apify API 服务器（<code>api.apify.com</code>）和媒体 CDN 都在境外，国内网络需挂代理才能解析和下载成功。</p>
+            <p><strong>官网域名：</strong>主站 <a href="https://apify.com" target="_blank" rel="noopener" class="faq-link">apify.com</a>，控制台 <code>console.apify.io</code>，文档 <code>docs.apify.com</code>。</p>
+          </div>
+        </details>
+
+        {/* ── v5 新增：外部播放器推荐 ── */}
+        <details class="faq-item">
+          <summary class="faq-item__summary">
+            <span class="faq-item__q" data-i18n="faq.q10">下载的视频用什么播放器？</span>
+            <span class="faq-item__icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="faq-item__body">
+            <p>Lumio <strong>内置预览</strong>支持图片缩放、多图切换、视频/音频播放（QMediaPlayer），点击缩略图即可打开，无需切窗口。</p>
+            <p>但下载的 HEVC/H.265、4K HDR、特殊编码格式，建议安装<strong>专用播放器</strong>获得最佳体验：</p>
+            <ul>
+              <li><strong>PotPlayer</strong>（推荐，Windows）—— <a href="https://potplayer.tv/" target="_blank" rel="noopener" class="faq-link">potplayer.tv</a>，解码器全，支持硬解</li>
+              <li><strong>VLC</strong>（跨平台）—— <a href="https://www.videolan.org/" target="_blank" rel="noopener" class="faq-link">videolan.org</a>，Windows / macOS / Linux 通吃</li>
+              <li><strong>mpv</strong>（极客向）—— <a href="https://mpv.io/" target="_blank" rel="noopener" class="faq-link">mpv.io</a>，轻量、命令行友好、画质调校强</li>
+            </ul>
+            <p><strong>在 Lumio 中使用外部播放器：</strong>Library 素材库中双击素材，会用系统默认播放器打开。可在系统设置中把视频默认程序改为 PotPlayer / VLC / mpv。</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== 下载区 ==================== */}
+  <section id="download" class="section">
+    <div class="container-narrow">
+      <div class="max-w-3xl mx-auto reveal">
+        <div class="card-elevated p-10 md:p-16 text-center relative overflow-hidden">
+          <div class="relative">
+            <span class="eyebrow" data-i18n="download.eyebrow">§ Download</span>
+            <h2 class="text-4xl md:text-5xl font-bold mt-4 mb-4 tracking-tight" data-i18n-html="download.title">
+              打开<span class="text-gradient">Lumio</span>
+            </h2>
+            <p class="text-lg text-[rgb(var(--color-text-muted))] mb-10 max-w-xl mx-auto" data-i18n="download.desc">
+              Windows / macOS / Linux，开源免费，开箱即用。安装包内置 Python 运行时和 ffmpeg。
+            </p>
+
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
+              <button type="button" class="btn-primary text-base px-8 py-4" data-download-trigger>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/>
+                </svg>
+                <span data-i18n="download.btn">立即下载</span>
+              </button>
+              <a href={GITHUB_URL} target="_blank" rel="noopener" class="btn-ghost text-base px-8 py-4">
+                <span data-i18n="download.github">关注 GitHub</span>
+              </a>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-[rgb(var(--color-text-dim))]">
+              <span class="font-mono">Windows 10 / 11</span>
+              <span class="opacity-30">·</span>
+              <span class="font-mono">macOS</span>
+              <span class="opacity-30">·</span>
+              <span class="font-mono">Linux</span>
+              <span class="opacity-30">·</span>
+              <span class="font-mono">MIT License</span>
+              <span class="opacity-30">·</span>
+              <span class="font-mono">V{VERSION}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-8 text-center text-sm text-[rgb(var(--color-text-dim))]">
+          <p data-i18n="download.hosting">文件托管于 GitHub Releases · 点击下载自动获取最新版本</p>
+        </div>
+
+        {/* ─── Changelog 折叠块 ───
+            v5 改为构建时 fetch GitHub Releases（方案 B）
+            - dev 模式自动用 fallback，避免本地卡顿
+            - prod 构建时调 GitHub API，失败回退 fallback
+            - 客户端零 fetch，数据嵌入 <script type="application/json"> */}
+        <div class="mt-16">
+          <ChangelogSection />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ==================== Footer ====================
+      v5 重设计 — 四列布局 + QQ 联系方式 + 技术栈 + 致谢 + 隐私/条款折叠 */}
+  <SiteFooter />
+
+  {/* 下载弹窗 — 由 [data-download-trigger] 触发 */}
+  <DownloadDialog />
+</Layout>

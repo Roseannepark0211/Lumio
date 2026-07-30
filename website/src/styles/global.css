@@ -1,0 +1,1163 @@
+﻿@import "tailwindcss";
+
+/* ============================================================
+   Lumio 官网 v4 — 直角基调 · Geist 字体 · 暗夜模式
+   设计方向：Vercel / Linear / Raycast / Arc 风
+   关键变化：
+   1. 全部 border-radius → 0（直角基调）
+   2. 字体切换到 Geist + Geist Mono（几何技术感）
+   3. 新增暗夜模式：跟随系统 + 手动覆盖
+   4. 删除 Instrument Serif 衬线 italic 点睛（不再呼应「数字相册」）
+   5. 新增数字资产仪表盘组件
+   6. 音效开关 + 暗夜模式开关组成右下角控制条
+   ============================================================ */
+
+@theme {
+  /* Geist 英文 + PingFang SC 中文 fallback
+     Geist 不含中文字符，必须显式指定中文 fallback 字体
+     顺序：Geist → PingFang SC (macOS) → Microsoft YaHei (Windows) → system-ui */
+  --font-sans: "Geist", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 品牌色 — Apple System Blue（保留） */
+  --color-accent: #0a84ff;
+  --color-accent-glow: #64d2ff;
+  --color-accent-soft: #e8f4ff;
+
+  /* 激光渐变 */
+  --color-laser-1: #0a84ff;
+  --color-laser-2: #5ac8fa;
+  --color-laser-3: #22d3ee;
+}
+
+/* ---------- 主题变量 — 亮色（默认） ---------- */
+:root {
+  --color-bg: 255 255 255;
+  --color-bg-soft: 250 250 252;
+  --color-bg-elevated: 245 245 247;
+  --color-accent: 10 132 255;
+  --color-accent-glow: 100 210 255;
+  --color-text: 10 10 10;
+  --color-text-muted: 90 90 90;
+  --color-text-dim: 140 140 140;
+  --color-border: 10 10 10;
+  color-scheme: light;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis-weight: none;
+}
+
+/* ---------- 主题变量 — 暗夜（手动覆盖或跟随系统） ---------- */
+html[data-theme="dark"] {
+  --color-bg: 8 8 10;
+  --color-bg-soft: 17 17 19;
+  --color-bg-elevated: 26 26 30;
+  --color-accent: 100 178 255;
+  --color-accent-glow: 130 200 255;
+  --color-text: 235 235 238;
+  --color-text-muted: 161 161 170;
+  --color-text-dim: 110 110 120;
+  --color-border: 235 235 238;
+  color-scheme: dark;
+}
+
+/* 系统暗夜模式 + 未手动设置时跟随 */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):not([data-theme="dark"]) {
+    --color-bg: 8 8 10;
+    --color-bg-soft: 17 17 19;
+    --color-bg-elevated: 26 26 30;
+    --color-accent: 100 178 255;
+    --color-accent-glow: 130 200 255;
+    --color-text: 235 235 238;
+    --color-text-muted: 161 161 170;
+    --color-text-dim: 110 110 120;
+    --color-border: 235 235 238;
+    color-scheme: dark;
+  }
+}
+
+/* ---------- 基础重置 ---------- */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-timeline: --page-scroll;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  color: rgb(var(--color-text));
+  /* 浅色模式背景 — 舞台渐变 + 点阵网格 + 纯色底
+     渐变：顶部 accent 蓝 → 底部 品牌紫，呼应爱豆/舞台灯光感
+     点阵：20px 间距 / 1.5px 圆点 / 0.08 透明度
+     层级：顶部聚光 → 底部聚光 → 点阵 → 纯白底 */
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgb(10 132 255 / 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgb(139 92 246 / 0.10) 0%, transparent 70%),
+    radial-gradient(circle at 1px 1px, rgb(var(--color-border) / 0.08) 1.5px, transparent 1.5px) 0 0 / 20px 20px,
+    rgb(var(--color-bg));
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-feature-settings: "ss01", "cv11";
+  /* 主题切换平滑过渡 */
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* 暗夜模式：移除点阵层，由流星雨 Canvas 提供氛围 */
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgb(var(--color-accent) / 0.05) 0%, transparent 60%),
+    rgb(var(--color-bg));
+}
+
+/* 系统暗夜模式 + 未手动设置时，同样移除点阵 */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):not([data-theme="dark"]) body {
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgb(var(--color-accent) / 0.05) 0%, transparent 60%),
+      rgb(var(--color-bg));
+  }
+}
+
+/* ---------- 滚动条 — 直角 ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-text) / 0.18);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-text) / 0.32);
+}
+
+::selection {
+  background: rgb(var(--color-accent) / 0.22);
+  color: rgb(var(--color-text));
+}
+
+/* ---------- 键盘焦点样式 — :focus-visible ----------
+   仅键盘导航时显示焦点环，鼠标点击不触发
+   直角基调：方角 outline + 2px offset，呼应整体几何感
+   - 通用：所有可交互元素 a/button/summary/input/textarea/select
+   - 焦点环颜色跟随主题 accent
+   - prefers-reduced-motion 时关闭过渡 */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 2px;
+  border-radius: 0;
+  transition: outline-offset 0.15s ease;
+}
+
+/* 移除鼠标点击产生的默认 outline */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* summary 元素需要单独处理，避免展开后焦点环位置异常 */
+summary:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 链接在导航栏内的焦点环内缩，避免溢出 */
+nav a:focus-visible,
+.mobile-menu__link:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   组件层 — 直角基调
+   ============================================================ */
+@layer components {
+  /* 主卡片 — 直角白盒 + 锐利边框 */
+  .card {
+    position: relative;
+    border-radius: 0;
+    border: 1px solid rgb(var(--color-border) / 0.10);
+    background: rgb(var(--color-bg) / 0.92);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 4px 16px -8px rgb(0 0 0 / 0.08);
+    contain: layout style;
+  }
+
+  .card-hover {
+    transition:
+      transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.25s ease;
+    will-change: transform;
+  }
+
+  .card-hover:hover {
+    transform: translateY(-3px);
+    border-color: rgb(var(--color-accent) / 0.4);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 16px 40px -12px rgb(10 132 255 / 0.20);
+  }
+
+  /* 浮起卡片 — 用于 hero / 下载区 */
+  .card-elevated {
+    position: relative;
+    border-radius: 0;
+    border: 1px solid rgb(var(--color-border) / 0.08);
+    background: rgb(var(--color-bg) / 0.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 8px 24px -8px rgb(0 0 0 / 0.12),
+      0 24px 60px -20px rgb(10 132 255 / 0.10);
+    contain: layout style;
+  }
+
+  /* Pill 徽章 — 改为直角小标签 */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 0;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  .pill-accent {
+    background: rgb(var(--color-accent) / 0.10);
+    color: var(--color-accent);
+    border: 1px solid rgb(var(--color-accent) / 0.25);
+  }
+
+  .pill-soft {
+    background: rgb(var(--color-text) / 0.05);
+    color: rgb(var(--color-text-muted));
+    border: 1px solid rgb(var(--color-border) / 0.08);
+  }
+
+  /* Mono Eyebrow — 等宽字小标签 */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgb(var(--color-text-dim));
+    font-weight: 500;
+  }
+
+  /* 主按钮 — 直角黑底，hover 转 accent */
+  .btn-primary {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.75rem;
+    border-radius: 0;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    /* 主题反相：背景跟随文字色，字体跟随背景色
+       浅色模式：深底白字
+       暗夜模式：浅底深字 */
+    color: rgb(var(--color-bg));
+    background: rgb(var(--color-text));
+    border: 1px solid rgb(var(--color-text));
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.10),
+      0 4px 12px -4px rgb(0 0 0 / 0.18);
+    transition:
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      background 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .btn-primary:hover {
+    /* hover 时反相：浅底深字（浅色模式）/ 深底浅字（暗夜模式） */
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
+    border-color: rgb(var(--color-text));
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.08),
+      0 8px 20px -4px rgb(0 0 0 / 0.15);
+  }
+
+  .btn-primary:active {
+    transform: scale(0.97);
+  }
+
+  /* 次按钮 — 直角描边 */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.75rem;
+    border-radius: 0;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: rgb(var(--color-text));
+    background: rgb(var(--color-bg));
+    border: 1px solid rgb(var(--color-text) / 0.20);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    transition:
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+    contain: layout style;
+    will-change: transform;
+  }
+
+  .btn-ghost:hover {
+    /* hover 时反相：深底白字（浅色模式）/ 浅底深字（暗夜模式） */
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-bg));
+    border-color: rgb(var(--color-text));
+    box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.12);
+  }
+
+  .btn-ghost:active {
+    transform: scale(0.97);
+  }
+
+  /* Section */
+  .section {
+    position: relative;
+    padding: 5rem 0;
+  }
+
+  .container-narrow {
+    max-width: 80rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  .text-gradient {
+    /* v5 修复：原 background-clip: text + transparent 组合在某些场景下
+       会导致文字完全不可见（webkitTextFillColor: rgba(0,0,0,0) + 渐变未覆盖）
+       改用纯品牌色实色，文字一定可见，视觉重点保持一致 */
+    color: var(--color-accent);
+  }
+
+  /* 截图容器 — 模拟浏览器 chrome，直角 */
+  .browser-frame {
+    position: relative;
+    border-radius: 0;
+    overflow: hidden;
+    border: 1px solid rgb(var(--color-border) / 0.10);
+    background: rgb(var(--color-bg));
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 12px 32px -8px rgb(0 0 0 / 0.12),
+      0 32px 64px -16px rgb(10 132 255 / 0.10);
+    contain: layout style paint;
+  }
+
+  .browser-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgb(var(--color-bg-elevated));
+    border-bottom: 1px solid rgb(var(--color-border) / 0.08);
+  }
+
+  .browser-dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+  }
+  /* ============================================================
+     平台徽章网格 — 8 个一排
+     --------------------------------
+     设计要点：
+       1. 图标严格 28×28
+       2. 直角卡片，悬停上浮 + 蓝色描边
+       3. 可点击跳转官网（<a> 标签）
+       4. 音效钩子挂在 .platform-tile 上
+     ============================================================ */
+
+  .platform-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.75rem;
+    margin: 0 auto 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .platform-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  @media (max-width: 480px) {
+    .platform-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* 平台卡片 — 直角 */
+  .platform-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.25rem 0.5rem;
+    border-radius: 0;
+    border: 1px solid rgb(var(--color-border) / 0.08);
+    background: rgb(var(--color-bg));
+    transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.25s ease,
+      box-shadow 0.25s ease;
+    contain: layout style;
+    will-change: transform;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .platform-tile:hover {
+    transform: translateY(-3px);
+    border-color: rgb(var(--color-accent) / 0.45);
+    box-shadow: 0 8px 20px -8px rgb(10 132 255 / 0.22);
+  }
+
+  .platform-tile:hover .platform-icon {
+    color: var(--color-accent);
+    transform: scale(1.1);
+  }
+
+  .platform-icon {
+    width: 28px;
+    height: 28px;
+    transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      color 0.25s ease;
+  }
+
+  .platform-name {
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+    letter-spacing: -0.01em;
+    text-align: center;
+  }
+
+  .platform-freq {
+    font-family: var(--font-mono);
+    font-size: 0.5625rem;
+    color: rgb(var(--color-accent));
+    letter-spacing: 0.1em;
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+  }
+  .platform-tile:hover .platform-freq { opacity: 1; }
+
+  /* ---------- 提示文字 ---------- */
+  .platform-hint {
+    margin-top: 1.5rem;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+    letter-spacing: 0.08em;
+  }
+
+  /* prefers-reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    .platform-tile { transition: none !important; }
+  }
+
+  /* ---------- 流星雨 Canvas — 暗夜模式背景特效 ---------- */
+  /* 满屏 fixed 定位，z-index: -1 位于所有内容下方
+     JS 在 dark 主题下绘制：深色背景 + 闪烁星点 + 流星
+     用 opacity + visibility 切换替代 display，让主题切换有 0.4s 过渡 */
+  .meteor-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+    /* 默认隐藏 — 透明 + 不可见 */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+  }
+
+  /* 暗夜模式：显示 canvas，body 背景透明让 canvas 可见 */
+  html[data-theme="dark"] .meteor-canvas {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  html[data-theme="dark"] body {
+    background: transparent;
+    transition: background 0.4s ease;
+  }
+
+  /* 系统暗夜模式（未手动设置时）也启用 */
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) .meteor-canvas {
+      opacity: 1;
+      visibility: visible;
+    }
+    html:not([data-theme="light"]) body {
+      background: transparent;
+    }
+  }
+
+  /* 尊重 prefers-reduced-motion — 完全禁用流星 */
+  @media (prefers-reduced-motion: reduce) {
+    .meteor-canvas {
+      opacity: 0 !important;
+      visibility: hidden !important;
+    }
+  }
+
+  /* ---------- 浏览器插件截图 — 缩小展示 ---------- */
+  /* 插件截图原图过大，max-width 80% + 居中
+     保留 browser-frame 边框结构，但视觉重量降低 */
+  .extension-frame {
+    max-width: 80%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  @media (max-width: 768px) {
+    .extension-frame {
+      max-width: 100%;
+    }
+  }
+
+  /* ---------- 移动端汉堡菜单 ---------- */
+  /* < 768px 显示按钮 + 下拉面板
+     md:hidden 在桌面端隐藏
+     切换 .is-open 控制展开/折叠 */
+  .mobile-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: rgb(var(--color-text));
+    background: transparent;
+    border: 1px solid rgb(var(--color-border) / 0.12);
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .mobile-menu-btn:hover {
+    background: rgb(var(--color-text) / 0.04);
+    border-color: rgb(var(--color-text) / 0.20);
+  }
+
+  /* 默认显示菜单图标，隐藏关闭图标 */
+  .mobile-menu-btn .icon-close { display: none; }
+  .mobile-menu-btn.is-open .icon-open { display: none; }
+  .mobile-menu-btn.is-open .icon-close { display: block; }
+
+  /* 下拉面板 — 默认折叠（max-height 0 + overflow hidden） */
+  .mobile-menu {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    background: rgb(var(--color-bg) / 0.95);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid transparent;
+  }
+  .mobile-menu.is-open {
+    max-height: 24rem;
+    border-top-color: rgb(var(--color-border) / 0.08);
+  }
+
+  .mobile-menu__inner {
+    padding: 0.75rem 0;
+  }
+
+  .mobile-menu__link {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.875rem 1.5rem;
+    color: rgb(var(--color-text));
+    font-size: 0.9375rem;
+    transition: background 0.18s ease;
+  }
+  .mobile-menu__link:hover {
+    background: rgb(var(--color-text) / 0.04);
+  }
+  .mobile-menu__link .eyebrow {
+    color: rgb(var(--color-text-dim));
+    font-size: 0.625rem;
+  }
+
+  /* ---------- FAQ 折叠项 — 直角技术感 ---------- */
+  /* 与 Changelog 风格一致，独立样式避免冲突 */
+  .faq-item {
+    border: 1px solid rgb(var(--color-border) / 0.10);
+    background: rgb(var(--color-bg-elevated) / 0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .faq-item + .faq-item {
+    border-top: none; /* 相邻项共享边框 */
+  }
+  .faq-item[open] {
+    background: rgb(var(--color-bg-elevated) / 0.7);
+    border-color: rgb(var(--color-text) / 0.18);
+  }
+  .faq-item + .faq-item[open],
+  .faq-item[open] + .faq-item {
+    border-top: 1px solid rgb(var(--color-text) / 0.18);
+  }
+
+  .faq-item__summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 1.125rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+    transition: background 0.18s ease;
+  }
+  .faq-item__summary::-webkit-details-marker { display: none; }
+  .faq-item__summary:hover {
+    background: rgb(var(--color-text) / 0.03);
+  }
+
+  .faq-item__q {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+    flex: 1;
+    padding-right: 1rem;
+  }
+
+  .faq-item__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    color: rgb(var(--color-text-muted));
+    flex-shrink: 0;
+    transition: transform 0.2s ease, color 0.2s ease;
+  }
+  .faq-item[open] .faq-item__icon {
+    transform: rotate(180deg);
+    color: var(--color-accent);
+  }
+
+  .faq-item__body {
+    padding: 0 1.5rem 1.25rem;
+    color: rgb(var(--color-text-muted));
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+  .faq-item__body p {
+    margin: 0 0 0.625rem 0;
+  }
+  .faq-item__body p:last-child {
+    margin-bottom: 0;
+  }
+  .faq-item__body ul,
+  .faq-item__body ol {
+    margin: 0.375rem 0 0.875rem 0;
+    padding-left: 1.25rem;
+  }
+  .faq-item__body li {
+    margin-bottom: 0.375rem;
+  }
+  .faq-item__body li:last-child {
+    margin-bottom: 0;
+  }
+  .faq-item__body strong {
+    color: rgb(var(--color-text));
+    font-weight: 600;
+  }
+  .faq-item__body code {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    background: rgb(var(--color-text) / 0.06);
+    padding: 0.0625rem 0.375rem;
+    border: 1px solid rgb(var(--color-border) / 0.10);
+  }
+  .faq-link {
+    color: var(--color-accent);
+    border-bottom: 1px solid rgb(var(--color-accent) / 0.4);
+    transition: border-color 0.2s ease;
+  }
+  .faq-link:hover {
+    border-bottom-color: var(--color-accent);
+  }
+
+  /* 移动端 padding 缩小 */
+  @media (max-width: 768px) {
+    .faq-item__summary { padding: 1rem 1.125rem; }
+    .faq-item__body { padding: 0 1.125rem 1.125rem; font-size: 0.8125rem; }
+    .faq-item__q { font-size: 0.875rem; }
+  }
+
+  /* ---------- 暗夜模式可读性增强 — 半透明背景层 ---------- */
+  /* 痛点 section 卡片：纯文字段落下方加半透明背景
+     防止流星雨在文字背景持续划过干扰阅读 */
+  .pain-card {
+    padding: 2rem 2.5rem;
+    background: rgb(var(--color-bg-elevated) / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgb(var(--color-border) / 0.08);
+    transition: border-color 0.2s ease;
+  }
+  /* 浅色模式下保持轻盈 — 仅极淡背景 */
+  html[data-theme="light"] .pain-card,
+  html:not([data-theme="dark"]) .pain-card {
+    background: rgb(var(--color-bg-elevated) / 0.4);
+  }
+  @media (prefers-color-scheme: light) {
+    html:not([data-theme="dark"]) .pain-card {
+      background: rgb(var(--color-bg-elevated) / 0.4);
+    }
+  }
+
+  /* 演示区尾部 3 列 — 替代原 border-l 单线条
+     改为卡片式半透明背景，提升暗夜可读性 */
+  .demo-features {
+    gap: 1rem;
+  }
+  .demo-feature {
+    padding: 1rem 1.25rem;
+    background: rgb(var(--color-bg-elevated) / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-left: 2px solid rgb(var(--color-accent) / 0.5);
+    border-top: 1px solid rgb(var(--color-border) / 0.06);
+    border-right: 1px solid rgb(var(--color-border) / 0.06);
+    border-bottom: 1px solid rgb(var(--color-border) / 0.06);
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .demo-feature:hover {
+    background: rgb(var(--color-bg-elevated) / 0.92);
+    border-left-color: var(--color-accent);
+  }
+
+  /* ---------- Changelog 折叠块 — 直角技术感 ---------- */
+  /* 默认折叠状态：边框 + 标题 + 展开提示
+     展开后：内部分区 + 列表 + 代码块 + 底部链接 */
+  .changelog {
+    max-width: 56rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .changelog__details {
+    border: 1px solid rgb(var(--color-border) / 0.12);
+    background: rgb(var(--color-bg-elevated) / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.2s ease;
+  }
+
+  .changelog__details[open] {
+    border-color: rgb(var(--color-text) / 0.18);
+  }
+
+  /* 清除默认 summary 三角 */
+  .changelog__summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+    transition: background 0.18s ease;
+  }
+  .changelog__summary::-webkit-details-marker { display: none; }
+  .changelog__summary:hover {
+    background: rgb(var(--color-text) / 0.03);
+  }
+
+  .changelog__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 1rem;
+    color: rgb(var(--color-text));
+  }
+
+  .changelog__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    color: rgb(var(--color-text-muted));
+    transition: transform 0.2s ease, color 0.2s ease;
+  }
+  .changelog__details[open] .changelog__icon {
+    transform: rotate(180deg);
+    color: var(--color-accent);
+  }
+
+  .changelog__version {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-accent);
+    background: rgb(var(--color-accent) / 0.10);
+    border: 1px solid rgb(var(--color-accent) / 0.25);
+    padding: 0.125rem 0.5rem;
+    letter-spacing: 0.04em;
+  }
+
+  .changelog__hint {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgb(var(--color-text-dim));
+    transition: opacity 0.2s ease;
+  }
+  .changelog__details[open] .changelog__hint {
+    opacity: 0;
+  }
+
+  /* 展开内容 */
+  .changelog__body {
+    padding: 0 1.5rem 1.5rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+  }
+
+  .changelog__section {
+    padding: 1.25rem 0;
+    border-bottom: 1px dashed rgb(var(--color-border) / 0.10);
+  }
+  .changelog__section:last-of-type {
+    border-bottom: none;
+  }
+
+  .changelog__heading {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    letter-spacing: 0.02em;
+  }
+
+  /* 5 种分类颜色 — 严格克制的色板 */
+  .changelog__heading--feature { color: var(--color-accent); }
+  .changelog__heading--perf    { color: #10b981; }
+  .changelog__heading--arch    { color: rgb(var(--color-text)); }
+  .changelog__heading--warn     { color: #f59e0b; }
+  .changelog__heading--install  { color: rgb(var(--color-text-muted)); }
+
+  /* 暗夜模式调暗分类色 */
+  html[data-theme="dark"] .changelog__heading--perf  { color: #34d399; }
+  html[data-theme="dark"] .changelog__heading--warn { color: #fbbf24; }
+
+  .changelog__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .changelog__list li {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: rgb(var(--color-text-muted));
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  /* 直角小方块作 bullet — 呼应直角基调 */
+  .changelog__list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.6rem;
+    width: 4px;
+    height: 4px;
+    background: rgb(var(--color-text) / 0.30);
+  }
+
+  .changelog__list li strong {
+    color: rgb(var(--color-text));
+    font-weight: 600;
+  }
+
+  .changelog__list li code {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    background: rgb(var(--color-text) / 0.06);
+    color: rgb(var(--color-text));
+    padding: 0.0625rem 0.375rem;
+    border: 1px solid rgb(var(--color-border) / 0.10);
+  }
+
+  .changelog__footer {
+    padding-top: 1rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    text-align: center;
+  }
+
+  .changelog__link {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--color-text-muted));
+    transition: color 0.2s ease;
+  }
+  .changelog__link:hover {
+    color: var(--color-accent);
+  }
+
+  /* 移动端 padding 缩小 */
+  @media (max-width: 768px) {
+    .changelog__summary { padding: 1rem 1.125rem; }
+    .changelog__body { padding: 0 1.125rem 1.125rem; }
+    .changelog__list li { font-size: 0.8125rem; }
+  }
+
+  /* ---------- 演示卡片 — 录屏视频容器 ---------- */
+  .demo-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* REC 徽章 — 录屏中标识 */
+  .demo-pill {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #ff3b30;
+    background: rgb(255 59 48 / 0.10);
+    border: 1px solid rgb(255 59 48 / 0.30);
+    position: relative;
+  }
+
+  .demo-pill::before {
+    content: "";
+    width: 0.4rem;
+    height: 0.4rem;
+    background: #ff3b30;
+    display: inline-block;
+    animation: demo-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes demo-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+
+  /* 视频元素 — 撑满 browser-frame 宽度，保持原宽高比 */
+  .demo-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: rgb(var(--color-bg-elevated));
+  }
+
+  /* 视频下方元数据区 */
+  .demo-meta {
+    padding-top: 1.25rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.06);
+    margin-top: 1.25rem;
+  }
+
+  /* ---------- 控制条 — 右下角浮窗 ----------
+     音效开关 + 暗夜模式开关，参考 toolknit.com 紧凑控制条 */
+  .control-strip {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .control-strip__btn {
+    width: 2.75rem;
+    height: 2.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(var(--color-bg) / 0.92);
+    border: 1px solid rgb(var(--color-border) / 0.14);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.06),
+      0 8px 20px -8px rgb(0 0 0 / 0.16);
+    color: rgb(var(--color-text-muted));
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease,
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: pointer;
+  }
+
+  .control-strip__btn:hover {
+    border-color: rgb(var(--color-accent) / 0.40);
+    color: rgb(var(--color-text));
+  }
+
+  .control-strip__btn:active {
+    transform: scale(0.96);
+  }
+
+  .control-strip__btn.is-active {
+    color: var(--color-accent);
+    border-color: rgb(var(--color-accent) / 0.40);
+  }
+}
+
+/* ============================================================
+   动画 — 性能优先
+   ============================================================ */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0s !important;
+}
+
+/* 鼠标光晕 — 柔和蓝色光斑 */
+.cursor-glow {
+  position: fixed;
+  pointer-events: none;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--color-accent) / 0.10) 0%, transparent 60%);
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  will-change: transform;
+  transition: opacity 0.3s ease;
+  mix-blend-mode: multiply;
+}
+
+/* 暗夜模式下光晕用 screen 混合 */
+html[data-theme="dark"] .cursor-glow {
+  mix-blend-mode: screen;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):not([data-theme="dark"]) .cursor-glow {
+    mix-blend-mode: screen;
+  }
+}
+
+/* ============================================================
+   滚动进度条 — 直角，无圆角
+   ============================================================ */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  z-index: 100;
+  background: linear-gradient(90deg,
+    var(--color-laser-1) 0%,
+    var(--color-laser-2) 50%,
+    var(--color-laser-3) 100%);
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
+  box-shadow: 0 0 8px rgb(10 132 255 / 0.45);
+}
+
+/* ============================================================
+   Reduced motion
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  .cursor-glow {
+    display: none;
+  }
+}
+
+/* ============================================================
+   响应式 — 移动端关掉重特效
+   ============================================================ */
+@media (max-width: 768px) {
+  .cursor-glow {
+    display: none;
+  }
+
+  .section {
+    padding: 3.5rem 0;
+  }
+
+  .control-strip {
+    bottom: 1rem;
+    right: 1rem;
+  }
+
+  .control-strip__btn {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}

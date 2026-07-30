@@ -1,0 +1,248 @@
+---
+/**
+ * Layout.astro v3 — 直角基调 + 暗夜模式 + Geist 字体
+ *
+ * 1. 鼠标光晕元素（桌面端）
+ * 2. 滚动进度条（transform 驱动）
+ * 3. 控制条：音效开关 + 暗夜模式开关（右下角浮动，参考 toolknit.com）
+ * 4. 交互脚本（rAF 节流 / Web Audio 机械咔哒 / IntersectionObserver / 暗夜模式切换）
+ * 5. 暗夜模式初始化脚本（防 FOUC，在 <head> 内联执行）
+ */
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Lumio — 个人媒体库 · 收藏互联网喜欢的一切',
+  description = '粘贴链接，剩下的交给 Lumio。高清无水印图片视频自动整理到媒体库——爱豆照片、舞台直拍、Live Photo，原画质收藏，不再散落各个文件夹。支持 YouTube / Instagram / X / 微博 / 小红书 / 抖音 / B站 / 快手 8 大平台。',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+
+    {/* Favicon — 方块容器字标，与 Logo 同构
+         SVG 矢量格式，自适应亮/暗主题（黑底白字固定） */}
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#0a0a0a" />
+
+    {/* 暗夜模式 + 语言初始化 — 防 FOUC，在 CSS 应用前确定主题/语言 */}
+    <script is:inline>
+      (function () {
+        try {
+          var saved = localStorage.getItem('lumio-theme');
+          if (saved === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else if (saved === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+          // 未设置时跟随系统，CSS @media 自动处理
+        } catch (e) {}
+
+        // 语言：提前设置 <html lang>，避免英文用户看到中文闪烁
+        try {
+          var lang = localStorage.getItem('lumio-lang');
+          if (!lang) {
+            // 浏览器语言推断
+            var nav = (navigator.language || '').toLowerCase();
+            lang = nav.indexOf('zh') === 0 ? 'zh' : 'en';
+          }
+          document.documentElement.setAttribute('data-lang', lang);
+          document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+        } catch (e) {}
+      })();
+    </script>
+
+    {/* 字体预加载 — Geist Sans + Geist Mono
+        Geist 几何感强、终端平直、略带技术调性，呼应「直角」基调
+        参考 Vercel / Linear / Raycast 的字标处理 */}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    {/* Open Graph — 社交分享预览 */}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="Lumio" />
+    <meta property="og:url" content="https://xksye7.dpdns.org/" />
+    <meta property="og:image" content="https://xksye7.dpdns.org/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Lumio — 个人媒体库 · 收藏互联网喜欢的一切" />
+
+    {/* Twitter Card */}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://xksye7.dpdns.org/og.png" />
+
+    {/* 主题色 — 浏览器顶栏 + PWA */}
+    <meta name="theme-color" content="#0a84ff" />
+    <meta name="color-scheme" content="light dark" />
+
+    {/* Canonical — 防 SEO 重复 */}
+    <link rel="canonical" href="https://xksye7.dpdns.org/" />
+
+    {/* JSON-LD 结构化数据 — SoftwareApplication schema */}
+    <script type="application/ld+json" set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Lumio",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Windows 10/11, macOS, Linux",
+      "softwareVersion": "4.4.2",
+      "description": description,
+      "url": "https://xksye7.dpdns.org/",
+      "downloadUrl": "https://github.com/Roseannepark0211/Lumio/releases",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CNY"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Roseanne Park"
+      },
+      "featureList": [
+        "8 大平台支持：YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书",
+        "原画质无水印下载",
+        "浏览器扩展一键发送到 Inbox",
+        "内置素材库 + 搜索 + Collections 分类",
+        "暗夜模式 + 流星雨背景特效",
+        "Liquid Glass 设计语言"
+      ]
+    })} />
+  </head>
+  <body>
+    {/* 流星雨 Canvas — 仅暗夜模式显示，满屏 z-index: -1 */}
+    <canvas
+      id="meteor-canvas"
+      aria-hidden="true"
+      class="meteor-canvas"
+    ></canvas>
+
+    {/* 鼠标光晕 — 桌面端可见，移动端由 CSS 隐藏 */}
+    <div class="cursor-glow" id="cursor-glow" aria-hidden="true"></div>
+
+    {/* 滚动进度条 — transform: scaleX() 驱动 */}
+    <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+
+    {/* 控制条 — 右下角浮动，音效 + 暗夜模式 + 语言切换 */}
+    <div class="control-strip" role="toolbar" aria-label="页面设置">
+      {/* 音效开关 */}
+      <button
+        id="sound-toggle"
+        class="control-strip__btn"
+        aria-label="开启音效"
+        data-i18n-attr="aria-label:ctrl.sound.off"
+        aria-pressed="false"
+      >
+        {/* 关闭状态图标 — 静音 */}
+        <svg class="icon-sound-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <line x1="23" y1="9" x2="17" y2="15"/>
+          <line x1="17" y1="9" x2="23" y2="15"/>
+        </svg>
+        {/* 开启状态图标 — 扬声器 */}
+        <svg class="icon-sound-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+      </button>
+
+      {/* 暗夜模式开关 */}
+      <button
+        id="theme-toggle"
+        class="control-strip__btn"
+        aria-label="切换暗夜模式"
+        data-i18n-attr="aria-label:ctrl.theme.light"
+        aria-pressed="false"
+      >
+        {/* 亮色模式图标 — 太阳 */}
+        <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <line x1="12" y1="2" x2="12" y2="5"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="5" y2="12"/>
+          <line x1="19" y1="12" x2="22" y2="12"/>
+          <line x1="4.93" y1="4.93" x2="7.05" y2="7.05"/>
+          <line x1="16.95" y1="16.95" x2="19.07" y2="19.07"/>
+          <line x1="4.93" y1="19.07" x2="7.05" y2="16.95"/>
+          <line x1="16.95" y1="7.05" x2="19.07" y2="4.93"/>
+        </svg>
+        {/* 暗色模式图标 — 月亮 */}
+        <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+
+      {/* 语言切换 — 中/英 */}
+      <button
+        id="lang-toggle"
+        class="control-strip__btn control-strip__btn--lang"
+        aria-label="Switch to English"
+        data-i18n-attr="aria-label:ctrl.lang.zh"
+      >
+        <span data-lang-letter class="lang-letter">EN</span>
+      </button>
+    </div>
+
+    <slot />
+
+    {/* 交互脚本 — Astro 自动打包 */}
+    <script>
+      import '../scripts/interactions.ts';
+      import { initMeteorCanvas } from '../scripts/meteor-canvas.ts';
+      import { initI18n } from '../scripts/i18n.ts';
+      initMeteorCanvas();
+      initI18n();
+    </script>
+  </body>
+</html>
+
+<style>
+  /* 控制条图标显示逻辑 — 根据 is-active 切换 */
+  #sound-toggle .icon-sound-on { display: none; }
+  #sound-toggle.is-active .icon-sound-off { display: none; }
+  #sound-toggle.is-active .icon-sound-on { display: block; }
+
+  #theme-toggle .icon-moon { display: none; }
+  #theme-toggle.is-active .icon-sun { display: none; }
+  #theme-toggle.is-active .icon-moon { display: block; }
+
+  /* 系统暗夜模式下，未手动设置时，月亮图标默认显示 */
+  @media (prefers-color-scheme: dark) {
+    html:not([data-theme="light"]) #theme-toggle .icon-sun { display: none; }
+    html:not([data-theme="light"]) #theme-toggle .icon-moon { display: block; }
+  }
+
+  /* 语言切换按钮 — 文字版（EN / 中），复用 .control-strip__btn 尺寸 */
+  .control-strip__btn--lang {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .lang-letter {
+    display: inline-block;
+    min-width: 1.5em;
+    text-align: center;
+    line-height: 1;
+  }
+</style>

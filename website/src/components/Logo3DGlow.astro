@@ -1,0 +1,171 @@
+---
+/**
+ * Logo3DGlow.astro v5 — 方块容器字标（Block Container）
+ *
+ * v5 重新设计要点（用户选定方向 05）：
+ * 1. 方块容器 + Lumio 文字 — 黑底白字方块作为品牌 mark
+ * 2. 方块可复用为 favicon / app icon / 任务栏图标
+ * 3. 入场动画：方块 scale-in (0.9→1) + 字面 fade-up 错位 0.15s
+ * 4. 完全删除原 breathing 呼吸光晕 + shimmer 流光带（与直角基调冲突）
+ * 5. 颜色：方块用 rgb(var(--color-text)) 反相色，自动适配亮/暗主题
+ * 6. 字体：Geist 800 紧字距 -0.04em
+ * 7. 保留 breathing/shimmer prop 仅作向后兼容，不再产生任何视觉效果
+ */
+interface Props {
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  text?: string;
+  /** 向后兼容 prop — v5 不再使用，保留接口避免破坏调用方 */
+  breathing?: boolean;
+  /** 向后兼容 prop — v5 不再使用，保留接口避免破坏调用方 */
+  shimmer?: boolean;
+  class?: string;
+}
+
+const {
+  size = 'md',
+  text = 'Lumio',
+  breathing = false,
+  shimmer = false,
+  class: className = '',
+} = Astro.props;
+
+const classes = [
+  'lg-logo',
+  `lg-logo--${size}`,
+  className,
+].filter(Boolean).join(' ');
+---
+
+<div class={classes} role="img" aria-label={text}>
+  <span class="lg-logo__mark" aria-hidden="true">L</span>
+  <span class="lg-logo__text">{text}</span>
+</div>
+
+<style>
+  .lg-logo {
+    /* 品牌色 — Apple System Blue（仅用于方块阴影点缀） */
+    --lg-accent: #0a84ff;
+
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    /* Geist 800 — 与正文 Geist 400/500 形成字重对比，强化品牌识别 */
+    font-family: 'Geist', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    font-weight: 800;
+    font-style: normal;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: rgb(var(--color-text));
+    /* 性能：限制重绘范围 */
+    contain: layout style paint;
+  }
+
+  /* 尺寸 — 方块与文字按比例缩放
+     sm 用于 nav/footer，md/lg 用于次级展示，xl 用于 hero */
+  .lg-logo--sm {
+    font-size: 22px;
+    gap: 0.45rem;
+  }
+  .lg-logo--sm .lg-logo__mark {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+  }
+
+  .lg-logo--md {
+    font-size: 44px;
+    gap: 0.6rem;
+  }
+  .lg-logo--md .lg-logo__mark {
+    width: 56px;
+    height: 56px;
+    font-size: 36px;
+  }
+
+  .lg-logo--lg {
+    font-size: 72px;
+    gap: 0.85rem;
+  }
+  .lg-logo--lg .lg-logo__mark {
+    width: 92px;
+    height: 92px;
+    font-size: 58px;
+  }
+
+  .lg-logo--xl {
+    font-size: 108px;
+    gap: 1rem;
+  }
+  .lg-logo--xl .lg-logo__mark {
+    width: 140px;
+    height: 140px;
+    font-size: 88px;
+  }
+
+  /* 方块容器 — 黑底白字，反相跟随主题
+     亮色模式：黑底白字
+     暗夜模式：白底黑字 */
+  .lg-logo__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-bg));
+    border-radius: 0; /* 直角基调 */
+    /* 轻阴影 — 给方块立体感，但不喧宾夺主 */
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.10),
+      0 8px 20px -6px rgb(0 0 0 / 0.16);
+    /* 入场动画 — scale 0.9→1，0.6s */
+    animation: lg-mark-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    /* 防止方块内的 L 字母因字体行高产生偏移 */
+    line-height: 1;
+    /* 微调 L 字母居中（Geist 800 的 L 字形稍偏左） */
+    padding-right: 0.04em;
+  }
+
+  @keyframes lg-mark-in {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  /* 字面 — fade-up 错位 0.15s */
+  .lg-logo__text {
+    display: inline-block;
+    animation: lg-text-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+  }
+
+  @keyframes lg-text-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* 暗夜模式：方块阴影加深 */
+  :global(html[data-theme="dark"]) .lg-logo__mark {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.4),
+      0 8px 20px -6px rgb(0 0 0 / 0.6),
+      0 0 0 1px rgb(var(--color-border) / 0.08);
+  }
+
+  /* 尊重 prefers-reduced-motion — 关闭入场动画 */
+  @media (prefers-reduced-motion: reduce) {
+    .lg-logo__mark,
+    .lg-logo__text {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+</style>

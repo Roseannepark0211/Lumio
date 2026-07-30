@@ -1,0 +1,8 @@
+# robots.txt — Lumio
+# https://xksye7.dpdns.org/
+
+User-agent: *
+Allow: /
+
+# Sitemap 位置
+Sitemap: https://xksye7.dpdns.org/sitemap.xml

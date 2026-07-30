@@ -1,0 +1,388 @@
+---
+/**
+ * SiteFooter.astro — 站点 Footer v5
+ *
+ * v5 重设计：
+ * 1. 四列布局：产品 / 资源 / 社区 / 法律
+ * 2. 联系方式：QQ 2590943893（用户指定）
+ * 3. 技术栈说明 + 致谢
+ * 4. CI 状态徽章占位
+ * 5. 直角基调，与全站统一
+ */
+import Logo3DGlow from './Logo3DGlow.astro';
+
+const GITHUB_URL = 'https://github.com/Roseannepark0211/Lumio';
+const GITHUB_RELEASES = 'https://github.com/Roseannepark0211/Lumio/releases';
+const GITHUB_ISSUES = 'https://github.com/Roseannepark0211/Lumio/issues';
+const GITHUB_DISCUSSIONS = 'https://github.com/Roseannepark0211/Lumio/discussions';
+const QQ_NUMBER = '2590943893';
+const QQ_LINK = `tencent://message/?uin=${QQ_NUMBER}&Site=&Menu=yes`;
+
+// 版本号从硬编码 fallback（与 changelog.ts 保持一致）
+const VERSION = '4.4.2';
+---
+
+<footer class="site-footer">
+  <div class="container-narrow">
+    {/* 主体 — Logo + 四列导航 */}
+    <div class="site-footer__main">
+      {/* 左侧 — Logo + 标语 */}
+      <div class="site-footer__brand">
+        <Logo3DGlow size="sm" />
+        <p class="site-footer__version">V{VERSION} · MIT License</p>
+        <p class="site-footer__tagline" data-i18n="footer.tagline">把喜欢的一切，留下来。</p>
+      </div>
+
+      {/* 右侧 — 四列导航 */}
+      <nav class="site-footer__nav" aria-label="Footer 导航">
+        {/* 产品 */}
+        <div class="site-footer__col">
+          <h3 class="site-footer__col-title" data-i18n="footer.col.product">产品</h3>
+          <ul class="site-footer__col-list">
+            <li><a href="#features" class="site-footer__link" data-i18n="footer.link.features">功能</a></li>
+            <li><a href="#download" class="site-footer__link" data-i18n="footer.link.download">下载</a></li>
+            <li><a href="#changelog" class="site-footer__link" data-i18n="footer.link.changelog">更新日志</a></li>
+            <li><a href="#faq" class="site-footer__link" data-i18n="footer.link.faq">FAQ</a></li>
+          </ul>
+        </div>
+
+        {/* 资源 */}
+        <div class="site-footer__col">
+          <h3 class="site-footer__col-title" data-i18n="footer.col.resources">资源</h3>
+          <ul class="site-footer__col-list">
+            <li><a href={GITHUB_URL} target="_blank" rel="noopener" class="site-footer__link" data-i18n="footer.link.github">GitHub 源码</a></li>
+            <li><a href={GITHUB_RELEASES} target="_blank" rel="noopener" class="site-footer__link">Releases</a></li>
+            <li><a href="https://github.com/Roseannepark0211/Lumio/tree/main/extension-v2" target="_blank" rel="noopener" class="site-footer__link" data-i18n="footer.link.extension">浏览器扩展</a></li>
+            <li><a href="https://github.com/Roseannepark0211/Lumio/blob/main/AGENTS.md" target="_blank" rel="noopener" class="site-footer__link" data-i18n="footer.link.docs">技术文档</a></li>
+          </ul>
+        </div>
+
+        {/* 社区 */}
+        <div class="site-footer__col">
+          <h3 class="site-footer__col-title" data-i18n="footer.col.community">社区</h3>
+          <ul class="site-footer__col-list">
+            <li><a href={GITHUB_ISSUES} target="_blank" rel="noopener" class="site-footer__link" data-i18n="footer.link.issues">问题反馈</a></li>
+            <li><a href={GITHUB_DISCUSSIONS} target="_blank" rel="noopener" class="site-footer__link" data-i18n="footer.link.discussions">功能讨论</a></li>
+            <li>
+              <a href={QQ_LINK} class="site-footer__link site-footer__link--contact">
+                <span class="site-footer__contact-label">QQ</span>
+                <span class="site-footer__contact-value">{QQ_NUMBER}</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        {/* 法律 */}
+        <div class="site-footer__col">
+          <h3 class="site-footer__col-title" data-i18n="footer.col.legal">法律</h3>
+          <ul class="site-footer__col-list">
+            <li><a href="https://opensource.org/license/mit" target="_blank" rel="noopener" class="site-footer__link">MIT License</a></li>
+            <li><a href="#privacy" class="site-footer__link" data-i18n="footer.link.privacy">隐私声明</a></li>
+            <li><a href="#terms" class="site-footer__link" data-i18n="footer.link.terms">使用条款</a></li>
+            <li><span class="site-footer__link site-footer__link--static">© 2026 Lumio</span></li>
+          </ul>
+        </div>
+      </nav>
+    </div>
+
+    {/* 分割线 */}
+    <div class="site-footer__divider"></div>
+
+    {/* 底部信息 — 技术栈 + 致谢 + 版权 */}
+    <div class="site-footer__bottom">
+      <div class="site-footer__tech">
+        <span class="site-footer__tech-label" data-i18n="footer.tech.built">Built with</span>
+        <span class="site-footer__tech-stack">
+          <a href="https://www.electronjs.org/" target="_blank" rel="noopener" class="site-footer__tech-link">Electron</a>
+          <span class="site-footer__tech-sep">+</span>
+          <a href="https://react.dev/" target="_blank" rel="noopener" class="site-footer__tech-link">React</a>
+          <span class="site-footer__tech-sep">+</span>
+          <a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener" class="site-footer__tech-link">FastAPI</a>
+          <span class="site-footer__tech-sep">+</span>
+          <a href="https://www.python.org/" target="_blank" rel="noopener" class="site-footer__tech-link">Python</a>
+        </span>
+      </div>
+
+      <p class="site-footer__legal" data-i18n="footer.legal.line">
+        本软件仅供个人学习使用，请遵守各平台用户协议与当地版权法规 · 不收集任何用户数据
+      </p>
+    </div>
+
+    {/* 隐私 + 条款弹层（点链接展开） */}
+    <details class="site-footer__legal-details" id="privacy">
+      <summary class="site-footer__legal-summary" data-i18n="footer.privacy.summary">隐私声明</summary>
+      <div class="site-footer__legal-body">
+        <p>Lumio 是<strong>完全本地运行</strong>的桌面工具，<strong>不收集任何用户数据</strong>。</p>
+        <ul>
+          <li>所有下载的媒体文件保存在你本机的 <code>~/.lumio/</code> 目录</li>
+          <li>所有配置（Cookie / API Token / 偏好）保存在 <code>~/.lumio/config.json</code>，不会上传到任何服务器</li>
+          <li>历史记录和素材库存于本地 SQLite 数据库 <code>~/.lumio/library.db</code></li>
+          <li>本网站（xksye7.dpdns.org）使用 Cloudflare Pages 托管，仅记录匿名访问统计，不涉及个人身份信息</li>
+          <li>下载链接指向 GitHub Releases CDN，由 GitHub 直接提供，本站不中转任何文件</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="site-footer__legal-details" id="terms">
+      <summary class="site-footer__legal-summary" data-i18n="footer.terms.summary">使用条款</summary>
+      <div class="site-footer__legal-body">
+        <p>使用 Lumio 即表示你已阅读并同意以下条款：</p>
+        <ul>
+          <li>Lumio 基于 <strong>MIT 协议开源</strong>，可免费使用、修改、分发</li>
+          <li>软件按「现状」提供，不作任何明示或暗示的担保</li>
+          <li>用户应自行承担使用本软件下载、存储、分发内容的法律责任</li>
+          <li>请遵守所在地区法律及各平台用户协议，不得用于商业用途或侵权行为</li>
+          <li>下载的内容版权归原作者所有，仅供个人学习使用</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    padding: 3rem 1.5rem 2rem;
+    margin-top: 3rem;
+    background: rgb(var(--color-bg) / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* 主体 — Logo 左，导航右 */
+  .site-footer__main {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  @media (min-width: 768px) {
+    .site-footer__main {
+      grid-template-columns: minmax(200px, 1fr) 2fr;
+      gap: 3rem;
+    }
+  }
+
+  /* 左侧品牌区 */
+  .site-footer__brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .site-footer__version {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+    letter-spacing: 0.04em;
+    margin-top: 0.25rem;
+  }
+  .site-footer__tagline {
+    font-size: 0.875rem;
+    color: rgb(var(--color-text-muted));
+    margin: 0;
+  }
+
+  /* 右侧导航 — 四列 */
+  .site-footer__nav {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+  @media (min-width: 600px) {
+    .site-footer__nav {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  .site-footer__col-title {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgb(var(--color-text-dim));
+    margin: 0 0 0.875rem;
+  }
+
+  .site-footer__col-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .site-footer__link {
+    display: inline-block;
+    font-size: 0.8125rem;
+    color: rgb(var(--color-text-muted));
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .site-footer__link:hover {
+    color: rgb(var(--color-text));
+  }
+  .site-footer__link--static {
+    cursor: default;
+  }
+  .site-footer__link--static:hover {
+    color: rgb(var(--color-text-muted));
+  }
+
+  /* QQ 联系方式 — 特殊样式 */
+  .site-footer__link--contact {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid rgb(var(--color-border) / 0.12);
+    background: rgb(var(--color-text) / 0.02);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .site-footer__link--contact:hover {
+    border-color: rgb(var(--color-accent, #0a84ff) / 0.4);
+    background: rgb(var(--color-accent, #0a84ff) / 0.04);
+  }
+  .site-footer__contact-label {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: rgb(var(--color-text-dim));
+  }
+  .site-footer__contact-value {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+  }
+
+  /* 分割线 */
+  .site-footer__divider {
+    height: 1px;
+    background: rgb(var(--color-border) / 0.08);
+    margin: 2rem 0 1.5rem;
+  }
+
+  /* 底部信息 */
+  .site-footer__bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+  }
+  @media (min-width: 768px) {
+    .site-footer__bottom {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+  }
+
+  .site-footer__tech {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .site-footer__tech-label {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgb(var(--color-text-dim));
+  }
+  .site-footer__tech-stack {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .site-footer__tech-link {
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-muted));
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .site-footer__tech-link:hover {
+    color: rgb(var(--color-text));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .site-footer__tech-sep {
+    color: rgb(var(--color-text-dim));
+    font-size: 0.6875rem;
+  }
+
+  .site-footer__legal {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: rgb(var(--color-text-dim));
+    text-align: center;
+    line-height: 1.6;
+  }
+  @media (min-width: 768px) {
+    .site-footer__legal {
+      flex: 1 1 100%;
+      text-align: center;
+    }
+  }
+
+  /* 隐私 + 条款折叠 */
+  .site-footer__legal-details {
+    margin-top: 1.5rem;
+    border: 1px solid rgb(var(--color-border) / 0.08);
+    background: rgb(var(--color-text) / 0.02);
+  }
+  .site-footer__legal-summary {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: rgb(var(--color-text-muted));
+    user-select: none;
+    list-style: none;
+  }
+  .site-footer__legal-summary::-webkit-details-marker {
+    display: none;
+  }
+  .site-footer__legal-summary::before {
+    content: '▸ ';
+    color: rgb(var(--color-text-dim));
+    margin-right: 0.25rem;
+  }
+  .site-footer__legal-details[open] .site-footer__legal-summary::before {
+    content: '▾ ';
+  }
+
+  .site-footer__legal-body {
+    padding: 0 1rem 1rem;
+    font-size: 0.75rem;
+    line-height: 1.7;
+    color: rgb(var(--color-text-muted));
+  }
+  .site-footer__legal-body p {
+    margin: 0 0 0.5rem;
+  }
+  .site-footer__legal-body ul {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+  }
+  .site-footer__legal-body li {
+    margin-bottom: 0.25rem;
+  }
+  .site-footer__legal-body strong {
+    color: rgb(var(--color-text));
+    font-weight: 600;
+  }
+  .site-footer__legal-body code {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.85em;
+    background: rgb(var(--color-text) / 0.06);
+    padding: 0.1em 0.4em;
+    color: rgb(var(--color-text));
+  }
+</style>

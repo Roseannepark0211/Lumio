@@ -1,0 +1,478 @@
+---
+/**
+ * DownloadDialog.astro — 下载弹窗组件
+ *
+ * 设计：
+ *  - 原生 <dialog> 元素（无障碍 + ESC/Backdrop 自动关闭）
+ *  - **构建时 fetch** GitHub API（Astro SSG frontmatter）
+ *    运行时零 fetch，不受用户网络影响
+ *  - 构建时 fetch 失败 → fallback 指向 /releases/latest 页面（永远可用）
+ *  - 直角基调，与全站风格一致
+ *  - 三平台卡片：Windows / macOS / Linux
+ *  - Linux 展开三个发行版按钮（AppImage / deb / rpm）
+ *
+ * 触发：任意 [data-download-trigger] 元素点击即打开
+ *
+ * 注意：发新 Release 后需重新构建网站（npm run build）才能更新资产列表
+ *       可通过 GitHub Actions 在 release published 时触发网站重建自动化
+ */
+const GITHUB_RELEASES = 'https://github.com/Roseannepark0211/Lumio/releases';
+const GITHUB_RELEASES_LATEST = 'https://github.com/Roseannepark0211/Lumio/releases/latest';
+const API_URL = 'https://api.github.com/repos/Roseannepark0211/Lumio/releases/latest';
+
+interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+interface ReleaseInfo {
+  version: string;
+  assets: ReleaseAsset[];
+}
+
+// 硬编码 fallback — 当前版本（v4.4.2）的资产数据
+// 用于：构建时 fetch 失败（网络问题/限流）+ dev 模式跳过 fetch
+// 发新 Release 后需手动更新此处（或 prod 构建时 fetch 成功则自动覆盖）
+const FALLBACK_RELEASE: ReleaseInfo = {
+  version: '4.4.2',
+  assets: [
+    {
+      name: 'Lumio-Setup-4.4.2.exe',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-Setup-4.4.2.exe',
+      size: 131619392,
+    },
+    {
+      name: 'Lumio-4.4.2-arm64.dmg',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-4.4.2-arm64.dmg',
+      size: 143119085,
+    },
+    {
+      name: 'Lumio-4.4.2-x86_64.AppImage',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-4.4.2-x86_64.AppImage',
+      size: 147954975,
+    },
+    {
+      name: 'lumio_4.4.2_amd64.deb',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/lumio_4.4.2_amd64.deb',
+      size: 135183500,
+    },
+    {
+      name: 'lumio-4.4.2.x86_64.rpm',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/lumio-4.4.2.x86_64.rpm',
+      size: 136263173,
+    },
+  ],
+};
+
+// 构建时 fetch — 仅 prod 模式执行（dev 模式直接用 fallback，避免每次请求卡 8 秒）
+// prod 构建时 fetch 成功 → 用最新数据；失败 → 用硬编码 fallback
+let releaseInfo: ReleaseInfo = FALLBACK_RELEASE;
+if (!import.meta.env.DEV) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(API_URL, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'Lumio-Website',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const json = await res.json();
+      const fetched: ReleaseInfo = {
+        version: (json.tag_name || '').replace(/^v/, ''),
+        assets: (json.assets || [])
+          .filter((a: any) => a.browser_download_url && a.size > 0)
+          .map((a: any) => ({
+            name: a.name as string,
+            url: a.browser_download_url as string,
+            size: a.size as number,
+          })),
+      };
+      if (fetched.version && fetched.assets.length > 0) {
+        releaseInfo = fetched;
+      }
+    }
+  } catch (e) {
+    // 构建时 fetch 失败（网络问题/限流）→ 使用硬编码 fallback
+    console.warn('[DownloadDialog] build-time fetch failed, using fallback:', e);
+  }
+}
+
+// 序列化为 JSON 传给客户端（运行时零 fetch）
+const releaseDataJson = JSON.stringify(releaseInfo);
+---
+
+<dialog id="download-dialog" class="dl-dialog" aria-labelledby="dl-title">
+  <div class="dl-dialog__inner">
+    {/* 顶部 — 标题 + 关闭 */}
+    <header class="dl-dialog__header">
+      <div>
+        <h2 id="dl-title" class="dl-dialog__title" data-i18n="dialog.title">选择你的平台</h2>
+        <p class="dl-dialog__sub">
+          <span data-dl-version>Lumio</span> · <span data-i18n="dialog.sub">MIT License · 开源免费</span>
+        </p>
+      </div>
+      <button
+        type="button"
+        class="dl-dialog__close"
+        aria-label="关闭下载弹窗"
+        data-i18n-attr="aria-label:dialog.close"
+        data-dl-close
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+          <line x1="6" y1="6" x2="18" y2="18"/>
+          <line x1="18" y1="6" x2="6" y2="18"/>
+        </svg>
+      </button>
+    </header>
+
+    {/* 主体 — 平台卡片列表（运行时从构建时数据渲染） */}
+    <div class="dl-dialog__body" data-dl-body>
+      {/* 平台卡片容器（运行时填充） */}
+      <div class="dl-platforms" data-dl-platforms></div>
+
+      {/* Fallback 占位（构建时 fetch 失败时显示，隐藏） */}
+      <div class="dl-fallback" data-dl-fallback hidden>
+        <p class="dl-fallback__title" data-i18n="dialog.fallback.title">前往 GitHub 下载</p>
+        <p class="dl-fallback__hint" data-i18n="dialog.fallback.hint">无法自动获取版本信息，请直接前往 Releases 页面选择对应平台安装包。</p>
+        <a
+          href={GITHUB_RELEASES_LATEST}
+          target="_blank"
+          rel="noopener"
+          class="dl-fallback__btn"
+        >
+          <span data-i18n="dialog.fallback.btn">打开 GitHub Releases</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    {/* 底部 — 查看所有版本 */}
+    <footer class="dl-dialog__footer">
+      <a
+        href={GITHUB_RELEASES}
+        target="_blank"
+        rel="noopener"
+        class="dl-dialog__all"
+        data-i18n="dialog.all"
+      >
+        查看所有版本 →
+      </a>
+    </footer>
+  </div>
+
+  {/* 构建时 release 数据 — 客户端直接读取，零运行时 fetch */}
+  <script type="application/json" id="dl-release-data" set:html={releaseDataJson} />
+</dialog>
+
+<style>
+  /* 弹窗根 — 直角 + 玻璃质感
+     显式居中：position:fixed + inset:0 + margin:auto
+     （<dialog> 默认在不同浏览器表现不一致，Chrome 早期版本会贴左上角） */
+  .dl-dialog {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    width: min(560px, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    padding: 0;
+    border: 1px solid rgb(var(--color-border) / 0.12);
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
+    border-radius: 0;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.10),
+      0 24px 64px -16px rgb(0 0 0 / 0.32);
+    overflow: hidden;
+    animation: dl-fade-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* backdrop — 半透明黑色遮罩 */
+  .dl-dialog::backdrop {
+    background: rgb(0 0 0 / 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: dl-backdrop-in 0.22s ease;
+  }
+
+  @keyframes dl-fade-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes dl-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .dl-dialog__inner {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 2rem);
+  }
+
+  /* 顶部 */
+  .dl-dialog__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem 1.5rem 1.25rem;
+    border-bottom: 1px solid rgb(var(--color-border) / 0.08);
+  }
+
+  .dl-dialog__title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  .dl-dialog__sub {
+    margin: 0.375rem 0 0;
+    font-size: 0.8125rem;
+    color: rgb(var(--color-text-dim));
+    font-family: 'Geist Mono', monospace;
+  }
+
+  .dl-dialog__close {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0;
+    border: 1px solid rgb(var(--color-border) / 0.12);
+    background: transparent;
+    color: rgb(var(--color-text-muted));
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .dl-dialog__close:hover {
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-bg));
+    border-color: rgb(var(--color-text));
+  }
+
+  /* 主体 */
+  .dl-dialog__body {
+    padding: 1.25rem 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  /* 平台卡片 */
+  .dl-platforms {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .dl-platform {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.125rem;
+    border: 1px solid rgb(var(--color-border) / 0.10);
+    background: rgb(var(--color-bg-soft));
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+
+  .dl-platform:hover {
+    border-color: rgb(var(--color-accent) / 0.4);
+    background: rgb(var(--color-accent) / 0.04);
+  }
+
+  .dl-platform__icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(var(--color-text));
+  }
+
+  .dl-platform__info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dl-platform__name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+    margin: 0;
+  }
+
+  .dl-platform__meta {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
+    color: rgb(var(--color-text-dim));
+    font-family: 'Geist Mono', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 主下载按钮 */
+  .dl-platform__btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgb(var(--color-bg));
+    background: rgb(var(--color-text));
+    border: 1px solid rgb(var(--color-text));
+    text-decoration: none;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+  }
+
+  .dl-platform__btn:hover {
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
+    border-color: rgb(var(--color-text));
+  }
+
+  /* Linux 多发行版小按钮组 */
+  .dl-platform__variants {
+    flex-shrink: 0;
+    display: flex;
+    gap: 0.375rem;
+  }
+
+  .dl-variant {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4375rem 0.625rem;
+    border-radius: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: 'Geist Mono', monospace;
+    color: rgb(var(--color-text));
+    background: rgb(var(--color-bg));
+    border: 1px solid rgb(var(--color-border) / 0.18);
+    text-decoration: none;
+    transition: all 0.18s ease;
+  }
+
+  .dl-variant:hover {
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-bg));
+    border-color: rgb(var(--color-text));
+  }
+
+  /* Fallback（构建时 fetch 失败时显示） */
+  .dl-fallback {
+    text-align: center;
+    padding: 1.5rem 0;
+  }
+
+  .dl-fallback__title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgb(var(--color-text));
+    margin: 0 0 0.5rem;
+  }
+
+  .dl-fallback__hint {
+    font-size: 0.8125rem;
+    color: rgb(var(--color-text-dim));
+    margin: 0 0 1.25rem;
+    line-height: 1.5;
+  }
+
+  .dl-fallback__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: rgb(var(--color-bg));
+    background: rgb(var(--color-text));
+    border: 1px solid rgb(var(--color-text));
+    text-decoration: none;
+    transition: all 0.18s ease;
+  }
+
+  .dl-fallback__btn:hover {
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
+    border-color: rgb(var(--color-text));
+  }
+
+  /* 底部 */
+  .dl-dialog__footer {
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid rgb(var(--color-border) / 0.08);
+    text-align: center;
+  }
+
+  .dl-dialog__all {
+    font-size: 0.8125rem;
+    color: rgb(var(--color-text-dim));
+    text-decoration: none;
+    transition: color 0.18s ease;
+  }
+
+  .dl-dialog__all:hover {
+    color: rgb(var(--color-text));
+  }
+
+  /* 移动端 — 全宽 */
+  @media (max-width: 640px) {
+    .dl-dialog {
+      width: calc(100vw - 1rem);
+      max-height: calc(100vh - 1rem);
+    }
+
+    .dl-dialog__header,
+    .dl-dialog__body,
+    .dl-dialog__footer {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+
+    .dl-platform {
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .dl-platform__btn,
+    .dl-platform__variants {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .dl-platform__variants {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* 减少动效偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    .dl-dialog,
+    .dl-dialog::backdrop {
+      animation: none;
+    }
+  }
+
+  /* 隐藏 JSON script */
+  #dl-release-data {
+    display: none;
+  }
+</style>
