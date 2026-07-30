@@ -1,7 +1,7 @@
 {
   "name": "lumio-extension",
   "private": true,
-  "version": "4.4.6",
+  "version": "4.4.7",
   "type": "module",
   "description": "Lumio browser extension - send media to Lumio desktop client",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "npm run icons && tsc -b && vite build",
     "preview": "vite preview",
     "icons": "tsx scripts/generate-icons.ts",
-    "package": "npm run build && cd dist && zip -r lumio-extension-v4.4.6.zip ."
+    "package": "npm run build && cd dist && zip -r lumio-extension-v4.4.7.zip ."
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",

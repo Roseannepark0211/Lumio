@@ -57,6 +57,70 @@ function isIgCdnUrl(url: string): boolean {
   );
 }
 
+/**
+ * 从 IG CDN URL 提取图片唯一标识（用于跨尺寸/跨签名去重）
+ *
+ * ★ IG 图片 URL 格式：
+ *   https://scontent-xxx.cdninstagram.com/v/t51.82787-15/123456789_abc123_n.jpg?_nc_cat=...&oh=xxx&oe=xxx
+ *                                          ↑ 路径中的文件名
+ *   文件名：123456789_abc123_n.jpg
+ *   - 123456789 = file_id（数字）
+ *   - abc123    = file_hash（字母数字）
+ *   - _n        = 尺寸后缀（_n normal / _s small / _o original / _a ...）
+ *
+ * ★ 同一张图的不同尺寸/签名 URL 共享相同的 file_id_hash，
+ *   提取这部分作为去重 key，可避免：
+ *   1. 翻页时 img 元素被重建，新 URL 带不同签名（oh/oe）→ 重复采集
+ *   2. 同一 slide 有主图 + 缩略图导航两个 img 元素（不同尺寸）→ 重复采集
+ *   3. srcset 多档分辨率与 src 默认尺寸 → 重复采集
+ */
+function urlToImageKey(url: string): string {
+  try {
+    const u = new URL(url);
+    const filename = u.pathname.split("/").pop() || "";
+    // 匹配 file_id_hash（数字_字母数字），去掉末尾的尺寸后缀 _n/_s/_o/_a 和扩展名
+    const match = filename.match(/^(\d+_[a-zA-Z0-9]+)(?:_[a-z])?\./);
+    if (match) return match[1];
+    // 回退：用 origin+pathname（去掉查询参数），仍比完整 URL 去重好
+    return u.origin + u.pathname;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * 判断媒体元素是否为"当前可见的 slide"
+ *
+ * ★ IG carousel 翻页时，旧 slide 通常不会被卸载，而是：
+ *   - 父级容器加 aria-hidden="true"（最常见）
+ *   - 或 transform: translateX(...) 移出视口（仍占空间）
+ *   - 或 opacity: 0（透明但仍占空间）
+ *
+ * ★ 判断策略（按可靠性）：
+ *   1. 祖先链有 aria-hidden="true" → 不可见
+ *   2. 元素自身 getBoundingClientRect 宽高为 0 → 不可见
+ *   3. computed style display:none / visibility:hidden → 不可见
+ *   4. 渲染尺寸过小（< 100px）→ 视为缩略图导航，跳过
+ */
+function isMediaVisible(el: Element): boolean {
+  // 1. 祖先链 aria-hidden 检查（carousel 非当前 slide 的标志）
+  let node: Element | null = el;
+  while (node && node !== document.body) {
+    if (node.getAttribute("aria-hidden") === "true") return false;
+    node = node.parentElement;
+  }
+
+  // 2. 自身尺寸检查
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 100 || rect.height < 100) return false;
+
+  // 3. computed style 检查
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+
+  return true;
+}
+
 /** 等待 DOM 媒体元素出现 */
 function waitForMedia(maxWait = 12000, interval = 200): Promise<void> {
   return new Promise((resolve) => {
@@ -215,7 +279,7 @@ function isCarousel(detailRoot: Element): boolean {
  *   - 最大点击 30 次（IG carousel 上限 20 张，留余量）
  *   - 每次点击后等 300ms + 等 img 出现（最多 2s）
  *   - 整体超时 30s（避免卡死）
- *   - URL 去重（seenUrls）
+ *   - 图片内容标识去重（seenImageKeys，基于 file_id_hash，跨尺寸/签名）
  *
  * ★ 副作用：会改变用户当前查看的 slide（翻到最后一张）
  *   可接受：用户右键发送后通常会离开页面
@@ -223,7 +287,7 @@ function isCarousel(detailRoot: Element): boolean {
 async function extractAllCarouselImages(
   detailRoot: Element,
   collectFn: (container: Element) => void,
-  seenUrls: Set<string>,
+  getMediaCount: () => number,
   mediaCountBefore: number,
 ): Promise<void> {
   const MAX_CLICKS = 30;
@@ -240,37 +304,27 @@ async function extractAllCarouselImages(
       break;
     }
 
-    // 记录点击前的 URL 数量
-    const beforeCount = seenUrls.size;
+    // 记录点击前的图片数量
+    const beforeCount = getMediaCount();
 
     // 点击
     nextBtn.click();
     clickCount++;
 
-    // 等待新 img 渲染（300ms 基础 + 最多 2s 等 img 出现）
+    // 等待新 slide 渲染（轮询检测 media_items 是否增长）
+    // 每次点击后等 300ms 让 React 渲染，然后调 collectFn 看是否新增
     await sleep(300);
-    const imgWaitStart = Date.now();
-    while (Date.now() - imgWaitStart < 2000) {
-      // 检查是否有新 img 加载（src 不在 seenUrls 中）
-      const newImgs = detailRoot.querySelectorAll(
-        "img[src*='cdninstagram'], img[src*='fbcdn'], img[src*='scontent']",
-      );
-      let hasNew = false;
-      for (const img of Array.from(newImgs)) {
-        const src = img.getAttribute("src") || "";
-        if (src && !seenUrls.has(src)) {
-          hasNew = true;
-          break;
-        }
-      }
-      if (hasNew) break;
-      await sleep(150);
+    let waited = 0;
+    const WAIT_INTERVAL = 150;
+    const WAIT_MAX = 2500;
+    while (waited < WAIT_MAX) {
+      collectFn(detailRoot);
+      if (getMediaCount() > beforeCount) break;
+      await sleep(WAIT_INTERVAL);
+      waited += WAIT_INTERVAL;
     }
 
-    // 重新采集
-    collectFn(detailRoot);
-
-    const afterCount = seenUrls.size;
+    const afterCount = getMediaCount();
     const newAdded = afterCount - beforeCount;
     console.log(
       `[Lumio-IG] carousel: 第 ${clickCount} 次点击后新增 ${newAdded} 张（总计 ${afterCount}）`,
@@ -289,7 +343,7 @@ async function extractAllCarouselImages(
   }
 
   console.log(
-    `[Lumio-IG] carousel 翻页完成：共点击 ${clickCount} 次，从 ${mediaCountBefore} 张增长到 ${seenUrls.size} 张`,
+    `[Lumio-IG] carousel 翻页完成：共点击 ${clickCount} 次，从 ${mediaCountBefore} 张增长到 ${getMediaCount()} 张`,
   );
 }
 
@@ -367,6 +421,9 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
 
   const media_items: MediaItem[] = [];
   const seenUrls = new Set<string>();
+  // ★ 图片内容标识去重：同一张图的不同尺寸/签名 URL 共享同一 imageKey
+  // 解决 carousel 翻页时 img 重建导致 URL 签名变化、缩略图导航与主图同图不同尺寸等问题
+  const seenImageKeys = new Set<string>();
 
   function addMedia(rawUrl: string, isVideo: boolean, alt?: string): boolean {
     if (!rawUrl || !rawUrl.startsWith("http")) return false;
@@ -375,7 +432,13 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
     if (isAvatarUrl(rawUrl, alt)) return false;
     if (!isVideo && isSmallThumbnail(rawUrl)) return false;
     if (seenUrls.has(rawUrl)) return false;
+
+    // 图片用 file_id_hash 去重（跨尺寸/签名），视频用原始 URL（视频通常无重复）
+    const imageKey = isVideo ? rawUrl : urlToImageKey(rawUrl);
+    if (seenImageKeys.has(imageKey)) return false;
+
     seenUrls.add(rawUrl);
+    seenImageKeys.add(imageKey);
     media_items.push({ url: rawUrl, is_video: isVideo });
     return true;
   }
@@ -396,41 +459,86 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
   if (ogVideoContent) addMedia(ogVideoContent, true);
 
   /**
-   * 从容器内提取所有媒体（video + img + srcset）
-   * ★ 含多图帖子的所有 slide（包括隐藏的，通过 srcset 和 data-src 兜底）
+   * ★ img 元素 src 变化追踪：记录每个 img 元素上次采集的 src
+   *
+   * 用于应对 IG carousel 翻页时的两种 DOM 行为：
+   *   A. img 元素被重建（新元素） → WeakMap 中没有，直接采集
+   *   B. img 元素被复用，src 变了（同元素新图） → 对比上次 src，变化才采集
+   *   C. img 元素被复用，src 没变（同元素同图） → 跳过，避免重复
+   */
+  const collectedImgSrcs = new WeakMap<Element, string>();
+
+  /**
+   * 从容器采集媒体（可见性 + img 元素 src 变化双重去重）
+   *
+   * ★ 修复"只提取3张"和"双倍重复"两个 bug：
+   *
+   * 【只提取3张的原因】
+   *   上一版用 slide WeakSet 去重，回退分支用 container 作为 key，
+   *   翻页后第二次调用 collectFromContainer(detailRoot) 时 container 已在 WeakSet，
+   *   直接 return，导致新 slide 永远不被采集。
+   *
+   * 【双倍重复的原因】
+   *   翻页后旧 slide 仍留在 DOM 中（React 不卸载，只切 aria-hidden），
+   *   每次 collectFromContainer 扫描整个容器，旧 slide 的 img 被再次采集。
+   *   又因为 IG 同图不同尺寸生成不同 file_id，URL 去重失效。
+   *
+   * 【最终方案】
+   *   1. 只采集可见的 img（isMediaVisible：跳过 aria-hidden 的旧 slide）
+   *   2. 用 img 元素 + src 变化检测（同元素同 src 跳过，同元素新 src 采集）
+   *   3. 本次调用内 WeakSet 去重（避免同元素的 src + srcset 重复）
+   *   4. seenUrls / seenImageKeys 全局去重（兜底）
    */
   const collectFromContainer = (container: Element) => {
-    // 视频
-    const vids = container.querySelectorAll("video");
-    for (const v of Array.from(vids)) {
-      const candidates = [v.src, v.querySelector("source")?.src || "", v.currentSrc];
-      for (const u of candidates) addMedia(u, true);
-    }
-
-    // 图片
     const imgSelectors = [
       "img[src*='cdninstagram']",
       "img[src*='fbcdn']",
       "img[src*='scontent']",
+      "img[srcset*='cdninstagram']",
+      "img[srcset*='fbcdn']",
+      "img[srcset*='scontent']",
     ];
-    const cdnImgs = container.querySelectorAll(imgSelectors.join(", "));
-    for (const img of Array.from(cdnImgs)) {
-      const src = img.getAttribute("src");
-      const alt = img.getAttribute("alt") || "";
-      if (src) addMedia(src, false, alt);
+
+    // —— 视频采集 ——
+    const vids = container.querySelectorAll("video");
+    for (const v of Array.from(vids)) {
+      if (!isMediaVisible(v)) continue;
+      const candidates = [v.src, v.querySelector("source")?.src || "", v.currentSrc];
+      for (const u of candidates) addMedia(u, true);
     }
 
-    // srcset 图片（取最高分辨率）
-    const srcsetImgs = container.querySelectorAll(
-      "img[srcset*='cdninstagram'], img[srcset*='fbcdn'], img[srcset*='scontent']",
-    );
-    for (const img of Array.from(srcsetImgs)) {
-      const srcset = img.getAttribute("srcset") || "";
+    // —— 图片采集 ——
+    const allImgs = container.querySelectorAll(imgSelectors.join(", "));
+    const processed = new WeakSet<Element>(); // 本次调用内去重
+    for (const img of Array.from(allImgs)) {
+      if (processed.has(img)) continue;
+      processed.add(img);
+
+      // 跳过不可见的（旧 slide 被 aria-hidden 隐藏 / 缩略图导航尺寸过小）
+      if (!isMediaVisible(img)) continue;
+
       const alt = img.getAttribute("alt") || "";
+      const srcset = img.getAttribute("srcset") || "";
+      const src = img.getAttribute("src") || "";
+
+      // 选出本次要采集的 URL（优先 srcset 最高分辨率，回退 src）
+      let pickedUrl: string | null = null;
       if (srcset) {
-        const bestUrl = pickHighestResFromSrcset(srcset);
-        if (bestUrl) addMedia(bestUrl, false, alt);
+        pickedUrl = pickHighestResFromSrcset(srcset);
       }
+      if (!pickedUrl && src) pickedUrl = src;
+
+      if (!pickedUrl) continue;
+
+      // img 元素 src 变化检测：
+      // - 同元素同 src → 跳过（已采集过）
+      // - 同元素新 src → 采集（翻页时 img 复用，新图）
+      // - 新元素 → 采集
+      const prevSrc = collectedImgSrcs.get(img);
+      if (prevSrc === pickedUrl) continue;
+      collectedImgSrcs.set(img, pickedUrl);
+
+      addMedia(pickedUrl, false, alt);
     }
   };
 
@@ -439,7 +547,7 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
 
     // ★ 方案 A：检测到 carousel 时自动翻页提取完整图片
     // 解决"IG carousel DOM 只渲染当前 slide + 相邻 slide（通常 4 张）"的限制
-    // 通过模拟点击"下一张"按钮逐张翻页，去重合并所有 slide 的图片 URL
+    // 通过模拟点击"下一张"按钮逐张翻页，用可见性 + img 元素 src 变化去重合并所有 slide 的图片
     const initialCount = media_items.length;
     if (isCarousel(detailRoot)) {
       console.log(
@@ -448,7 +556,7 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
       await extractAllCarouselImages(
         detailRoot,
         collectFromContainer,
-        seenUrls,
+        () => media_items.length,
         initialCount,
       );
     }
@@ -495,20 +603,25 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
             for (const u of candidates) addMedia(u, true);
           }
 
-          // embed 页内 img（含 src 和 srcset）
+          // embed 页内 img：合并 src + srcset，避免同一张图加两次
           const embedImgs = doc.querySelectorAll(
-            "img[src*='fbcdn'], img[src*='cdninstagram'], img[src*='scontent']",
+            "img[src*='fbcdn'], img[src*='cdninstagram'], img[src*='scontent'], img[srcset*='fbcdn'], img[srcset*='cdninstagram'], img[srcset*='scontent']",
           );
+          const processedEmbed = new WeakSet<Element>();
           for (const img of Array.from(embedImgs)) {
-            const imgUrl = img.getAttribute("src");
-            const imgAlt = img.getAttribute("alt") || "";
-            if (imgUrl) addMedia(imgUrl, false, imgAlt);
+            if (processedEmbed.has(img)) continue;
+            processedEmbed.add(img);
 
-            // 也尝试 srcset（取最高分辨率）
+            const imgAlt = img.getAttribute("alt") || "";
             const srcset = img.getAttribute("srcset") || "";
+            let added = false;
             if (srcset) {
               const bestUrl = pickHighestResFromSrcset(srcset);
-              if (bestUrl) addMedia(bestUrl, false, imgAlt);
+              if (bestUrl) added = addMedia(bestUrl, false, imgAlt);
+            }
+            if (!added) {
+              const imgUrl = img.getAttribute("src");
+              if (imgUrl) addMedia(imgUrl, false, imgAlt);
             }
           }
         } catch (e) {
