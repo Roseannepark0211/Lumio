@@ -100,7 +100,7 @@ Chrome/Edge 共用（Manifest V3）：
 - content.js 提取 YouTube/X 页面元数据
 - IG 一次性注入 `ig_extract.js` 从 DOM 读取媒体直链（不调 IG API）
 
-详见 [extension/](extension/) 目录。
+详见 [extension-v2/](extension-v2/) 目录。
 
 ## 技术栈
 
