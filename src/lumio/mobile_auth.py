@@ -9,8 +9,11 @@
 安全注意事项：
 - SECRET_KEY 持久化到 ~/.lumio/mobile_secret.key，权限 0600
 - 配对码 6 位数字，5 分钟过期，使用后失效
-- JWT 有效期 30 天，含 device_id + exp + iat
-- 设备撤销后 JWT 立即失效（黑名单机制，每次请求查 devices.json）
+- 双 token：access 2h + refresh 30d（refresh 旋转时旧 jti 加入黑名单）
+- JWT payload 含 device_id / type(access|refresh) / fp / jti(refresh) / exp / iat
+- 设备撤销后所有 JWT 立即失效（每次受保护请求查 devices.json）
+- jti 黑名单持久化到 devices.json 的 revoked_jtis 字段
+- 向后兼容：旧 JWT（无 type 字段）视为 access，仅校验 exp + device_id
 """
 from __future__ import annotations
 
@@ -33,10 +36,13 @@ _APP_DIR = Path.home() / ".lumio"
 _SECRET_FILE = _APP_DIR / "mobile_secret.key"
 _DEVICES_FILE = _APP_DIR / "devices.json"
 
-# JWT 配置
+# JWT 配置（双 token）
 _JWT_ALG = "HS256"
-_JWT_TTL = 30 * 24 * 3600  # 30 天
-_JWT_LEEWAY = 5  # 时钟漂移容忍（秒）
+_JWT_ACCESS_TTL = 2 * 3600          # access token: 2 小时
+_JWT_REFRESH_TTL = 30 * 24 * 3600   # refresh token: 30 天
+_JWT_LEEWAY = 5                     # 时钟漂移容忍（秒）
+# 向后兼容：旧单 token TTL（issue_jwt 保留为兼容入口，不推荐使用）
+_JWT_LEGACY_TTL = 30 * 24 * 3600
 
 # 配对码配置
 _PAIR_CODE_TTL = 5 * 60  # 5 分钟
@@ -45,7 +51,10 @@ _PAIR_CODE_LEN = 6  # 6 位数字
 # 限流配置
 _RATE_LIMIT_PAIR = 5  # /api/auth/pair: 5 次/min/IP
 
-# 全局锁（保护 devices.json + pair_codes + rate_limiter）
+# jti 黑名单自动清理：超过 refresh TTL 的 jti 不再需要保留
+_JTI_CLEANUP_THRESHOLD = _JWT_REFRESH_TTL
+
+# 全局锁（保护 devices.json + pair_codes + rate_limiter + jti 黑名单）
 _lock = threading.RLock()
 
 # 缓存 SECRET_KEY（启动时加载一次）
@@ -56,6 +65,11 @@ _pair_codes: list[dict] = []
 
 # 内存限流桶：{key: [timestamp, ...]}
 _rate_buckets: dict[str, list[float]] = {}
+
+# 内存 jti 黑名单缓存（启动时从 devices.json 加载，避免每次请求读盘）
+# 结构：{jti: revoked_at_unix}
+_jti_blacklist_cache: dict[str, float] = {}
+_jti_blacklist_loaded = False
 
 
 # ============================================================
@@ -153,8 +167,12 @@ def jwt_decode(token: str) -> dict:
 
 
 def issue_jwt(device_id: str) -> tuple[str, int]:
-    """为设备签发新 JWT，返回 (token, expires_at_unix)。"""
-    exp = int(time.time()) + _JWT_TTL
+    """[向后兼容] 为设备签发旧式单 JWT（无 type/fp/jti），返回 (token, expires_at_unix)。
+
+    新代码应使用 issue_access_jwt / issue_refresh_jwt。
+    保留此函数仅为兼容历史调用方（如已部署的旧客户端）。
+    """
+    exp = int(time.time()) + _JWT_LEGACY_TTL
     payload = {
         "device_id": device_id,
         "exp": exp,
@@ -163,22 +181,60 @@ def issue_jwt(device_id: str) -> tuple[str, int]:
     return jwt_encode(payload), exp
 
 
+def issue_access_jwt(device_id: str, fingerprint: str = "") -> tuple[str, int]:
+    """签发 access token（2h 有效）。payload 含 type=access + fp。"""
+    now = int(time.time())
+    exp = now + _JWT_ACCESS_TTL
+    payload = {
+        "device_id": device_id,
+        "type": "access",
+        "fp": fingerprint or "",
+        "exp": exp,
+        "iat": now,
+    }
+    return jwt_encode(payload), exp
+
+
+def issue_refresh_jwt(device_id: str, fingerprint: str = "") -> tuple[str, str, int]:
+    """签发 refresh token（30d 有效），返回 (token, jti, expires_at_unix)。
+
+    jti 用于旋转黑名单：refresh 一次后旧 jti 立即失效。
+    """
+    now = int(time.time())
+    exp = now + _JWT_REFRESH_TTL
+    jti = secrets.token_hex(16)  # 32 位 hex
+    payload = {
+        "device_id": device_id,
+        "type": "refresh",
+        "jti": jti,
+        "fp": fingerprint or "",
+        "exp": exp,
+        "iat": now,
+    }
+    return jwt_encode(payload), jti, exp
+
+
 # ============================================================
 # devices.json 存储与查询
 # ============================================================
 
 def _load_devices() -> dict:
-    """加载 devices.json。结构：{"devices": [...]}"""
+    """加载 devices.json。结构：{"devices": [...], "revoked_jtis": {...}}"""
     if not _DEVICES_FILE.exists():
-        return {"devices": []}
+        return {"devices": [], "revoked_jtis": {}}
     try:
         with open(_DEVICES_FILE, encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict) or "devices" not in data:
-            return {"devices": []}
+        if not isinstance(data, dict):
+            return {"devices": [], "revoked_jtis": {}}
+        # 兼容旧格式（无 revoked_jtis 字段）
+        if "devices" not in data:
+            data["devices"] = []
+        if "revoked_jtis" not in data:
+            data["revoked_jtis"] = {}
         return data
     except Exception:
-        return {"devices": []}
+        return {"devices": [], "revoked_jtis": {}}
 
 
 def _save_devices(data: dict) -> None:
@@ -193,8 +249,55 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ensure_jti_blacklist_loaded() -> None:
+    """懒加载 jti 黑名单到内存（首次调用后缓存，避免每次请求读盘）。"""
+    global _jti_blacklist_loaded
+    if _jti_blacklist_loaded:
+        return
+    with _lock:
+        if _jti_blacklist_loaded:
+            return
+        data = _load_devices()
+        revoked = data.get("revoked_jtis", {})
+        if isinstance(revoked, dict):
+            _jti_blacklist_cache.update(revoked)
+        _jti_blacklist_loaded = True
+
+
+def _is_jti_revoked(jti: str) -> bool:
+    """jti 是否在黑名单中。同时清理过期条目（超过 refresh TTL）。"""
+    if not jti:
+        return False
+    _ensure_jti_blacklist_loaded()
+    return jti in _jti_blacklist_cache
+
+
+def _revoke_jti(jti: str) -> None:
+    """将 jti 加入黑名单并持久化。refresh 旋转时调用。"""
+    if not jti:
+        return
+    _ensure_jti_blacklist_loaded()
+    now = time.time()
+    with _lock:
+        # 清理过期 jti（超过 refresh TTL 的不再需要保留）
+        cutoff = now - _JTI_CLEANUP_THRESHOLD
+        expired = [k for k, v in _jti_blacklist_cache.items() if v < cutoff]
+        for k in expired:
+            del _jti_blacklist_cache[k]
+        # 加入新 jti
+        _jti_blacklist_cache[jti] = now
+        # 持久化
+        data = _load_devices()
+        data["revoked_jtis"] = dict(_jti_blacklist_cache)
+        _save_devices(data)
+
+
 def register_device(device_name: str, device_fingerprint: str) -> dict:
-    """注册新设备，返回设备信息 dict。"""
+    """注册新设备，返回设备信息 dict。
+
+    device_fingerprint 必填（移动端指纹：UA+IP+设备名 hash），
+    用于 access token 校验时比对（防 token 被盗用到其他设备）。
+    """
     with _lock:
         data = _load_devices()
         device_id = secrets.token_hex(8)  # 16 位 hex
@@ -250,7 +353,11 @@ def rename_device(device_id: str, new_name: str) -> Optional[dict]:
 
 
 def revoke_device(device_id: str) -> bool:
-    """撤销设备（吊销其 JWT）。已签发的 JWT 在下次请求时因 revoked=true 失效。"""
+    """撤销设备（吊销其 JWT）。已签发的 JWT 在下次请求时因 revoked=true 失效。
+
+    注意：撤销设备不会撤销该设备的 jti 黑名单（jti 是 refresh token 的一次性 ID，
+    设备已撤销后所有 refresh token 也失效，无需单独清理 jti）。
+    """
     with _lock:
         data = _load_devices()
         for d in data["devices"]:
@@ -329,8 +436,17 @@ def rate_limit_check(key: str, max_count: int, window_sec: int = 60) -> bool:
 # 综合校验：JWT 解码 + 设备未撤销
 # ============================================================
 
-def verify_token(token: str) -> Optional[dict]:
-    """解码 JWT + 检查设备未撤销。返回 payload 或 None。
+def verify_token(token: str, expected_fp: str = "") -> Optional[dict]:
+    """校验 access token（中间件用）。返回 payload 或 None。
+
+    校验项：
+    1. JWT 签名 + exp（jwt_decode）
+    2. device_id 存在 + 设备未撤销
+    3. type == "access"（拒绝 refresh token 用于访问 API）
+       向后兼容：旧 JWT 无 type 字段视为 access
+    4. jti 不在黑名单（access token 无 jti，跳过；refresh token 走 verify_refresh_token）
+    5. fp 比对（可选）：expected_fp 非空时，payload.fp 必须匹配
+       防止 token 被盗用到其他设备（fp = UA+IP hash）
 
     不在此处更新 last_active_at（避免每次受保护请求都写盘）；
     last_active_at 仅在 /api/auth/me / /api/auth/refresh 等低频端点显式调用
@@ -345,7 +461,74 @@ def verify_token(token: str) -> Optional[dict]:
         return None
     if is_device_revoked(device_id):
         return None
+    # type 校验：拒绝 refresh token 用于访问 API
+    token_type = payload.get("type", "access")  # 向后兼容：无 type 视为 access
+    if token_type != "access":
+        return None
+    # fp 强制校验（expected_fp 非空时）
+    if expected_fp:
+        token_fp = payload.get("fp", "")
+        # 旧 JWT 无 fp 字段时跳过比对（向后兼容）
+        if token_fp and token_fp != expected_fp:
+            return None
     return payload
+
+
+def verify_refresh_token(token: str, expected_fp: str = "") -> Optional[dict]:
+    """校验 refresh token（仅 /api/auth/refresh 用）。
+
+    校验项：
+    1. JWT 签名 + exp
+    2. type == "refresh"
+    3. jti 存在且不在黑名单
+    4. device_id 存在 + 设备未撤销
+    5. fp 比对（可选）
+
+    成功后调用方应调用 _revoke_jti(jti) 旋转（旧 refresh 一次性失效）。
+    """
+    try:
+        payload = jwt_decode(token)
+    except JWTError:
+        return None
+    if payload.get("type") != "refresh":
+        return None
+    jti = payload.get("jti", "")
+    if not jti or _is_jti_revoked(jti):
+        return None
+    device_id = payload.get("device_id")
+    if not device_id or is_device_revoked(device_id):
+        return None
+    if expected_fp:
+        token_fp = payload.get("fp", "")
+        if token_fp and token_fp != expected_fp:
+            return None
+    return payload
+
+
+def rotate_refresh_token(old_token: str, expected_fp: str = "") -> Optional[dict]:
+    """refresh token 旋转：校验旧 token → 撤销旧 jti → 签发新 access + refresh。
+
+    返回 {access_token, refresh_token, access_expires_at, refresh_expires_at, device_id}
+    或 None（校验失败）。
+    """
+    payload = verify_refresh_token(old_token, expected_fp)
+    if payload is None:
+        return None
+    device_id = payload["device_id"]
+    old_jti = payload["jti"]
+    fp = payload.get("fp", "")
+    # 撤销旧 jti（一次性使用）
+    _revoke_jti(old_jti)
+    # 签发新 access + refresh
+    access_token, access_exp = issue_access_jwt(device_id, fp)
+    refresh_token, new_jti, refresh_exp = issue_refresh_jwt(device_id, fp)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "access_expires_at": access_exp,
+        "refresh_expires_at": refresh_exp,
+        "device_id": device_id,
+    }
 
 
 def extract_bearer_token(auth_header: str) -> Optional[str]:
