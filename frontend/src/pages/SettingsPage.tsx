@@ -30,6 +30,8 @@ import {
   type ApifyStatus,
   type ApifyUsage,
   type CacheStats,
+  type Device,
+  type PairCodeResponse,
 } from "../api";
 import { useToast } from "../App";
 import { useI18n } from "../i18n";
@@ -154,6 +156,19 @@ export function SettingsPage() {
   const [confirmCookieClear, setConfirmCookieClear] = useState(false);
   const [confirmForceClear, setConfirmForceClear] = useState(false);
   const [confirmTgUnlink, setConfirmTgUnlink] = useState(false);
+
+  // —— 已连接设备（移动设备管理） ——
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [mobilePairCode, setMobilePairCode] = useState<{ code: string; expires_in: number } | null>(null);
+  const [pairCodeLoading, setPairCodeLoading] = useState(false);
+  // 重命名 / 撤销对话框目标设备
+  const [renameTarget, setRenameTarget] = useState<Device | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSubmitting, setRenameSubmitting] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<Device | null>(null);
+  const [revokeSubmitting, setRevokeSubmitting] = useState(false);
 
   // 在事件回调中引用最新 apifyState（避免闭包陈旧）
   const apifyStateRef = useRef<ApifyStatus | null>(null);
@@ -362,6 +377,99 @@ export function SettingsPage() {
       showToast(`解绑失败: ${e}`);
     }
   }, [showToast, tr]);
+
+  // —— 已连接设备：拉取 / 生成配对码 / 重命名 / 撤销 ——
+  const reloadDevices = useCallback(async () => {
+    setDevicesLoading(true);
+    setDevicesError(null);
+    try {
+      const list = await api.listDevices();
+      setDevices(list || []);
+    } catch (e) {
+      setDevicesError(String(e));
+    } finally {
+      setDevicesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadDevices();
+  }, [reloadDevices]);
+
+  const onGenPairCode = useCallback(async () => {
+    if (pairCodeLoading) return;
+    setPairCodeLoading(true);
+    try {
+      const r: PairCodeResponse = await api.genPairCode();
+      setMobilePairCode({ code: r.pair_code, expires_in: r.expires_in });
+    } catch (e) {
+      showToast(`生成配对码失败: ${e}`);
+    } finally {
+      setPairCodeLoading(false);
+    }
+  }, [pairCodeLoading, showToast]);
+
+  const onCopyMobilePairCode = useCallback(async () => {
+    const code = mobilePairCode?.code || "";
+    if (!code) return;
+    try {
+      await api.copyToClipboard(code);
+      showToast(tr("telegram_copied"));
+    } catch (e) {
+      console.warn("copy failed:", e);
+    }
+  }, [mobilePairCode, showToast, tr]);
+
+  // 打开重命名对话框时预填当前设备名
+  const openRenameDialog = useCallback((device: Device) => {
+    setRenameTarget(device);
+    setRenameValue(device.device_name);
+    setRenameSubmitting(false);
+  }, []);
+
+  const onConfirmRename = useCallback(async () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) {
+      showToast(tr("devices_rename_placeholder"));
+      return;
+    }
+    setRenameSubmitting(true);
+    try {
+      const updated = await api.renameDevice(renameTarget.device_id, name);
+      if (updated) {
+        setDevices((prev) =>
+          prev.map((d) => (d.device_id === renameTarget.device_id ? updated : d))
+        );
+        showToast(tr("devices_renamed", { name }));
+        setRenameTarget(null);
+      } else {
+        showToast("重命名失败");
+      }
+    } catch (e) {
+      showToast(`重命名失败: ${e}`);
+    } finally {
+      setRenameSubmitting(false);
+    }
+  }, [renameTarget, renameValue, showToast, tr]);
+
+  const onConfirmRevoke = useCallback(async () => {
+    if (!revokeTarget) return;
+    const target = revokeTarget;
+    setRevokeSubmitting(true);
+    try {
+      await api.revokeDevice(target.device_id);
+      setDevices((prev) =>
+        prev.map((d) => (d.device_id === target.device_id ? { ...d, revoked: true } : d))
+      );
+      showToast(tr("devices_revoked", { name: target.device_name }));
+      setRevokeTarget(null);
+    } catch (e) {
+      showToast(`撤销失败: ${e}`);
+    } finally {
+      setRevokeSubmitting(false);
+    }
+  }, [revokeTarget, showToast, tr]);
 
   // —— Apify 操作 ——
   const onValidateApify = useCallback(async () => {
@@ -885,6 +993,80 @@ export function SettingsPage() {
           )}
         </SettingsCard>
 
+        {/* ---------- 已连接设备（移动设备管理） ---------- */}
+        <SettingsCard
+          icon="📱"
+          iconColor="text-emerald-400"
+          title={tr("devices_section")}
+          desc={tr("devices_section_desc")}
+        >
+          {/* 配对码生成 */}
+          <Row label={tr("devices_pair_code")}>
+            {mobilePairCode ? (
+              <span className="flex-1 font-mono text-lg font-bold tracking-widest text-accent">
+                {mobilePairCode.code}
+              </span>
+            ) : (
+              <span className="flex-1 font-mono text-sm text-text-dim">—</span>
+            )}
+            {mobilePairCode && (
+              <button
+                onClick={onCopyMobilePairCode}
+                className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text"
+              >
+                📋 {tr("telegram_copy_btn")}
+              </button>
+            )}
+            <button
+              onClick={onGenPairCode}
+              disabled={pairCodeLoading}
+              className="rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-40"
+            >
+              ↻ {mobilePairCode ? tr("devices_regenerate") : tr("devices_gen_pair_code")}
+            </button>
+          </Row>
+          {mobilePairCode && (
+            <p className="text-[10px] text-text-dim">
+              {tr("devices_pair_code_hint")} · {Math.floor(mobilePairCode.expires_in / 60)}:{String(mobilePairCode.expires_in % 60).padStart(2, "0")}
+            </p>
+          )}
+
+          {/* 分隔线 */}
+          <div className="my-1 h-px bg-text/10" />
+
+          {/* 设备列表 */}
+          {devicesError ? (
+            <p className="text-xs text-danger">{tr("devices_load_failed")}: {devicesError}</p>
+          ) : devicesLoading && devices.length === 0 ? (
+            <p className="text-xs text-text-muted">{tr("loading")}</p>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-text-dim">{tr("devices_empty")}</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {devices.map((d) => (
+                <DeviceRow
+                  key={d.device_id}
+                  device={d}
+                  tr={tr}
+                  onRename={() => openRenameDialog(d)}
+                  onRevoke={() => setRevokeTarget(d)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* 刷新按钮 */}
+          <div className="flex justify-end">
+            <button
+              onClick={reloadDevices}
+              disabled={devicesLoading}
+              className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text disabled:opacity-40"
+            >
+              ↻ {tr("apify_quota_refresh")}
+            </button>
+          </div>
+        </SettingsCard>
+
         {/* ============================================================ */}
         {/* 分组：下载 */}
         {/* ============================================================ */}
@@ -1194,6 +1376,59 @@ export function SettingsPage() {
         </ModalDialog>
       )}
 
+      {/* 重命名设备对话框 */}
+      {renameTarget && (
+        <ModalDialog
+          title={tr("devices_rename_dialog_title")}
+          onClose={() => setRenameTarget(null)}
+        >
+          <input
+            type="text"
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onConfirmRename();
+            }}
+            placeholder={tr("devices_rename_placeholder")}
+            className="w-full rounded-lg border border-text/15 bg-text/[0.06] px-3 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent/50 focus:outline-none"
+          />
+          <DialogActions
+            onCancel={() => setRenameTarget(null)}
+            onConfirm={onConfirmRename}
+            confirmText={tr("devices_rename")}
+            // 传入禁用态由 DialogActions 不支持，下面按钮直接绑定
+          />
+          {renameSubmitting && (
+            <p className="mt-2 text-xs text-text-muted">{tr("loading")}</p>
+          )}
+        </ModalDialog>
+      )}
+
+      {/* 撤销设备确认对话框 */}
+      {revokeTarget && (
+        <ModalDialog
+          title={tr("devices_revoke_btn")}
+          onClose={() => setRevokeTarget(null)}
+        >
+          <p className="text-sm text-text">
+            {tr("devices_revoke_confirm")}
+          </p>
+          <p className="mt-1 text-xs text-text-muted">
+            {revokeTarget.device_name} · <span className="font-mono">{revokeTarget.device_id}</span>
+          </p>
+          <DialogActions
+            onCancel={() => setRevokeTarget(null)}
+            onConfirm={onConfirmRevoke}
+            confirmText={tr("devices_revoke_btn")}
+            danger
+          />
+          {revokeSubmitting && (
+            <p className="mt-2 text-xs text-text-muted">{tr("loading")}</p>
+          )}
+        </ModalDialog>
+      )}
+
       {/* 检查更新对话框（打开时自动检查 → 显示 release notes → 下载 → 重启安装） */}
       <UpdateDialog open={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} />
     </div>
@@ -1443,6 +1678,72 @@ function DialogActions({
       >
         {confirmText}
       </button>
+    </div>
+  );
+}
+
+// ============================================================
+// 设备行（DeviceRow）— 已连接设备列表项
+// ============================================================
+
+/** 把 ISO 8601 UTC 时间格式化为本地可读字符串（YYYY-MM-DD HH:MM） */
+function formatDeviceTime(iso: string, fallback = "—"): string {
+  if (!iso) return fallback;
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return fallback;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return fallback;
+  }
+}
+
+interface DeviceRowProps {
+  device: Device;
+  /** i18n 翻译函数（由父组件传入，避免每行重复 useI18n） */
+  tr: (key: string, params?: Record<string, string | number>) => string;
+  onRename: () => void;
+  onRevoke: () => void;
+}
+
+function DeviceRow({ device, tr, onRename, onRevoke }: DeviceRowProps) {
+  return (
+    <div className="rounded-lg border border-text/15 bg-text/[0.06] p-3">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate text-sm font-semibold text-text">
+          {device.device_name || "—"}
+        </span>
+        {device.revoked && (
+          <span className="rounded-full border border-text/15 bg-text/[0.06] px-2 py-0.5 text-[10px] font-medium text-text-muted">
+            {tr("devices_revoked_badge")}
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex flex-col gap-0.5 text-[10px] text-text-dim">
+        <span className="font-mono">
+          {tr("devices_paired_at", { time: formatDeviceTime(device.paired_at, tr("devices_unknown_time")) })}
+        </span>
+        <span className="font-mono">
+          {tr("devices_last_active_at", { time: formatDeviceTime(device.last_active_at, tr("devices_unknown_time")) })}
+        </span>
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          onClick={onRename}
+          disabled={device.revoked}
+          className="rounded-lg px-2.5 py-1 text-xs font-medium text-text-muted hover:bg-text/[0.06] hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          ✎ {tr("devices_rename")}
+        </button>
+        <button
+          onClick={onRevoke}
+          disabled={device.revoked}
+          className="rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/20 disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          🗑 {tr("devices_revoke")}
+        </button>
+      </div>
     </div>
   );
 }
