@@ -196,6 +196,17 @@ const platforms = [
       <p class="platform-hint reveal" data-i18n="platforms.hint" style="transition-delay: 0.2s;">
         点击图标跳转官网
       </p>
+
+      {/* 国内用户友好提示 — 让抖音/小红书等国内流量来源的用户第一眼看到"我能用" */}
+      <div class="cn-friendly-banner reveal" style="transition-delay: 0.3s;" role="note">
+        <svg class="cn-friendly-banner__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+        <span class="cn-friendly-banner__text" data-i18n="platforms.cnFriendly">
+          国内用户友好：微博 / 小红书 / 抖音 / B站 / 快手 全部支持，无需任何特殊网络，本地运行开箱即用
+        </span>
+      </div>
     </div>
   </section>
 

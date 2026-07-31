@@ -43,6 +43,7 @@ const dict: Record<Lang, Record<string, string>> = {
     // ─── 平台区 ───
     'platforms.eyebrow': '8 大平台，粘贴就识别',
     'platforms.hint': '点击图标跳转官网',
+    'platforms.cnFriendly': '国内用户友好：微博 / 小红书 / 抖音 / B站 / 快手 全部支持，无需任何特殊网络，本地运行开箱即用',
 
     // ─── 功能卖点 ───
     'features.eyebrow': '§ Features',
@@ -197,6 +198,7 @@ const dict: Record<Lang, Record<string, string>> = {
     // ─── Platforms ───
     'platforms.eyebrow': '8 platforms, auto-detected on paste',
     'platforms.hint': 'Click icon to visit official site',
+    'platforms.cnFriendly': 'Works in mainland China: Weibo / Xiaohongshu / Douyin / Bilibili / Kuaishou are all supported — no VPN required, runs locally out of the box.',
 
     // ─── Features ───
     'features.eyebrow': '§ Features',
