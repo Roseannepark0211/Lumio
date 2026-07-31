@@ -14,6 +14,11 @@
 - 设备撤销后所有 JWT 立即失效（每次受保护请求查 devices.json）
 - jti 黑名单持久化到 devices.json 的 revoked_jtis 字段
 - 向后兼容：旧 JWT（无 type 字段）视为 access，仅校验 exp + device_id
+- 阶段4：JWT payload 含 session_secret（32 字节），HKDF 派生 per-session AES-GCM key
+  - 敏感路径请求/响应用 AES-256-GCM 加密（防中间人嗅探）
+  - 加密格式：base64url(nonce).base64url(ciphertext+tag)
+  - session_secret 在 payload 中明文（base64 可解码），但 HTTPS 已加密传输
+  - 防护层级：HTTPS 防网络嗅探 → 应用层加密防 HTTPS 降级/日志泄露
 """
 from __future__ import annotations
 
@@ -28,6 +33,115 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+# ============================================================
+# AES-256-GCM 加密（阶段4敏感数据加密）
+# ============================================================
+# cryptography 是必需依赖（stdlib 无 AES-GCM）
+# 延迟导入：仅敏感路径才触发，避免 dev mode 无 cryptography 启动失败
+_AESGCM = None
+_HKDF = None
+_hashes = None
+
+
+def _load_crypto():
+    """延迟加载 cryptography 模块。仅敏感路径调用时触发。"""
+    global _AESGCM, _HKDF, _hashes
+    if _AESGCM is not None:
+        return
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives import hashes
+        _AESGCM = AESGCM
+        _HKDF = HKDF
+        _hashes = hashes
+    except ImportError as e:
+        raise RuntimeError(
+            "cryptography package required for sensitive path encryption. "
+            "Install: pip install cryptography"
+        ) from e
+
+
+def _b64url_encode(data: bytes) -> str:
+    """base64url 编码（无 padding）。"""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    """base64url 解码（自动补 padding）。"""
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+def derive_session_key(session_secret: str, purpose: str) -> bytes:
+    """从 session_secret 派生 AES-256 key（32 字节）。
+
+    purpose 区分请求/响应方向：
+    - "req" 客户端加密请求 / 服务端解密请求
+    - "resp" 服务端加密响应 / 客户端解密响应
+
+    HKDF 输入：
+    - IKM: session_secret（base64url 解码为 32 字节）
+    - salt: 固定 "lumio-v1"（版本化，便于未来密钥轮换）
+    - info: purpose.encode()
+    - length: 32（AES-256）
+    """
+    _load_crypto()
+    # session_secret 是 base64url 编码的 32 字节随机数
+    ikm = _b64url_decode(session_secret) if isinstance(session_secret, str) else session_secret
+    hkdf = _HKDF(
+        algorithm=_hashes.SHA256(),
+        length=32,
+        salt=b"lumio-v1",
+        info=purpose.encode("utf-8"),
+    )
+    return hkdf.derive(ikm)
+
+
+def aes_gcm_encrypt(key: bytes, plaintext: bytes) -> str:
+    """AES-256-GCM 加密，返回 base64url(nonce).base64url(ciphertext+tag)。"""
+    _load_crypto()
+    aesgcm = _AESGCM(key)
+    nonce = os.urandom(12)  # GCM 推荐 96 位 nonce
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)  # None = 不带 AAD
+    return f"{_b64url_encode(nonce)}.{_b64url_encode(ciphertext)}"
+
+
+def aes_gcm_decrypt(key: bytes, body: str) -> bytes:
+    """AES-256-GCM 解密，输入 base64url(nonce).base64url(ciphertext+tag)。
+
+    失败抛 ValueError（tag 不匹配 / 格式错误）。
+    """
+    _load_crypto()
+    from cryptography.exceptions import InvalidTag
+    if "." not in body:
+        raise ValueError("invalid encrypted body format (missing '.')")
+    nonce_b64, ct_b64 = body.split(".", 1)
+    nonce = _b64url_decode(nonce_b64)
+    ciphertext = _b64url_decode(ct_b64)
+    aesgcm = _AESGCM(key)
+    try:
+        return aesgcm.decrypt(nonce, ciphertext, None)
+    except InvalidTag as e:
+        raise ValueError("GCM tag mismatch (wrong key or corrupted data)") from e
+
+
+def generate_session_secret() -> str:
+    """生成 32 字节随机 session_secret，返回 base64url 编码字符串。"""
+    return _b64url_encode(os.urandom(32))
+
+
+def encrypt_payload(session_secret: str, purpose: str, plaintext: bytes) -> str:
+    """便捷封装：从 session_secret 派生 key + 加密。"""
+    key = derive_session_key(session_secret, purpose)
+    return aes_gcm_encrypt(key, plaintext)
+
+
+def decrypt_payload(session_secret: str, purpose: str, body: str) -> bytes:
+    """便捷封装：从 session_secret 派生 key + 解密。"""
+    key = derive_session_key(session_secret, purpose)
+    return aes_gcm_decrypt(key, body)
 
 # ============================================================
 # 路径常量
@@ -181,8 +295,12 @@ def issue_jwt(device_id: str) -> tuple[str, int]:
     return jwt_encode(payload), exp
 
 
-def issue_access_jwt(device_id: str, fingerprint: str = "") -> tuple[str, int]:
-    """签发 access token（2h 有效）。payload 含 type=access + fp。"""
+def issue_access_jwt(device_id: str, fingerprint: str = "", session_secret: str = "") -> tuple[str, int]:
+    """签发 access token（2h 有效）。payload 含 type=access + fp + session_secret。
+
+    session_secret 用于阶段4敏感路径 AES-GCM 加解密（HKDF 派生 per-session key）。
+    pair 时生成，refresh 时沿用（rotate_refresh_token 传入）。
+    """
     now = int(time.time())
     exp = now + _JWT_ACCESS_TTL
     payload = {
@@ -192,13 +310,17 @@ def issue_access_jwt(device_id: str, fingerprint: str = "") -> tuple[str, int]:
         "exp": exp,
         "iat": now,
     }
+    # session_secret 可选（向后兼容：旧客户端无此字段时跳过加密）
+    if session_secret:
+        payload["ss"] = session_secret
     return jwt_encode(payload), exp
 
 
-def issue_refresh_jwt(device_id: str, fingerprint: str = "") -> tuple[str, str, int]:
+def issue_refresh_jwt(device_id: str, fingerprint: str = "", session_secret: str = "") -> tuple[str, str, int]:
     """签发 refresh token（30d 有效），返回 (token, jti, expires_at_unix)。
 
     jti 用于旋转黑名单：refresh 一次后旧 jti 立即失效。
+    session_secret 同 access token，便于 refresh 后继续加密通信。
     """
     now = int(time.time())
     exp = now + _JWT_REFRESH_TTL
@@ -211,6 +333,8 @@ def issue_refresh_jwt(device_id: str, fingerprint: str = "") -> tuple[str, str, 
         "exp": exp,
         "iat": now,
     }
+    if session_secret:
+        payload["ss"] = session_secret
     return jwt_encode(payload), jti, exp
 
 
@@ -508,8 +632,10 @@ def verify_refresh_token(token: str, expected_fp: str = "") -> Optional[dict]:
 def rotate_refresh_token(old_token: str, expected_fp: str = "") -> Optional[dict]:
     """refresh token 旋转：校验旧 token → 撤销旧 jti → 签发新 access + refresh。
 
-    返回 {access_token, refresh_token, access_expires_at, refresh_expires_at, device_id}
+    返回 {access_token, refresh_token, access_expires_at, refresh_expires_at, device_id, session_secret}
     或 None（校验失败）。
+
+    session_secret 沿用旧 refresh token 的 ss 字段（保持加密会话连续性）。
     """
     payload = verify_refresh_token(old_token, expected_fp)
     if payload is None:
@@ -517,17 +643,19 @@ def rotate_refresh_token(old_token: str, expected_fp: str = "") -> Optional[dict
     device_id = payload["device_id"]
     old_jti = payload["jti"]
     fp = payload.get("fp", "")
+    ss = payload.get("ss", "")  # 沿用 session_secret
     # 撤销旧 jti（一次性使用）
     _revoke_jti(old_jti)
-    # 签发新 access + refresh
-    access_token, access_exp = issue_access_jwt(device_id, fp)
-    refresh_token, new_jti, refresh_exp = issue_refresh_jwt(device_id, fp)
+    # 签发新 access + refresh（沿用 session_secret）
+    access_token, access_exp = issue_access_jwt(device_id, fp, ss)
+    refresh_token, new_jti, refresh_exp = issue_refresh_jwt(device_id, fp, ss)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "access_expires_at": access_exp,
         "refresh_expires_at": refresh_exp,
         "device_id": device_id,
+        "session_secret": ss,
     }
 
 

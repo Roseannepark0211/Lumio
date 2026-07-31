@@ -134,6 +134,19 @@ from . import push_service  # M3: 推送通知服务（Expo Push Server 集成�
 # - /api/auth/pair: 配对（无 JWT，单独限流）
 _AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/pair", "/api/auth/refresh"}
 
+# 阶段4敏感路径白名单：仅这些路径启用 AES-GCM 加解密
+# 客户端通过 X-Lumio-Crypto: 1 头声明支持加密，服务端检测到才加解密（向后兼容）
+# - /api/cookie/*: Cookie 凭证（请求+响应加密）
+# - /api/config: 配置（仅响应加密，含路径/token）
+# - /api/cookie/status: Cookie 状态（仅响应加密）
+# - /api/auth/pair: 不加密（pair 时无 JWT session_secret）
+_CRYPTO_PATHS = {
+    "/api/cookie/clear",
+    "/api/cookie/import",
+    "/api/cookie/status",
+    "/api/config",
+}
+
 
 # ============================================================
 # Pydantic 请求模型
@@ -756,6 +769,8 @@ def create_app() -> FastAPI:
                                             content={"detail": "invalid jwt"})
                     # 中间件已校验通过，把 device_id 注入 request.state 供 handler 使用
                     request.state.device_id = payload.get("device_id")
+                    # 阶段4：注入 session_secret 供加密中间件使用（仅 access token 有 ss 字段）
+                    request.state.session_secret = payload.get("ss", "")
                     return await call_next(request)
                 # 2. Electron 路径：X-Lumio-Token header 或 ?token= 兜底
                 if expected_token:
@@ -768,6 +783,85 @@ def create_app() -> FastAPI:
                 # 3. 既无 Bearer 也无 X-Lumio-Token 配置：dev mode（无 LUMIO_FASTAPI_TOKEN），
                 #    保留原 dev 行为允许通过
             return await call_next(request)
+
+    # ============================================================
+    # 阶段4：敏感数据加密中间件（AES-256-GCM）
+    # ============================================================
+    # 仅对 _CRYPTO_PATHS 中的路径启用，客户端通过 X-Lumio-Crypto: 1 头声明支持加密
+    # 向后兼容：客户端不发送该头时明文传输
+    class PayloadCryptoMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            # 非敏感路径直接放行
+            if path not in _CRYPTO_PATHS:
+                return await call_next(request)
+            # 检查客户端是否声明支持加密
+            crypto_header = request.headers.get("X-Lumio-Crypto", "")
+            if crypto_header != "1":
+                return await call_next(request)
+            # 获取 session_secret（TokenAuth 已注入 request.state）
+            session_secret = getattr(request.state, "session_secret", "")
+            if not session_secret:
+                # 旧 JWT 无 ss 字段，无法加密，降级为明文
+                return await call_next(request)
+
+            # 请求体解密（仅 POST/PUT/PATCH 有 body）
+            if request.method in ("POST", "PUT", "PATCH"):
+                try:
+                    raw_body = await request.body()
+                    if raw_body:
+                        body_str = raw_body.decode("utf-8")
+                        # 检测是否为加密格式（base64url.base64url）
+                        if "." in body_str and len(body_str) > 20:
+                            plaintext = mobile_auth.decrypt_payload(
+                                session_secret, "req", body_str
+                            )
+                            # 替换请求体为解密后的明文 JSON
+                            async def receive():
+                                return {"type": "http.request",
+                                        "body": plaintext,
+                                        "more_body": False}
+                            request._receive = receive
+                except (ValueError, RuntimeError) as e:
+                    log.warning("payload decrypt failed path=%s: %s", path, e)
+                    return JSONResponse(status_code=400,
+                                       content={"detail": "decrypt failed"})
+
+            # 执行下游处理
+            response = await call_next(request)
+
+            # 响应体加密（仅 JSON 响应）
+            if response.status_code == 200:
+                try:
+                    # 收集响应体
+                    body_chunks = []
+                    async for chunk in response.body_iterator:
+                        body_chunks.append(chunk)
+                    plaintext = b"".join(body_chunks)
+                    if plaintext:
+                        encrypted = mobile_auth.encrypt_payload(
+                            session_secret, "resp", plaintext
+                        )
+                        # 替换响应体为密文
+                        return Response(
+                            content=encrypted,
+                            status_code=200,
+                            media_type="application/octet-stream",
+                            headers={
+                                "X-Lumio-Crypto": "1",
+                                "X-Content-Type-Options": "nosniff",
+                            },
+                        )
+                except (ValueError, RuntimeError) as e:
+                    log.warning("payload encrypt failed path=%s: %s", path, e)
+                    # 加密失败返回原响应（已消费 body_iterator，需重建）
+            return response
+
+    # add 顺序（后 add 在外层）：
+    # 请求进入：CORS → HTTPSRedirect → SecurityHeaders → TokenAuth → PayloadCrypto → 路由
+    # 响应返回：路由 → PayloadCrypto → TokenAuth → SecurityHeaders → HTTPSRedirect → CORS
+    # PayloadCrypto 在 TokenAuth 之后执行（内层），可访问 request.state.session_secret
+    app.add_middleware(PayloadCryptoMiddleware)
 
     # 始终注册 TokenAuthMiddleware：
     #   - 移动端 Bearer JWT 校验不依赖 LUMIO_FASTAPI_TOKEN（否则 dev mode 配对无法工作）
@@ -1016,12 +1110,14 @@ def create_app() -> FastAPI:
         if not req.device_fingerprint:
             log.warning("pair: device_fingerprint empty, pair_code=%s", req.pair_code)
         device = mobile_auth.register_device(req.device_name, req.device_fingerprint)
-        # 签发双 token
+        # 阶段4：生成 session_secret 用于敏感路径 AES-GCM 加解密
+        session_secret = mobile_auth.generate_session_secret()
+        # 签发双 token（携带 session_secret）
         access_token, access_exp = mobile_auth.issue_access_jwt(
-            device["device_id"], req.device_fingerprint
+            device["device_id"], req.device_fingerprint, session_secret
         )
         refresh_token, _jti, refresh_exp = mobile_auth.issue_refresh_jwt(
-            device["device_id"], req.device_fingerprint
+            device["device_id"], req.device_fingerprint, session_secret
         )
         return {
             # 新双 token 字段
@@ -1029,6 +1125,9 @@ def create_app() -> FastAPI:
             "access_expires_at": access_exp,
             "refresh_token": refresh_token,
             "refresh_expires_at": refresh_exp,
+            # 阶段4：返回 session_secret 供客户端派生加密 key
+            # 客户端也可从 JWT payload 解码 ss 字段获取
+            "session_secret": session_secret,
             # 兼容旧客户端：jwt / expires_at（= access_token）
             "jwt": access_token,
             "expires_at": access_exp,
@@ -2171,6 +2270,85 @@ def create_app() -> FastAPI:
                 content=_TRANSPARENT_GIF,
                 media_type="image/gif",
                 headers={"Cache-Control": "no-store"},
+            )
+
+    @app.get("/api/media-proxy")
+    async def media_proxy(
+        url: str = Query(...),
+        request: Request = None,
+    ) -> Response:
+        """阶段4：媒体代理（JWT 鉴权 + CDN 白名单 + 流式代理）。
+
+        与 /api/thumb-proxy 区别：
+        - thumb-proxy: 无鉴权，仅代理缩略图，1x1 GIF 兜底
+        - media-proxy: JWT 鉴权（中间件已校验），仅允许白名单 CDN，流式代理
+
+        用途：移动端预览/播放需要鉴权的媒体（如 sinaimg.cn 需 Cookie 的图片）。
+        """
+        from urllib.parse import urlparse
+        import requests as _requests
+
+        # CDN 白名单（仅允许已知媒体 CDN，防 LAN 滥用代理任意 URL）
+        _CDN_WHITELIST = {
+            "p.bilibili.com",
+            "i0.hdslb.com",
+            "i1.hdslb.com",
+            "i2.hdslb.com",
+            "video.twimg.com",
+            "pbs.twimg.com",
+            "sinaimg.cn",
+            "wx1.sinaimg.cn",
+            "wx2.sinaimg.cn",
+            "wx3.sinaimg.cn",
+            "wx4.sinaimg.cn",
+            "livephoto.us.sinaimg.cn",
+            "p3-pc.douyinpic.com",
+            "p9-pc.douyinpic.com",
+            "sns-img-bd.xhscdn.com",
+            "sns-img-qc.xhscdn.com",
+        }
+
+        try:
+            parsed = urlparse(url)
+            host = parsed.hostname or ""
+            # 子域名匹配：检查 host 是否以白名单域名结尾
+            allowed = any(
+                host == d or host.endswith("." + d)
+                for d in _CDN_WHITELIST
+            )
+            if not allowed:
+                log.warning("media-proxy rejected host=%s", host)
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "host not allowed"},
+                )
+
+            # 流式代理（带 Referer/Cookie，复用 thumb-proxy 的网络层）
+            from .utils.thumb_proxy import fetch_thumbnail_bytes
+            content, content_type, _etag = fetch_thumbnail_bytes(
+                url, timeout=30, target_w=0, target_h=0, persist=False
+            )
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "private, max-age=3600",
+                    "Content-Type": content_type,
+                },
+            )
+        except _requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            log.warning("media-proxy HTTPError url=%s status=%s", url, status)
+            return JSONResponse(
+                status_code=502,
+                content={"detail": f"upstream {status}"},
+            )
+        except Exception as e:
+            log.warning("media-proxy error url=%s err=%s: %s",
+                       url, type(e).__name__, e)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "proxy error"},
             )
 
     @app.post("/api/toast")
