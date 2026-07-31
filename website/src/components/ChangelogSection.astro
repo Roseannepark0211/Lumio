@@ -9,7 +9,7 @@
  *
  * 修改 fallback：发版时同步更新 src/scripts/changelog.ts 的 FALLBACK_RELEASES
  */
-import { FALLBACK_RELEASES, getReleases, formatDate, parseInline } from '../scripts/changelog';
+import { FALLBACK_RELEASES, getReleases, formatDate, parseInline, toSummary } from '../scripts/changelog';
 
 // 服务端渲染用 fallback（client 端会尝试覆盖）
 const INITIAL_RELEASES = FALLBACK_RELEASES;
@@ -38,31 +38,34 @@ const latestVersion = INITIAL_RELEASES[0]?.version || '4.4.2';
       </summary>
 
       <div class="changelog__body" data-changelog-body>
-        {INITIAL_RELEASES.map((release, idx) => (
-          <div class={`changelog__entry${idx === 0 ? ' changelog__entry--latest' : ''}`}>
-            <div class="changelog__entry-head">
-              <span class="changelog__entry-version">V{release.version}</span>
-              <span class="changelog__entry-date">{formatDate(release.date)}</span>
+        {INITIAL_RELEASES.map((release, idx) => {
+          const summary = toSummary(release);
+          return (
+            <div class={`changelog__entry${idx === 0 ? ' changelog__entry--latest' : ''}`}>
+              <div class="changelog__entry-head">
+                <span class="changelog__entry-version">V{release.version}</span>
+                <span class="changelog__entry-date">{formatDate(release.date)}</span>
+              </div>
+              <div class="changelog__entry-body">
+                {summary.sections.map((section) => (
+                  <>
+                    <h4>{section.title}</h4>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li set:html={parseInline(item)}></li>
+                      ))}
+                    </ul>
+                  </>
+                ))}
+              </div>
+              {summary.hasMore && release.url && (
+                <a href={release.url} target="_blank" rel="noopener" class="changelog__entry-link" data-i18n="changelog.entry.link">
+                  查看完整 Release →
+                </a>
+              )}
             </div>
-            <div class="changelog__entry-body">
-              {release.sections.map((section) => (
-                <>
-                  <h4>{section.title}</h4>
-                  <ul>
-                    {section.items.map((item) => (
-                      <li set:html={parseInline(item)}></li>
-                    ))}
-                  </ul>
-                </>
-              ))}
-            </div>
-            {release.url && (
-              <a href={release.url} target="_blank" rel="noopener" class="changelog__entry-link" data-i18n="changelog.entry.link">
-                查看完整 Release →
-              </a>
-            )}
-          </div>
-        ))}
+          );
+        })}
 
         <div class="changelog__footer">
           <a
@@ -81,12 +84,12 @@ const latestVersion = INITIAL_RELEASES[0]?.version || '4.4.2';
 </section>
 
 <script>
-  import { getReleases, formatDate, parseInline } from '../scripts/changelog';
+  import { getReleases, formatDate, parseInline, toSummary } from '../scripts/changelog';
 
   /**
    * 客户端 hydration：
-   *   - fetch GitHub API
-   *   - 成功 → 重渲染所有 entry
+   *   - fetch GitHub API（生产环境走 /api/gh-api/ 镜像）
+   *   - 成功 → 重渲染所有 entry（用摘要模式截断）
    *   - 失败 → 保留 fallback（无需操作）
    */
   async function hydrateChangelog() {
@@ -104,14 +107,15 @@ const latestVersion = INITIAL_RELEASES[0]?.version || '4.4.2';
     // 更新顶部版本徽章
     if (versionBadge) versionBadge.textContent = `V${releases[0].version}`;
 
-    // 重建 entries
+    // 重建 entries（每个版本只显示摘要）
     const entriesHtml = releases.map((release, idx) => {
-      const sectionsHtml = release.sections.map((section) => {
+      const summary = toSummary(release);
+      const sectionsHtml = summary.sections.map((section) => {
         const itemsHtml = section.items.map((item) => `<li>${parseInline(item)}</li>`).join('');
         return `<h4>${section.title}</h4><ul>${itemsHtml}</ul>`;
       }).join('');
 
-      const linkHtml = release.url
+      const linkHtml = summary.hasMore && release.url
         ? `<a href="${release.url}" target="_blank" rel="noopener" class="changelog__entry-link" data-i18n="changelog.entry.link">查看完整 Release →</a>`
         : '';
 

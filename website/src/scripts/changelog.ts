@@ -39,6 +39,61 @@ export interface ParsedRelease {
 }
 
 /* ============================================================================
+ *  摘要模式 — 每个版本最多显示 SUMMARY_MAX_ITEMS 条，超出折叠
+ *  超出部分点击「查看完整 Release」跳转 GitHub
+ *  让官网日志保持简短，避免与 GitHub Release 页面重复
+ * ============================================================================ */
+export const SUMMARY_MAX_ITEMS = 3;
+
+export interface ChangelogSummary {
+  sections: ChangelogSection[];
+  hasMore: boolean; // 是否有被截断的内容
+  totalItems: number;
+}
+
+/**
+ * 将完整 release sections 转为摘要（最多 N 条 items）
+ *
+ * 截断策略：
+ *   - 优先保留前几个 section 的前几条 items
+ *   - 跨 section 累计，达到上限后丢弃剩余
+ *   - hasMore = true 时显示「查看完整 Release」链接
+ */
+export function toSummary(release: { sections: ChangelogSection[] }): ChangelogSummary {
+  const result: ChangelogSection[] = [];
+  let count = 0;
+  let totalItems = 0;
+  let hasMore = false;
+
+  // 先统计总条数
+  for (const section of release.sections) {
+    totalItems += section.items.length;
+  }
+
+  for (const section of release.sections) {
+    if (count >= SUMMARY_MAX_ITEMS) {
+      hasMore = true;
+      break;
+    }
+    const remaining = SUMMARY_MAX_ITEMS - count;
+    const items = section.items.slice(0, remaining);
+    if (items.length < section.items.length) {
+      hasMore = true;
+    }
+    if (items.length > 0) {
+      result.push({ title: section.title, items });
+      count += items.length;
+    }
+  }
+
+  return {
+    sections: result,
+    hasMore: hasMore || totalItems > SUMMARY_MAX_ITEMS,
+    totalItems,
+  };
+}
+
+/* ============================================================================
  *  ⚠️  Fallback 数据 — 网络失败时兜底
  *  保持最新 3 个版本，发版时同步更新此数组
  *  数据来源：GitHub Releases API（https://api.github.com/repos/Roseannepark0211/Lumio/releases）
