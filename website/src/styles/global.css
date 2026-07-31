@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 /* ============================================================
    Lumio 官网 v4 — 直角基调 · Geist 字体 · 暗夜模式
@@ -480,6 +480,54 @@ nav a:focus-visible,
     font-size: 0.75rem;
     color: rgb(var(--color-text-dim));
     letter-spacing: 0.08em;
+  }
+
+  /* ---------- 国内用户友好提示条 ----------
+     紧接在 8 平台徽章下方，让抖音/小红书等国内流量来源的用户
+     第一眼看到"无需特殊网络，开箱即用"，降低 bounce rate。
+     直角基调 + 极轻毛玻璃 + 盾牌图标，与官网 v4 设计语言一致。 */
+  .cn-friendly-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    max-width: 42rem;
+    margin: 1.75rem auto 0;
+    padding: 0.75rem 1.125rem;
+    border: 1px solid rgb(var(--color-border) / 0.16);
+    border-radius: 0; /* 直角基调 */
+    background: rgb(var(--color-surface) / 0.6);
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    color: rgb(var(--color-text-muted));
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+  }
+
+  .cn-friendly-banner__icon {
+    flex-shrink: 0;
+    color: rgb(var(--color-accent, 99 102 241));
+    opacity: 0.85;
+  }
+
+  .cn-friendly-banner__text {
+    /* 中文字号比西文略小，避免一排太长 */
+    font-family: var(--font-sans);
+  }
+
+  [data-lang='en'] .cn-friendly-banner__text {
+    font-size: 0.875rem;
+    letter-spacing: 0.005em;
+  }
+
+  /* 移动端：图标 + 文字左对齐，避免长文本居中难读 */
+  @media (max-width: 640px) {
+    .cn-friendly-banner {
+      justify-content: flex-start;
+      text-align: left;
+      font-size: 0.75rem;
+    }
   }
 
   /* prefers-reduced-motion */
