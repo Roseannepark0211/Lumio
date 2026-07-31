@@ -1053,6 +1053,37 @@ app.on("window-all-closed", async () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+// ============================================================
+// 阶段3传输加密：Electron 证书校验（任务11）
+// - dev mode（!app.isPackaged）：允许 self-signed 证书，方便本地 HTTPS 测试
+// - production mode（app.isPackaged）：默认拒绝无效证书，
+//   仅允许 LUMIO_CERT_FINGERPRINT 环境变量指定的 SHA-256 指纹（逗号分隔）
+// ============================================================
+app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
+  // dev mode：放行所有证书错误（本地 self-signed 方便开发）
+  if (!app.isPackaged) {
+    debugLog(`certificate-error (dev allow): ${url} - ${error}`);
+    event.preventDefault();
+    callback(true);
+    return;
+  }
+  // production mode：校验证书指纹白名单
+  const allowedFingerprints = (process.env.LUMIO_CERT_FINGERPRINT || "")
+    .split(",")
+    .map((f) => f.trim().toLowerCase())
+    .filter(Boolean);
+  const certFp = (certificate.fingerprints?.sha256 || "").toLowerCase();
+  if (allowedFingerprints.length > 0 && certFp && allowedFingerprints.includes(certFp)) {
+    debugLog(`certificate-error (whitelisted): ${url} fp=${certFp}`);
+    event.preventDefault();
+    callback(true);
+    return;
+  }
+  // 默认拒绝（不调用 callback(true)），Electron 会显示证书错误页
+  debugLog(`certificate-error (rejected): ${url} - ${error} fp=${certFp}`);
+  callback(false);
+});
+
 app.on("before-quit", async (e) => {
   if (isQuitting) return;
   e.preventDefault();

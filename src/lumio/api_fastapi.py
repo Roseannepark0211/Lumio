@@ -118,6 +118,7 @@ def _sync_inbox_on_task_status(app_ctx: "AppContext", bus: "EventBus",
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -774,10 +775,47 @@ def create_app() -> FastAPI:
     # 中间件内部三分支：Bearer JWT → X-Lumio-Token → dev mode 放行（无 token 配置时）
     app.add_middleware(TokenAuthMiddleware)
 
+    # ============================================================
+    # 阶段3传输加密：HSTS + 安全头 + HTTPS 重定向 + CORS 白名单
+    # ============================================================
+    # HSTS（HTTP Strict Transport Security）+ 安全响应头中间件
+    # 仅在 HTTPS 请求响应中添加 HSTS（HTTP 响应添加 HSTS 会被中间人利用）
+    # dev mode（本地 127.0.0.1）不添加 HSTS，避免开发时证书问题
+    class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            # 仅 HTTPS 请求添加 HSTS（防中间人降级）
+            if request.url.scheme == "https":
+                response.headers["Strict-Transport-Security"] = \
+                    "max-age=63072000; includeSubDomains; preload"  # 2 年
+            # 通用安全头（HTTP/HTTPS 均添加）
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            return response
+
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # HTTPS 强制重定向（仅外网部署启用，dev mode 关闭）
+    # 通过 LUMIO_FORCE_HTTPS=1 启用，Cloudflare Tunnel/Tailscale Funnel 部署时设置
+    if os.environ.get("LUMIO_FORCE_HTTPS", "") == "1":
+        app.add_middleware(HTTPSRedirectMiddleware)
+        log.info("HTTPS redirect enabled (LUMIO_FORCE_HTTPS=1)")
+
+    # CORS 白名单：从 LUMIO_CORS_ORIGINS 环境变量读取（逗号分隔）
+    # 未设置时回退到 ["*"]（dev mode 兼容）
+    # 外网部署示例：LUMIO_CORS_ORIGINS=https://lumio.example.com,https://app.lumio.io
+    cors_env = os.environ.get("LUMIO_CORS_ORIGINS", "").strip()
+    if cors_env:
+        cors_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+        log.info("CORS origins: %s", cors_origins)
+    else:
+        cors_origins = ["*"]  # dev mode 兼容
     # 后 add CORSMiddleware（外层）— 必须最后 add 才能在最外层
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 桌面应用本地调用，无敏感风险
+        allow_origins=cors_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
