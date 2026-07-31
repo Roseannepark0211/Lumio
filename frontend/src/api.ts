@@ -294,6 +294,29 @@ export interface TelegramValidateResult {
   error?: string;
 }
 
+// ============================================================
+// SettingsPage: 移动设备管理（FastAPI 安全阶段 2）
+// 与 src/lumio/mobile_auth.py register_device 返回字段对齐
+// ============================================================
+
+/** 已配对设备（GET /api/devices 列表项） */
+export interface Device {
+  device_id: string;
+  device_name: string;
+  device_fingerprint: string;
+  /** ISO 8601 UTC 字符串 */
+  paired_at: string;
+  last_active_at: string;
+  /** 已撤销的设备 JWT 立即失效 */
+  revoked: boolean;
+}
+
+/** /api/auth/pair-code 响应 */
+export interface PairCodeResponse {
+  pair_code: string;
+  expires_in: number;
+}
+
 /** Apify 配置状态（持久） */
 export interface ApifyStatus {
   token_configured: boolean;
@@ -504,16 +527,24 @@ async function del<T>(path: string): Promise<T> {
     headers: authHeaders(),
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
-  return r.json() as Promise<T>;
+  // 204 No Content / 空 body 时不解析 JSON
+  if (r.status === 204) return undefined as T;
+  const text = await r.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
-async function patch<T>(path: string): Promise<T> {
+async function patch<T>(path: string, body?: unknown): Promise<T> {
+  const hasBody = body !== undefined;
   const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "PATCH",
-    headers: authHeaders(),
+    headers: authHeaders(hasBody ? { "Content-Type": "application/json" } : undefined),
+    body: hasBody ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
-  return r.json() as Promise<T>;
+  // 204 No Content / 空 body 时不解析 JSON
+  if (r.status === 204) return undefined as T;
+  const text = await r.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 // ============================================================
@@ -740,6 +771,18 @@ export const api = {
   getApifyStatus: () => get<ApifyStatus>("/api/apify/status"),
   refreshApifyUsage: () => post<{ ok: boolean; cached?: boolean }>("/api/apify/refresh-usage"),
   forceRefreshApifyUsage: () => post<{ ok: boolean }>("/api/apify/force-refresh-usage"),
+
+  // —— SettingsPage: 移动设备管理（FastAPI 安全阶段 2） ——
+  /** 生成 6 位配对码（5 分钟过期）。桌面端无需鉴权，限流 5/min/IP。 */
+  genPairCode: () => post<PairCodeResponse>("/api/auth/pair-code"),
+  /** 列出所有已配对设备 */
+  listDevices: () => get<Device[]>("/api/devices"),
+  /** 重命名设备（PATCH body: {device_name}） */
+  renameDevice: (deviceId: string, newName: string) =>
+    patch<Device>(`/api/devices/${encodeURIComponent(deviceId)}`, { device_name: newName }),
+  /** 撤销设备（吊销 JWT）。返回 204 No Content。 */
+  revokeDevice: (deviceId: string) =>
+    del<void>(`/api/devices/${encodeURIComponent(deviceId)}`),
 
   // —— SettingsPage: 缓存管理 ——
   getCacheStats: () => get<CacheStats>("/api/cache/stats"),
