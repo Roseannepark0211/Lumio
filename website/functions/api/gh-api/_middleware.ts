@@ -1,5 +1,5 @@
 /**
- * Cloudflare Pages Function — GitHub API 反代
+ * Cloudflare Pages Function — GitHub API 反代（中间件版）
  *
  * 路径格式：
  *   /api/gh-api/repos/<owner>/<repo>/releases
@@ -17,6 +17,11 @@
  * 与 /api/gh/ 的区别：
  *   - /api/gh/    → 反代 github.com（下载 Release 资产，二进制流）
  *   - /api/gh-api → 反代 api.github.com（JSON API，小体积）
+ *
+ * 为什么用 _middleware.ts 而不是 [[...path]].ts：
+ *   Cloudflare Pages Functions 不支持 [[...name]] 这种带 "..." 的 catch-all 语法，
+ *   参数名只能包含字母数字和下划线。
+ *   _middleware.ts 是官方推荐的 catch-all 方案，会匹配该目录及所有子路径。
  *
  * 免费额度：Cloudflare Pages Functions 每日 10 万次调用。
  */

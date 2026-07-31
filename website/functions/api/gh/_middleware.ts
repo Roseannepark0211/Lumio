@@ -1,5 +1,5 @@
 /**
- * Cloudflare Pages Function — GitHub Release 下载反代
+ * Cloudflare Pages Function — GitHub Release 下载反代（中间件版）
  *
  * 路径格式：
  *   /api/gh/<owner>/<repo>/releases/download/<tag>/<file>
@@ -15,6 +15,11 @@
  *   3. 流式回传响应（支持大文件，100MB+ 安装包无压力）
  *   4. 客户端只与 Cloudflare CDN 通信，不直连 GitHub
  *
+ * 为什么用 _middleware.ts 而不是 [[...path]].ts：
+ *   Cloudflare Pages Functions 不支持 [[...name]] 这种带 "..." 的 catch-all 语法，
+ *   参数名只能包含字母数字和下划线。
+ *   _middleware.ts 是官方推荐的 catch-all 方案，会匹配该目录及所有子路径。
+ *
  * 安全限制：
  *   - 仅代理 github.com（防止被滥用为开放代理）
  *   - 仅允许 GET / HEAD 方法
@@ -27,10 +32,6 @@ interface Env {
   // 如需未来扩展（如鉴权 token），可在此声明
 }
 
-/**
- * Cloudflare Pages Function 上下文类型
- * （不引入 @cloudflare/workers-types，保持依赖精简）
- */
 interface PagesFunctionContext<E = unknown> {
   request: Request;
   env: E;
