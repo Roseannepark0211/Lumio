@@ -131,7 +131,7 @@ from . import push_service  # M3: 推送通知服务（Expo Push Server 集成�
 # - /api/health: 心跳，移动端 useNetworkStatus 用
 # - /api/auth/pair-code: 生成配对码（无 JWT，单独限流）
 # - /api/auth/pair: 配对（无 JWT，单独限流）
-_AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/pair"}
+_AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/pair", "/api/auth/refresh"}
 
 
 # ============================================================
@@ -216,6 +216,19 @@ class PairRequest(BaseModel):
     """移动端配对请求（POST /api/auth/pair）。"""
     pair_code: str = Field(..., min_length=6, max_length=6)
     device_name: str = ""
+    # 设备指纹：UA + IP hash（移动端生成）。强烈建议非空，用于 access token 防盗用比对。
+    # 保持默认空字符串以兼容旧客户端，但会在日志中警告。
+    device_fingerprint: str = ""
+
+
+class RefreshRequest(BaseModel):
+    """refresh token 旋转请求（POST /api/auth/refresh）。
+
+    refresh_token 由客户端 body 提交（不再依赖中间件注入 device_id，
+    因 refresh token 不走 access 中间件）。
+    """
+    refresh_token: str
+    # 可选：客户端再次提交 fingerprint，用于服务端比对 JWT 内 fp
     device_fingerprint: str = ""
 
 
@@ -700,6 +713,18 @@ def create_app() -> FastAPI:
     #       都带 CORS 头，否则浏览器报 CORS 错误而非真实的 401
     expected_token = os.environ.get("LUMIO_FASTAPI_TOKEN", "")
 
+    def _build_request_fingerprint(request: Request) -> str:
+        """服务端基于请求生成设备指纹：SHA256(UA + "|" + IP) 取前 16 hex。
+
+        与移动端约定一致（移动端在 pair 时提交相同算法的 fp，存入 device 记录）。
+        用于 verify_token 比对：access token 内 fp 必须与当前请求 fp 匹配，
+        防 token 被盗用到其他设备/网络。
+        """
+        ua = request.headers.get("User-Agent", "")
+        ip = request.client.host if request.client else "unknown"
+        import hashlib
+        return hashlib.sha256(f"{ua}|{ip}".encode("utf-8")).hexdigest()[:16]
+
     class TokenAuthMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
             # BaseHTTPMiddleware 对 WebSocket scope 处理有 bug：
@@ -713,15 +738,18 @@ def create_app() -> FastAPI:
             if request.scope.get("type") == "websocket":
                 return await call_next(request)
             # 鉴权策略：移动端 Bearer JWT 或 Electron X-Lumio-Token，任一通过即可
-            # 白名单（/api/health / /api/auth/pair-code / /api/auth/pair）+ OPTIONS 不鉴权
+            # 白名单（/api/health / /api/auth/pair-code / /api/auth/pair / /api/auth/refresh）+ OPTIONS 不鉴权
             path = request.url.path
             if path.startswith("/api/") and request.method != "OPTIONS" \
                     and path not in _AUTH_WHITELIST:
-                # 1. 移动端路径：Authorization: Bearer <jwt>
+                # 1. 移动端路径：Authorization: Bearer <access_jwt>
                 bearer = mobile_auth.extract_bearer_token(
                     request.headers.get("Authorization", ""))
                 if bearer:
-                    payload = mobile_auth.verify_token(bearer)
+                    # 服务端生成当前请求指纹，传给 verify_token 比对
+                    # （旧 JWT 无 fp 字段时跳过比对，向后兼容）
+                    req_fp = _build_request_fingerprint(request)
+                    payload = mobile_auth.verify_token(bearer, expected_fp=req_fp)
                     if payload is None:
                         return JSONResponse(status_code=401,
                                             content={"detail": "invalid jwt"})
@@ -930,9 +958,13 @@ def create_app() -> FastAPI:
 
     @app.post("/api/auth/pair")
     async def pair(req: PairRequest, request: Request) -> dict:
-        """配对：校验配对码 + 注册设备 + 签发 JWT。
+        """配对：校验配对码 + 注册设备 + 签发 access + refresh 双 token。
 
-        限流 5/min/IP。成功后返回 JWT (30 天有效) + device_id + host_version。
+        限流 5/min/IP。成功后返回：
+        - access_token (2h) + access_expires_at
+        - refresh_token (30d) + refresh_expires_at
+        - device_id + host_version
+        - [兼容] jwt / expires_at 字段（= access_token，供旧客户端使用）
         """
         client_ip = request.client.host if request.client else "unknown"
         if not mobile_auth.rate_limit_check(f"pair:{client_ip}", 5):
@@ -942,11 +974,26 @@ def create_app() -> FastAPI:
                 status_code=401,
                 content={"detail": "invalid or expired pair code"},
             )
+        # 设备指纹为空时记日志（不阻断，保持向后兼容）
+        if not req.device_fingerprint:
+            log.warning("pair: device_fingerprint empty, pair_code=%s", req.pair_code)
         device = mobile_auth.register_device(req.device_name, req.device_fingerprint)
-        token, exp = mobile_auth.issue_jwt(device["device_id"])
+        # 签发双 token
+        access_token, access_exp = mobile_auth.issue_access_jwt(
+            device["device_id"], req.device_fingerprint
+        )
+        refresh_token, _jti, refresh_exp = mobile_auth.issue_refresh_jwt(
+            device["device_id"], req.device_fingerprint
+        )
         return {
-            "jwt": token,
-            "expires_at": exp,
+            # 新双 token 字段
+            "access_token": access_token,
+            "access_expires_at": access_exp,
+            "refresh_token": refresh_token,
+            "refresh_expires_at": refresh_exp,
+            # 兼容旧客户端：jwt / expires_at（= access_token）
+            "jwt": access_token,
+            "expires_at": access_exp,
             "device_id": device["device_id"],
             "host_version": __import__("lumio").__version__,
         }
@@ -971,19 +1018,34 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/api/auth/refresh")
-    async def auth_refresh(request: Request) -> dict:
-        """旧 JWT 换新 JWT（延长 exp）。"""
-        device_id = getattr(request.state, "device_id", None)
-        if not device_id:
-            return JSONResponse(status_code=401, content={"detail": "no device"})
-        if mobile_auth.is_device_revoked(device_id):
-            return JSONResponse(status_code=401, content={"detail": "device revoked"})
-        token, exp = mobile_auth.issue_jwt(device_id)
-        mobile_auth.touch_device_active(device_id)
+    async def auth_refresh(req: RefreshRequest, request: Request) -> dict:
+        """refresh token 旋转：旧 refresh → 新 access + 新 refresh。
+
+        此端点在 _AUTH_WHITELIST 中（不走 access 中间件），自行校验 refresh token。
+        一次性使用：旧 refresh 的 jti 立即加入黑名单。
+
+        成功返回 access_token + refresh_token + expires_at。
+        失败返回 401（refresh token 无效/已旋转/已撤销/设备已撤销）。
+        """
+        client_ip = request.client.host if request.client else "unknown"
+        if not mobile_auth.rate_limit_check(f"refresh:{client_ip}", 10):
+            return JSONResponse(status_code=429, content={"detail": "rate limit"})
+        result = mobile_auth.rotate_refresh_token(req.refresh_token, req.device_fingerprint)
+        if result is None:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "invalid or expired refresh token"},
+            )
+        mobile_auth.touch_device_active(result["device_id"])
         return {
-            "jwt": token,
-            "expires_at": exp,
-            "device_id": device_id,
+            "access_token": result["access_token"],
+            "access_expires_at": result["access_expires_at"],
+            "refresh_token": result["refresh_token"],
+            "refresh_expires_at": result["refresh_expires_at"],
+            # 兼容旧客户端
+            "jwt": result["access_token"],
+            "expires_at": result["access_expires_at"],
+            "device_id": result["device_id"],
             "host_version": __import__("lumio").__version__,
         }
 
