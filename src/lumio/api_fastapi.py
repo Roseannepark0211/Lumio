@@ -125,6 +125,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .utils.config import load_config, save_config, get_download_dir, get_cookie_path
 from .i18n import t as _i18n_t, set_lang as _i18n_set_lang
 from . import mobile_auth  # 移动端鉴权：JWT + 设备 + 配对 + 限流
+from . import push_service  # M3: 推送通知服务（Expo Push Server 集成）
 
 # 鉴权白名单：以下 /api/ 路径不需要 JWT/X-Lumio-Token
 # - /api/health: 心跳，移动端 useNetworkStatus 用
@@ -223,6 +224,11 @@ class MobileEnqueueRequest(BaseModel):
     url: str
     platform: str = ""
     device_id: str | None = None
+
+class PushRegisterRequest(BaseModel):
+    """移动端 push token 注册请求（POST /api/push/register）。"""
+    push_token: str
+    categories: list[str] = []  # 默认全部订阅
 
 
 class DeviceRenameRequest(BaseModel):
@@ -757,6 +763,7 @@ def create_app() -> FastAPI:
         loop = asyncio.get_event_loop()
         ctx["loop"] = loop
         ctx["bus"] = EventBus(loop)
+        push_service.install_event_hook(ctx["bus"])  # M3: 安装 push 事件钩子
         ctx["app_ctx"] = AppContext()
         # 绑定 Qt Signal → EventBus
         _wire_signals(ctx["app_ctx"], ctx["bus"])
@@ -1060,6 +1067,52 @@ def create_app() -> FastAPI:
 
         asyncio.create_task(_run())
         return {"request_id": request_id, "status": "parsing"}
+
+# ============================================================
+    # 1.7. 推送通知（M3，新增）
+    # ============================================================
+
+    @app.post("/api/push/register")
+    async def push_register(req: PushRegisterRequest, request: Request) -> dict:
+        """注册设备的 Expo Push Token。
+
+        鉴权：JWT（device_id 从 Authorization Bearer 提取）。
+        幂等：同一 device_id 多次注册覆盖旧 token。
+        """
+        device_id = request.state.device_id  # TokenAuthMiddleware 注入
+        if not device_id:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        ok = push_service.register_push_token(
+            device_id=device_id,
+            push_token=req.push_token,
+            categories=req.categories,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="invalid token")
+        return {"registered": True, "device_id": device_id}
+
+    @app.delete("/api/push/register")
+    async def push_unregister(request: Request) -> dict:
+        """注销 push token（关闭通知 / 解除配对时调用）。"""
+        device_id = request.state.device_id
+        if device_id:
+            push_service.unregister_push_token(device_id)
+        return {"unregistered": True}
+
+    @app.post("/api/push/test")
+    async def push_test(request: Request) -> dict:
+        """发送测试推送（设置页"测试通知"按钮触发）。"""
+        device_id = request.state.device_id
+        if not device_id:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        sent = push_service.send_test_push(device_id)
+        if not sent:
+            # 没注册 push token 或发送失败
+            raise HTTPException(
+                status_code=409,
+                detail="no push token registered or send failed",
+            )
+        return {"sent": True}
 
     # ============================================================
     # 2. URL 解析（异步，结果走 WebSocket）
