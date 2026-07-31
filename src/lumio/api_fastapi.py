@@ -124,6 +124,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .utils.config import load_config, save_config, get_download_dir, get_cookie_path
 from .i18n import t as _i18n_t, set_lang as _i18n_set_lang
+from . import mobile_auth  # 移动端鉴权：JWT + 设备 + 配对 + 限流
+
+# 鉴权白名单：以下 /api/ 路径不需要 JWT/X-Lumio-Token
+# - /api/health: 心跳，移动端 useNetworkStatus 用
+# - /api/auth/pair-code: 生成配对码（无 JWT，单独限流）
+# - /api/auth/pair: 配对（无 JWT，单独限流）
+_AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/pair"}
 
 
 # ============================================================
@@ -202,6 +209,25 @@ class OpenExternalUrlRequest(BaseModel):
 
 class ToastRequest(BaseModel):
     message: str
+
+
+class PairRequest(BaseModel):
+    """移动端配对请求（POST /api/auth/pair）。"""
+    pair_code: str = Field(..., min_length=6, max_length=6)
+    device_name: str = ""
+    device_fingerprint: str = ""
+
+
+class MobileEnqueueRequest(BaseModel):
+    """移动端入队请求（POST /api/mobile/enqueue）。"""
+    url: str
+    platform: str = ""
+    device_id: str | None = None
+
+
+class DeviceRenameRequest(BaseModel):
+    """设备重命名请求（PATCH /api/devices/{id}）。"""
+    device_name: str
 
 
 class ParseUrlRequest(BaseModel):
@@ -366,23 +392,27 @@ def _task_to_dict(qt) -> dict:
     return {
         "task_id": qt.task_id,
         "url": qt.url,
+        "format_id": getattr(qt, "format_id", "") or "",
+        "format_type": getattr(qt, "format_type", "") or "",
+        "output_dir": qt.output_dir or "",
+        "custom_name": getattr(qt, "custom_name", "") or "",
+        "batch_id": getattr(qt, "batch_id", "") or "",
         "direct_url": getattr(qt, "direct_url", "") or "",
+        "media_items_json": getattr(qt, "media_items_json", "") or "",
         "title": qt.title or "",
+        "platform": qt.platform or "",
+        "author": qt.author or "",
+        "post_time": qt.post_time or "",
+        "thumbnail_url": qt.thumbnail_url or "",
         "status": qt.status,
         "progress": getattr(qt, "progress", 0.0),
         "speed": getattr(qt, "speed", "") or "",
         "filename": getattr(qt, "filename", "") or "",
-        "thumbnail_url": qt.thumbnail_url or "",
-        "platform": qt.platform or "",
-        "author": qt.author or "",
-        "post_time": qt.post_time or "",
-        "output_dir": qt.output_dir or "",
-        "custom_name": getattr(qt, "custom_name", "") or "",
         "error": getattr(qt, "error", "") or "",
         "media_type": getattr(qt, "media_type", "") or "",
         "retry_count": getattr(qt, "retry_count", 0),
-        "media_items_json": getattr(qt, "media_items_json", "") or "",
-        "batch_id": getattr(qt, "batch_id", "") or "",
+        "max_retries": getattr(qt, "max_retries", 3),
+        "created_at": getattr(qt, "created_at", 0.0),
     }
 
 
@@ -676,24 +706,39 @@ def create_app() -> FastAPI:
             # WS 鉴权改在 ws_events 内部用 query token 检查
             if request.scope.get("type") == "websocket":
                 return await call_next(request)
-            if expected_token and request.url.path.startswith("/api/"):
-                # /api/health 不鉴权（Electron 主进程轮询用）
-                # OPTIONS 预检请求不鉴权（浏览器自动发，不带 token；由 CORSMiddleware 处理）
-                if request.url.path != "/api/health" and request.method != "OPTIONS":
-                    token = request.headers.get("X-Lumio-Token", "")
-                    # <img src>/WS 等浏览器原生请求无法带 header，支持 ?token=xxx query 兜底
-                    if not token:
-                        token = request.query_params.get("token", "")
-                    if token != expected_token:
-                        return JSONResponse(
-                            status_code=401,
-                            content={"detail": "invalid token"},
-                        )
+            # 鉴权策略：移动端 Bearer JWT 或 Electron X-Lumio-Token，任一通过即可
+            # 白名单（/api/health / /api/auth/pair-code / /api/auth/pair）+ OPTIONS 不鉴权
+            path = request.url.path
+            if path.startswith("/api/") and request.method != "OPTIONS" \
+                    and path not in _AUTH_WHITELIST:
+                # 1. 移动端路径：Authorization: Bearer <jwt>
+                bearer = mobile_auth.extract_bearer_token(
+                    request.headers.get("Authorization", ""))
+                if bearer:
+                    payload = mobile_auth.verify_token(bearer)
+                    if payload is None:
+                        return JSONResponse(status_code=401,
+                                            content={"detail": "invalid jwt"})
+                    # 中间件已校验通过，把 device_id 注入 request.state 供 handler 使用
+                    request.state.device_id = payload.get("device_id")
+                    return await call_next(request)
+                # 2. Electron 路径：X-Lumio-Token header 或 ?token= 兜底
+                if expected_token:
+                    token = request.headers.get("X-Lumio-Token", "") \
+                        or request.query_params.get("token", "")
+                    if token == expected_token:
+                        return await call_next(request)
+                    return JSONResponse(status_code=401,
+                                        content={"detail": "invalid token"})
+                # 3. 既无 Bearer 也无 X-Lumio-Token 配置：dev mode（无 LUMIO_FASTAPI_TOKEN），
+                #    保留原 dev 行为允许通过
             return await call_next(request)
 
-    if expected_token:
-        # 先 add TokenAuthMiddleware（内层）
-        app.add_middleware(TokenAuthMiddleware)
+    # 始终注册 TokenAuthMiddleware：
+    #   - 移动端 Bearer JWT 校验不依赖 LUMIO_FASTAPI_TOKEN（否则 dev mode 配对无法工作）
+    #   - expected_token 仅决定 Electron 路径（X-Lumio-Token）校验严格度
+    # 中间件内部三分支：Bearer JWT → X-Lumio-Token → dev mode 放行（无 token 配置时）
+    app.add_middleware(TokenAuthMiddleware)
 
     # 后 add CORSMiddleware（外层）— 必须最后 add 才能在最外层
     app.add_middleware(
@@ -859,6 +904,162 @@ def create_app() -> FastAPI:
     @app.get("/api/queue/check-url-duplicate")
     async def check_url_duplicate(url: str = Query(...)) -> dict:
         return {"duplicate": bool(_ctx().manager.check_url_duplicate(url))}
+
+    # ============================================================
+    # 1.5. 移动端鉴权 / 配对 / 设备管理（新增，见联调验证.md）
+    # ============================================================
+
+    @app.post("/api/auth/pair-code")
+    async def gen_pair_code(request: Request) -> dict:
+        """生成 6 位配对码（5 分钟过期）。限流 5/min/IP。
+
+        桌面端设置页/临时 API 调用，无需任何鉴权。
+        """
+        client_ip = request.client.host if request.client else "unknown"
+        if not mobile_auth.rate_limit_check(f"pair-code:{client_ip}", 5):
+            return JSONResponse(status_code=429, content={"detail": "rate limit"})
+        code = mobile_auth.generate_pair_code()
+        return {"pair_code": code, "expires_in": 300}
+
+    @app.post("/api/auth/pair")
+    async def pair(req: PairRequest, request: Request) -> dict:
+        """配对：校验配对码 + 注册设备 + 签发 JWT。
+
+        限流 5/min/IP。成功后返回 JWT (30 天有效) + device_id + host_version。
+        """
+        client_ip = request.client.host if request.client else "unknown"
+        if not mobile_auth.rate_limit_check(f"pair:{client_ip}", 5):
+            return JSONResponse(status_code=429, content={"detail": "rate limit"})
+        if not mobile_auth.validate_pair_code(req.pair_code):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "invalid or expired pair code"},
+            )
+        device = mobile_auth.register_device(req.device_name, req.device_fingerprint)
+        token, exp = mobile_auth.issue_jwt(device["device_id"])
+        return {
+            "jwt": token,
+            "expires_at": exp,
+            "device_id": device["device_id"],
+            "host_version": __import__("lumio").__version__,
+        }
+
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request) -> dict:
+        """返回当前设备信息（device_id 由中间件注入 request.state）。"""
+        device_id = getattr(request.state, "device_id", None)
+        if not device_id:
+            return JSONResponse(status_code=401, content={"detail": "no device"})
+        device = mobile_auth.get_device(device_id)
+        if not device:
+            return JSONResponse(status_code=404, content={"detail": "device not found"})
+        mobile_auth.touch_device_active(device_id)
+        return {
+            "device_id": device["device_id"],
+            "device_name": device["device_name"],
+            "device_fingerprint": device["device_fingerprint"],
+            "paired_at": device["paired_at"],
+            "last_active_at": device["last_active_at"],
+            "is_current": True,
+        }
+
+    @app.post("/api/auth/refresh")
+    async def auth_refresh(request: Request) -> dict:
+        """旧 JWT 换新 JWT（延长 exp）。"""
+        device_id = getattr(request.state, "device_id", None)
+        if not device_id:
+            return JSONResponse(status_code=401, content={"detail": "no device"})
+        if mobile_auth.is_device_revoked(device_id):
+            return JSONResponse(status_code=401, content={"detail": "device revoked"})
+        token, exp = mobile_auth.issue_jwt(device_id)
+        mobile_auth.touch_device_active(device_id)
+        return {
+            "jwt": token,
+            "expires_at": exp,
+            "device_id": device_id,
+            "host_version": __import__("lumio").__version__,
+        }
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request) -> Response:
+        """吊销当前设备的 JWT。"""
+        device_id = getattr(request.state, "device_id", None)
+        if device_id:
+            mobile_auth.revoke_device(device_id)
+        return Response(status_code=204)
+
+    @app.get("/api/devices")
+    async def list_devices_endpoint() -> list[dict]:
+        """列出所有已配对设备（桌面端设置页用）。"""
+        return mobile_auth.list_devices()
+
+    @app.patch("/api/devices/{device_id}")
+    async def rename_device_endpoint(device_id: str, req: DeviceRenameRequest) -> dict:
+        """重命名设备。"""
+        device = mobile_auth.rename_device(device_id, req.device_name)
+        if not device:
+            return JSONResponse(status_code=404, content={"detail": "device not found"})
+        return device
+
+    @app.delete("/api/devices/{device_id}")
+    async def revoke_device_endpoint(device_id: str) -> Response:
+        """撤销设备（吊销其 JWT）。"""
+        if not mobile_auth.revoke_device(device_id):
+            return JSONResponse(status_code=404, content={"detail": "device not found"})
+        return Response(status_code=204)
+
+    # ============================================================
+    # 1.6. 移动端入队（核心，新增）
+    # ============================================================
+
+    @app.post("/api/mobile/enqueue")
+    async def mobile_enqueue(req: MobileEnqueueRequest, request: Request) -> dict:
+        """移动端 URL 入队：立即返回 request_id，异步解析+入队，结果走 WS。
+
+        WS 事件流（移动端订阅 /ws/events 接收）：
+        - 解析完成 -> parse_completed {request_id, info: VideoInfo}
+        - 入队后   -> task_added（由 _wire_signals 自动 publish，含 task_id）
+        - 解析失败 -> parse_failed {request_id, error}
+        """
+        import secrets as _secrets
+        request_id = _secrets.token_hex(8)
+        url = (req.url or "").strip()
+        if not url:
+            return JSONResponse(status_code=400, content={"detail": "empty url"})
+
+        async def _run() -> None:
+            try:
+                from .downloader import extract_info
+                info = await asyncio.to_thread(extract_info, url)
+                _bus().publish("parse_completed", {
+                    "request_id": request_id,
+                    "info": _video_info_to_dict(info),
+                })
+                # 入队：默认最高画质（移动端不暴露格式选择，spec 规定）
+                format_type = "image" if any(
+                    not it.is_video for it in (info.items or [])
+                ) else "video"
+                format_id = "best"
+                if info.formats:
+                    f0 = info.formats[0]
+                    if isinstance(f0, dict):
+                        format_id = f0.get("format_id", "best") or "best"
+                _ctx().manager.add_task_from_info(
+                    info=info,
+                    format_id=format_id,
+                    format_type=format_type,
+                    custom_name="",
+                    output_dir=str(get_download_dir()),
+                )
+                # task_added 事件由 _wire_signals 自动 publish，不在此重复
+            except Exception as e:
+                logger.exception("mobile_enqueue failed url=%s", url)
+                _bus().publish("parse_failed", {
+                    "request_id": request_id, "error": str(e),
+                })
+
+        asyncio.create_task(_run())
+        return {"request_id": request_id, "status": "parsing"}
 
     # ============================================================
     # 2. URL 解析（异步，结果走 WebSocket）
@@ -1905,6 +2106,20 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:
+        # JWT 校验：?token=<jwt>（移动端）或 ?token=<x-lumio-token>（Electron 浏览器 WS）
+        # 失败 -> 关闭码 4401（移动端 ws/client.ts 据此停止重连）
+        # WS 鉴权放在 accept 之前：close(code=4401) 拒绝握手
+        token = ws.query_params.get("token", "")
+        if not token:
+            await ws.close(code=4401)
+            return
+        # 优先尝试作为 JWT 校验
+        payload = mobile_auth.verify_token(token)
+        if payload is None:
+            # 不是有效 JWT，回退到 X-Lumio-Token 校验
+            if not (expected_token and token == expected_token):
+                await ws.close(code=4401)
+                return
         await ws.accept()
         q = _bus().subscribe()
         # 心跳：每 25 秒发送应用层 ping 帧。
@@ -2171,7 +2386,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     # 优先用环境变量（Electron 注入），否则回退到 config
-    host = os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1")
+    host = os.environ.get("LUMIO_FASTAPI_HOST", "0.0.0.0")  # 默认 0.0.0.0 让移动端可连
     port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
     logger.info("Starting FastAPI on %s:%d (token=%s)",
                 host, port,
