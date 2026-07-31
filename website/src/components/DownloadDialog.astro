@@ -131,6 +131,27 @@ const releaseDataJson = JSON.stringify(releaseInfo);
 
     {/* 主体 — 平台卡片列表（运行时从构建时数据渲染） */}
     <div class="dl-dialog__body" data-dl-body>
+      {/* 下载来源切换 — 默认国内镜像（Cloudflare CDN 加速，无需代理） */}
+      <div class="dl-source" data-dl-source hidden>
+        <div class="dl-source__toggle" role="group" aria-label="下载来源">
+          <button
+            type="button"
+            class="dl-source__btn is-active"
+            data-source="mirror"
+            data-i18n="dialog.source.mirror"
+            aria-pressed="true"
+          >🇨🇳 国内镜像</button>
+          <button
+            type="button"
+            class="dl-source__btn"
+            data-source="direct"
+            data-i18n="dialog.source.direct"
+            aria-pressed="false"
+          >🌐 GitHub 直链</button>
+        </div>
+        <p class="dl-source__hint" data-i18n="dialog.source.hint">镜像由 Cloudflare CDN 加速，国内无需代理</p>
+      </div>
+
       {/* 平台卡片容器（运行时填充） */}
       <div class="dl-platforms" data-dl-platforms></div>
 
@@ -266,6 +287,54 @@ const releaseDataJson = JSON.stringify(releaseInfo);
     padding: 1.25rem 1.5rem;
     overflow-y: auto;
     flex: 1;
+  }
+
+  /* 下载来源切换条 */
+  .dl-source {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgb(var(--color-border) / 0.08);
+  }
+
+  .dl-source__toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid rgb(var(--color-border) / 0.18);
+  }
+
+  .dl-source__btn {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: rgb(var(--color-text-muted));
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    font-family: inherit;
+  }
+
+  .dl-source__btn:first-child {
+    border-right: 1px solid rgb(var(--color-border) / 0.18);
+  }
+
+  .dl-source__btn:hover {
+    background: rgb(var(--color-text) / 0.04);
+    color: rgb(var(--color-text));
+  }
+
+  .dl-source__btn.is-active {
+    background: rgb(var(--color-text));
+    color: rgb(var(--color-bg));
+  }
+
+  .dl-source__hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.6875rem;
+    color: rgb(var(--color-text-dim));
+    line-height: 1.4;
+    font-family: 'Geist Mono', monospace;
   }
 
   /* 平台卡片 */

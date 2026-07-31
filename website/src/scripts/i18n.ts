@@ -28,7 +28,7 @@ const dict: Record<Lang, Record<string, string>> = {
     'nav.menu.close': '关闭菜单',
 
     // ─── Hero ───
-    'hero.title': '把喜欢的一切，<br /><span class="text-gradient">留下来</span>',
+    'hero.title': '把喜欢的一切<br /><span class="text-gradient">留下来</span>',
     'hero.subtitle': '粘贴链接，Lumio 替你整理。<br class="hidden md:inline" />爱豆照片、舞台直拍、Live Photo、视频原档，原画质自动入库。',
     'hero.cta.download': '下载 Lumio',
     'hero.cta.source': '查看源码',
@@ -41,7 +41,7 @@ const dict: Record<Lang, Record<string, string>> = {
     'pain.l3': '水印挡脸，视频被压缩，文件夹越堆越乱，想找的图永远在收藏夹里吃灰。',
 
     // ─── 平台区 ───
-    'platforms.eyebrow': '8 大平台，一粘贴就识别',
+    'platforms.eyebrow': '8 大平台，粘贴就识别',
     'platforms.hint': '点击图标跳转官网',
 
     // ─── 功能卖点 ───
@@ -128,6 +128,9 @@ const dict: Record<Lang, Record<string, string>> = {
     'dialog.fallback.btn': '打开 GitHub Releases',
     'dialog.all': '查看所有版本 →',
     'dialog.download': '下载',
+    'dialog.source.mirror': '🇨🇳 国内镜像',
+    'dialog.source.direct': '🌐 GitHub 直链',
+    'dialog.source.hint': '镜像由 Cloudflare CDN 加速，国内无需代理',
 
     // ─── 更新日志 ───
     'changelog.eyebrow': '§ Changelog',
@@ -188,7 +191,7 @@ const dict: Record<Lang, Record<string, string>> = {
 
     // ─── Pain point ───
     'pain.l1': 'You see it,',
-    'pain.l2': "but can't keep it.",
+    'pain.l2': "but can't keep it",
     'pain.l3': 'Watermarks cover faces, videos get re-compressed, folders pile up, and the photo you wanted is forever lost in your bookmarks.',
 
     // ─── Platforms ───
@@ -279,6 +282,9 @@ const dict: Record<Lang, Record<string, string>> = {
     'dialog.fallback.btn': 'Open GitHub Releases',
     'dialog.all': 'View all versions →',
     'dialog.download': 'Download',
+    'dialog.source.mirror': '🇨🇳 Mirror (CN)',
+    'dialog.source.direct': '🌐 GitHub Direct',
+    'dialog.source.hint': 'Mirror powered by Cloudflare CDN, no proxy needed',
 
     // ─── Changelog ───
     'changelog.eyebrow': '§ Changelog',

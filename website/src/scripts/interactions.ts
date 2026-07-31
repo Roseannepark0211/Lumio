@@ -179,8 +179,39 @@ class LumioInteractions {
     const versionEl = dialog.querySelector('[data-dl-version]') as HTMLElement | null;
     const closeBtn = dialog.querySelector('[data-dl-close]') as HTMLButtonElement | null;
     const dataScript = document.getElementById('dl-release-data') as HTMLScriptElement | null;
+    const sourceEl = dialog.querySelector('[data-dl-source]') as HTMLElement | null;
 
     if (!platformsEl || !fallbackEl || !versionEl) return;
+
+    /**
+     * GitHub URL → 镜像 URL 转换
+     *   https://github.com/<path>  →  /api/gh/<path>
+     *
+     * 镜像由 Cloudflare Pages Function 反代（functions/api/gh/[[...path]].ts），
+     * 走 Cloudflare 全球 CDN，国内无需代理。
+     * 非 GitHub URL 原样返回（未来若用其他 CDN 不受影响）。
+     */
+    const toMirrorUrl = (url: string): string => {
+      if (url.startsWith('https://github.com/')) {
+        return '/api/gh/' + url.slice('https://github.com/'.length);
+      }
+      return url;
+    };
+
+    /**
+     * 下载来源模式 — 'mirror'（默认）或 'direct'
+     * 持久化到 localStorage，用户选择后跨会话保留
+     */
+    type DownloadSource = 'mirror' | 'direct';
+    let currentSource: DownloadSource =
+      (localStorage.getItem('lumio-dl-source') as DownloadSource) || 'mirror';
+
+    /**
+     * 根据当前来源模式返回 URL
+     */
+    const resolveUrl = (originalUrl: string): string => {
+      return currentSource === 'mirror' ? toMirrorUrl(originalUrl) : originalUrl;
+    };
 
     interface ReleaseAsset {
       name: string;
@@ -229,7 +260,7 @@ class LumioInteractions {
               <p class="dl-platform__name">Windows 10 / 11</p>
               <p class="dl-platform__meta">${windows.name} · ${formatSize(windows.size)}</p>
             </div>
-            <a class="dl-platform__btn" href="${windows.url}" target="_blank" rel="noopener">
+            <a class="dl-platform__btn" href="${resolveUrl(windows.url)}" data-original-url="${windows.url}" target="_blank" rel="noopener">
               下载
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12"/>
@@ -250,7 +281,7 @@ class LumioInteractions {
               <p class="dl-platform__name">macOS${arch ? ` · ${arch}` : ''}</p>
               <p class="dl-platform__meta">${macos.name} · ${formatSize(macos.size)}</p>
             </div>
-            <a class="dl-platform__btn" href="${macos.url}" target="_blank" rel="noopener">
+            <a class="dl-platform__btn" href="${resolveUrl(macos.url)}" data-original-url="${macos.url}" target="_blank" rel="noopener">
               下载
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12"/>
@@ -267,7 +298,7 @@ class LumioInteractions {
           const label = a.name.endsWith('.AppImage') ? 'AppImage'
             : a.name.endsWith('.deb') ? 'deb'
             : 'rpm';
-          return `<a class="dl-variant" href="${a.url}" target="_blank" rel="noopener" title="${a.name} · ${formatSize(a.size)}">${label}</a>`;
+          return `<a class="dl-variant" href="${resolveUrl(a.url)}" data-original-url="${a.url}" target="_blank" rel="noopener" title="${a.name} · ${formatSize(a.size)}">${label}</a>`;
         }).join('');
         const primary = linuxAssets.find((a) => a.name.endsWith('.AppImage')) || linuxAssets[0];
         cards.push(`
@@ -290,7 +321,7 @@ class LumioInteractions {
               <p class="dl-platform__name">${a.name}</p>
               <p class="dl-platform__meta">${formatSize(a.size)}</p>
             </div>
-            <a class="dl-platform__btn" href="${a.url}" target="_blank" rel="noopener">下载</a>
+            <a class="dl-platform__btn" href="${resolveUrl(a.url)}" data-original-url="${a.url}" target="_blank" rel="noopener">下载</a>
           </div>
         `).join('');
         cards.push(fallback);
@@ -299,12 +330,61 @@ class LumioInteractions {
       platformsEl.innerHTML = cards.join('');
       platformsEl.hidden = false;
       fallbackEl.hidden = true;
+
+      // 显示来源切换条（有平台卡片时才显示）
+      if (sourceEl) {
+        sourceEl.hidden = false;
+        syncSourceButtons();
+      }
     };
 
     const showFallback = () => {
       platformsEl.hidden = true;
       fallbackEl.hidden = false;
+      // Fallback 模式下隐藏来源切换（直接跳 GitHub Releases 页面）
+      if (sourceEl) sourceEl.hidden = true;
     };
+
+    /**
+     * 同步来源切换按钮的 is-active 状态
+     */
+    const syncSourceButtons = () => {
+      if (!sourceEl) return;
+      sourceEl.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
+        const isActive = btn.dataset.source === currentSource;
+        btn.classList.toggle('is-active', isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+      });
+    };
+
+    /**
+     * 切换下载来源 — 更新所有下载链接的 href
+     * 遍历所有带 data-original-url 的链接，根据当前模式重新解析 href
+     */
+    const switchSource = (source: DownloadSource) => {
+      if (source === currentSource) return;
+      currentSource = source;
+      localStorage.setItem('lumio-dl-source', source);
+
+      // 更新所有下载链接
+      platformsEl.querySelectorAll<HTMLAnchorElement>('[data-original-url]').forEach((link) => {
+        const originalUrl = link.dataset.originalUrl || '';
+        link.href = resolveUrl(originalUrl);
+      });
+
+      syncSourceButtons();
+      this.playClick(1.0);
+    };
+
+    // 来源切换按钮事件
+    if (sourceEl) {
+      sourceEl.querySelectorAll<HTMLButtonElement>('[data-source]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const source = btn.dataset.source as DownloadSource;
+          if (source) switchSource(source);
+        });
+      });
+    }
 
     // 从构建时 JSON 读取数据（零运行时 fetch）
     const loadRelease = () => {
@@ -458,7 +538,15 @@ class LumioInteractions {
   private setupSoundSystem() {
     if (!this.soundToggle) return;
 
-    const saved = localStorage.getItem('lumio-sound');
+    // 首次访问（localStorage 无值）默认开启音效
+    // 注意：浏览器自动播放策略要求用户交互后才能发声，
+    // 所以首次开启只是 UI 状态，第一次点击按钮时才会真正激活 AudioContext。
+    let saved = localStorage.getItem('lumio-sound');
+    if (saved === null) {
+      saved = 'true';
+      localStorage.setItem('lumio-sound', 'true');
+    }
+
     if (saved === 'true') {
       this.soundConfig.enabled = true;
       this.soundToggle.classList.add('is-active');

@@ -1,6 +1,8 @@
 # Cloudflare Pages 路由重定向规则
 # 文档: https://developers.cloudflare.com/pages/configuration/redirects/
-
-# 404 兜底 — 所有未匹配路径返回 404.html
-# Astro 静态模式会为 404.astro 生成 /404.html
-/* /404.html 404
+#
+# 说明：
+# - 404 兜底无需配置 _redirects 规则。
+#   Astro 静态模式会在根目录生成 /404.html，
+#   Cloudflare Pages 检测到该文件后会自动为所有 404 响应返回它。
+# - 之前 /* /404.html 404 这条规则被部署日志标记为无效（404 不是合法的 redirect 状态码），已移除。
