@@ -247,6 +247,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: extension-v2/lumio-extension-v*.zip
+          # 关键：必须用 draft 模式创建 Release！
+          # extension-build 和 build job 并行运行，如果这里创建 published Release，
+          # electron-builder (--publish always, publishingType=draft) 会因
+          # "existing type not compatible with publishing type" 静默 skip 所有
+          # 平台产物上传（exe/dmg/AppImage/deb/rpm），导致 Release 只有插件 zip。
+          # release-notes job 会在最后把 draft Release 转 published。
+          draft: true
 
   # ============================================================
   # 发布说明：所有平台构建完成后统一更新 Release body
@@ -291,9 +298,13 @@ jobs:
           echo "$NOTES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Update Release body
+      - name: Update Release body and publish
         uses: softprops/action-gh-release@v2
         with:
+          # 显式 draft: false，把 extension-build 创建的 draft Release 转 published。
+          # 必须显式声明：softprops/action-gh-release@v2 在更新已有 Release 时，
+          # 如果不指定 draft，可能保持原 draft 状态导致用户看不到 Release。
+          draft: false
           body: |
             ## Lumio ${{ github.ref_name }}
 
