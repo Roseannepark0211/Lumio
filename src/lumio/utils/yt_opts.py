@@ -69,6 +69,18 @@ def yt_opts(cookie_path: Path | str | None = None) -> dict:
         "keep_fragments": True,
         # 网络超时（秒）
         "socket_timeout": 15,
+        # 重试次数：默认 10 对 4K 大文件不够（SSL EOF 常见），加到 30
+        # YouTube 反爬会主动关闭 SSL 连接，4K 文件下载时间长易触发
+        "retries": 30,
+        "fragment_retries": 30,
+        # 重试退避：指数退避，避免短时间内重复请求触发更严限流
+        # yt-dlp 选项 retry_sleep_functions，值为函数：入参 n=第几次重试，返回等待秒数
+        # http/fragment 分别对应整体请求和 DASH 分片请求
+        # 5s -> 10s -> 20s -> 40s -> 60s（封顶 60s）
+        "retry_sleep_functions": {
+            "http": lambda n: min(5 * (2 ** (n - 1)), 60),
+            "fragment": lambda n: min(5 * (2 ** (n - 1)), 60),
+        },
         # 不嵌入元数据 / 不下载字幕（默认行为，YouTube extractor 无副作用）
         "embedmetadata": False,
         "writesubtitles": False,

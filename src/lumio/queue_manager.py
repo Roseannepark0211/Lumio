@@ -390,6 +390,10 @@ class DownloadManager(QObject):
         with self._lock:
             self._tasks.pop(task_id, None)
         self.queue_changed.emit()
+        # 立即同步磁盘：避免删除后 shutdown 的 save_queue 没执行（Electron
+        # /api/shutdown 只等 1s 就强制 kill），导致重启后 load_queue 又加载
+        # 已删除的旧任务（"删了也会出现" bug）
+        self.save_queue()
 
     def start_all(self):
         need_schedule = False
@@ -524,8 +528,13 @@ class DownloadManager(QObject):
             if t.status == "parsing":
                 qt.status = TaskStatus.PARSING.value
                 self.task_status_changed.emit(qt.task_id, qt.status)
-                # 仍 emit progress 事件，让前端刷新（保留 0 进度但状态变化）
-                self.task_progress.emit(qt.task_id, 0.0, t.speed, t.filename)
+                # 保留当前进度，不清0！
+                # 重试场景：SSL EOF 等网络错误导致重试时，_yt_download_with_pause
+                # 会重新设 status="parsing"。旧实现强制上报 progress=0.0，导致
+                # "下到80%→SSL错误→重试→进度条清0" 的糟糕体验。
+                # 保留 qt.progress，等 yt-dlp continuedl 从 .part 恢复后，
+                # 第一个 downloading hook 会上报真实进度（含已下载部分）。
+                self.task_progress.emit(qt.task_id, qt.progress, t.speed, t.filename)
                 return
 
             # 非 merging 状态下，若 qt 当前为 "合并中" 或 "解析中"，需切回 "下载中"
@@ -588,6 +597,10 @@ class DownloadManager(QObject):
                 qt.retry_count += 1
                 if qt.retry_count < qt.max_retries:
                     qt.status = TaskStatus.RETRYING.value
+                    # 同步错误信息，让 UI/API 能看到重试原因
+                    # （旧实现只同步到最终失败的 qt.error，重试期间 error 为空，
+                    #  用户看到"重试中"却不知道原因，无法排查）
+                    qt.error = t.error or ""
                     # 注意：不重置 qt.progress = 0.0！
                     # 保留当前进度，重试时断点续传会从 .part 文件恢复，
                     # 新进度会通过 on_progress 上报。旧实现归 0 会导致

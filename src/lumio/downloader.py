@@ -1665,6 +1665,9 @@ def start_download_with_pause(
         except Exception as e:
             task.status = "error"
             task.error = str(e)
+            # 记录完整堆栈到日志，便于排查下载/合并失败原因
+            # （4K 大文件 ffmpeg 合并失败时，仅靠 task.error 的 str(e) 不够定位根因）
+            logger.exception("download failed url=%s platform=%s", task.url, task.platform)
             # Use provider classify_error if available
             try:
                 from .providers.base import Platform as _P

@@ -546,8 +546,14 @@ def _history_to_dict(r) -> dict:
         "thumbnail_url": r.thumbnail_url or "",
         "media_type": getattr(r, "media_type", "") or "",
         "success": r.success,
+        # status：移动端 history 页用此字段渲染状态标签（done/error）
+        # HistoryRecord 只有 success bool，无 cancelled 状态，按 success 推导
+        "status": "done" if r.success else "error",
         "error": getattr(r, "error", "") or "",
         "download_time": r.download_time or "",
+        # finished_at：移动端 history 页用此字段排序和显示时间
+        # 桌面端 HistoryRecord 只有 download_time，复用作为 finished_at
+        "finished_at": r.download_time or "",
         "post_time": getattr(r, "post_time", "") or "",
         "batch_id": r.batch_id or "",
     }
@@ -1423,7 +1429,22 @@ def create_app() -> FastAPI:
         async def _run() -> None:
             try:
                 from .downloader import extract_info
-                info = await asyncio.to_thread(extract_info, url)
+                # 规范化 URL：剥离 YouTube 跟踪参数（si=, feature=, pp=, t=, start=, end=, lc= 等），
+                # 避免 yt-dlp 触发额外 token 验证请求导致解析慢/限流
+                # （详见 utils/url_parser.py:63-68 注释）。
+                # 与浏览器扩展 normalizeYouTubeUrl 行为对齐（youtube.ts:39-44）。
+                # 规范化后的 url 传给 extract_info，经 Provider 写入 info.url -> task.url
+                # （queue_manager.py:245 url=info.url），最终 ydl.download([task.url])
+                # （downloader.py:708）用干净 URL 下载。
+                # parse_url 对 YouTube 是纯内存操作；对国内短链（t.cn/b23.tv 等）会做 HTTP
+                # 展开但放在异步任务里不阻塞响应。
+                norm_url = url
+                try:
+                    from .utils.url_parser import parse_url as _parse_url
+                    norm_url = _parse_url(url).url
+                except Exception:
+                    logger.warning("mobile_enqueue url normalize failed, raw=%s", url)
+                info = await asyncio.to_thread(extract_info, norm_url)
                 _bus().publish("parse_completed", {
                     "request_id": request_id,
                     "info": _video_info_to_dict(info),
@@ -1432,11 +1453,10 @@ def create_app() -> FastAPI:
                 format_type = "image" if any(
                     not it.is_video for it in (info.items or [])
                 ) else "video"
+                # format_id 固定 "best"，走 downloader 默认 bestvideo+bestaudio 分支
+                # 旧实现取 info.formats[0] 会导致 YouTube 取到纯音频流（如 itag 140），
+                # 拼成 "{audio_id}+bestaudio" 后只有声音没有画面。
                 format_id = "best"
-                if info.formats:
-                    f0 = info.formats[0]
-                    if isinstance(f0, dict):
-                        format_id = f0.get("format_id", "best") or "best"
                 _ctx().manager.add_task_from_info(
                     info=info,
                     format_id=format_id,
@@ -1480,6 +1500,17 @@ def create_app() -> FastAPI:
         url = (req.url or "").strip()
         if not url:
             return JSONResponse(status_code=400, content={"detail": "empty url"})
+        # 规范化 URL：剥离 YouTube 跟踪参数（si=, feature=, pp=, t= 等），避免 Inbox
+        # 存脏 URL 后续经 inbox_download 入队时 yt-dlp 触发额外 token 验证导致慢/限流。
+        # 同时让去重更合理：同一视频不同跟踪参数视为同一项（inbox_manager 按 url
+        # 精确匹配去重，inbox_manager.py:106 filter_by(url=url)）。
+        # parse_url 对 YouTube 纯内存；对国内短链会 HTTP 展开但移动端 Share Sheet
+        # 分享国内短链场景少，且移动端到桌面端走同 LAN/HTTPS 延迟可接受。
+        try:
+            from .utils.url_parser import parse_url as _parse_url
+            url = _parse_url(url).url
+        except Exception:
+            logger.warning("mobile_share url normalize failed, raw=%s", url)
         try:
             item_id = _ctx().inbox_manager.add_item(
                 url=url,
@@ -1829,11 +1860,9 @@ def create_app() -> FastAPI:
             format_type = "image" if any(
                 not it.is_video for it in (info.items or [])
             ) else "video"
-            # format_id：取 formats[0] 的 format_id（dict 访问，不是属性）
-            # VideoInfo.formats 是 list[dict]，每个 dict 有 "format_id" 键
+            # format_id 固定 "best"，走 downloader 默认 bestvideo+bestaudio 分支
+            # 避免 YouTube 取到 info.formats[0]（可能是纯音频流）导致只有声音没有画面
             format_id = "best"
-            if info.formats:
-                format_id = info.formats[0].get("format_id", "best") if isinstance(info.formats[0], dict) else "best"
 
             task_id = ctx.manager.add_task_from_info(
                 info=info,
@@ -1892,9 +1921,8 @@ def create_app() -> FastAPI:
                 format_type = "image" if any(
                     not it.is_video for it in (info.items or [])
                 ) else "video"
+                # format_id 固定 "best"，避免取到 info.formats[0] 纯音频流导致只有声音没画面
                 format_id = "best"
-                if info.formats:
-                    format_id = info.formats[0].get("format_id", "best") if isinstance(info.formats[0], dict) else "best"
 
                 batch_task_id = ctx.manager.add_task_from_info(
                     info=info,
@@ -2493,6 +2521,12 @@ def create_app() -> FastAPI:
             ".flac": "audio/flac",
             ".mov": "video/quicktime",
             ".heic": "image/heic",
+            # 音频格式补全：与 frontend/electron/main.ts MIME_TYPES 对齐
+            # 缺失会导致移动端播放器收到 application/octet-stream 拒绝播放
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".ogg": "audio/ogg",
+            ".opus": "audio/opus",
         }
         suffix = abs_path.suffix.lower()
         mime_type = _EXTRA_MIME.get(suffix)
@@ -2875,7 +2909,9 @@ def _wire_signals(app_ctx: AppContext, bus: EventBus) -> None:
         return cb
 
     m.task_added.connect(
-        _wrap("task_added", lambda qt: _task_to_dict(qt)),
+        # queue_manager.add_task emit 的是 task_id（字符串），不是 QueueTask 对象
+        # 这里用 task_id 从 manager 取出完整对象再序列化
+        _wrap("task_added", lambda tid: _task_to_dict(app_ctx.manager.get_task(tid))),
         Qt.DirectConnection,
     )
     m.task_started.connect(_wrap("task_started"), Qt.DirectConnection)
