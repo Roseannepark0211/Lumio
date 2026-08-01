@@ -10,8 +10,14 @@
 import sharp from "sharp";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ""));
+// fileURLToPath 正确处理跨平台路径：
+//   Linux: file:///home/user/x.ts → /home/user/x.ts
+//   Windows: file:///C:/Users/x.ts → C:\Users\x.ts
+// 旧实现 new URL().pathname.replace(/^\//, "") 在 Linux 上会把绝对路径变成相对路径，
+// 导致 path.resolve 拼接到 cwd 下，找不到源文件。
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SOURCE = path.resolve(__dirname, "../../frontend/build/icon.png");
 const OUT_DIR = path.resolve(__dirname, "../src/assets/icons");
