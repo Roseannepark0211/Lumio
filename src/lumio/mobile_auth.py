@@ -492,6 +492,25 @@ def revoke_device(device_id: str) -> bool:
         return False
 
 
+def delete_device(device_id: str) -> bool:
+    """彻底删除设备记录（从 devices.json 移除）。
+
+    与 revoke_device 区别：
+    - revoke: 标记 revoked=true，吊销 JWT，记录保留（审计）
+    - delete: 彻底移除记录，不可恢复
+
+    前端流程：撤销 → 显示"已撤销"徽章 → 可点击"删除"彻底移除。
+    """
+    with _lock:
+        data = _load_devices()
+        before = len(data["devices"])
+        data["devices"] = [d for d in data["devices"] if d["device_id"] != device_id]
+        if len(data["devices"]) == before:
+            return False
+        _save_devices(data)
+        return True
+
+
 def is_device_revoked(device_id: str) -> bool:
     """设备是否已撤销（或不存在）。每次受保护请求都查（性能可接受）。"""
     with _lock:

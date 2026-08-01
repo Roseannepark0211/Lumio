@@ -145,6 +145,9 @@ _CRYPTO_PATHS = {
     "/api/cookie/import",
     "/api/cookie/status",
     "/api/config",
+    # token 验证端点：请求体含敏感 token，需加密
+    "/api/apify/validate",
+    "/api/telegram/validate",
 }
 
 
@@ -256,6 +259,16 @@ class PushRegisterRequest(BaseModel):
     """移动端 push token 注册请求（POST /api/push/register）。"""
     push_token: str
     categories: list[str] = []  # 默认全部订阅
+
+class MobileShareRequest(BaseModel):
+    """移动端 Share 接收请求（POST /api/mobile/share）。"""
+    url: str
+    platform: str = ""
+    title: str = ""          # 分享方传入的标题（如有）
+    author: str = ""
+    thumbnail: str = ""
+    type_: str = "url"       # url / video / image
+    device_id: str | None = None
 
 
 class DeviceRenameRequest(BaseModel):
@@ -760,10 +773,10 @@ def create_app() -> FastAPI:
                 bearer = mobile_auth.extract_bearer_token(
                     request.headers.get("Authorization", ""))
                 if bearer:
-                    # 服务端生成当前请求指纹，传给 verify_token 比对
-                    # （旧 JWT 无 fp 字段时跳过比对，向后兼容）
-                    req_fp = _build_request_fingerprint(request)
-                    payload = mobile_auth.verify_token(bearer, expected_fp=req_fp)
+                    # fp 比对已移除：_build_request_fingerprint(UA+IP) 要求客户端预知服务端视角 IP，
+                    # 移动端无法实现（CF Tunnel 下 origin 看到 CF 节点 IP）。安全性靠 JWT 签名 +
+                    # device_id 绑定 + 设备撤销 + HTTPS + AES-GCM。expected_fp 参数保留供未来启用。
+                    payload = mobile_auth.verify_token(bearer)
                     if payload is None:
                         return JSONResponse(status_code=401,
                                             content={"detail": "invalid jwt"})
@@ -771,6 +784,16 @@ def create_app() -> FastAPI:
                     request.state.device_id = payload.get("device_id")
                     # 阶段4：注入 session_secret 供加密中间件使用（仅 access token 有 ss 字段）
                     request.state.session_secret = payload.get("ss", "")
+                    # 通用限流：/api/* 60/min/device（AGENTS.md 要求）
+                    # 鉴权端点已有独立限流（pair 5/min, refresh 10/min），此处覆盖其余 /api/*
+                    # 白名单端点（health/pair-code/pair/refresh）已在 _AUTH_WHITELIST 跳过鉴权，不会到此
+                    _dev_id = payload.get("device_id") or "unknown"
+                    if not mobile_auth.rate_limit_check(
+                        f"api:{_dev_id}", max_count=60, window_sec=60
+                    ):
+                        return JSONResponse(status_code=429,
+                                            content={"detail": "rate limit exceeded"},
+                                            headers={"Retry-After": "60"})
                     return await call_next(request)
                 # 2. Electron 路径：X-Lumio-Token header 或 ?token= 兜底
                 if expected_token:
@@ -791,6 +814,10 @@ def create_app() -> FastAPI:
     # 向后兼容：客户端不发送该头时明文传输
     class PayloadCryptoMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
+            # BaseHTTPMiddleware 对 WebSocket scope 处理有 bug（同 TokenAuthMiddleware），
+            # WS 请求直接放行，不进入加密分支
+            if request.scope.get("type") == "websocket":
+                return await call_next(request)
             path = request.url.path
             # 非敏感路径直接放行
             if path not in _CRYPTO_PATHS:
@@ -823,7 +850,7 @@ def create_app() -> FastAPI:
                                         "more_body": False}
                             request._receive = receive
                 except (ValueError, RuntimeError) as e:
-                    log.warning("payload decrypt failed path=%s: %s", path, e)
+                    logger.warning("payload decrypt failed path=%s: %s", path, e)
                     return JSONResponse(status_code=400,
                                        content={"detail": "decrypt failed"})
 
@@ -853,7 +880,7 @@ def create_app() -> FastAPI:
                             },
                         )
                 except (ValueError, RuntimeError) as e:
-                    log.warning("payload encrypt failed path=%s: %s", path, e)
+                    logger.warning("payload encrypt failed path=%s: %s", path, e)
                     # 加密失败返回原响应（已消费 body_iterator，需重建）
             return response
 
@@ -877,6 +904,10 @@ def create_app() -> FastAPI:
     # dev mode（本地 127.0.0.1）不添加 HSTS，避免开发时证书问题
     class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
+            # BaseHTTPMiddleware 对 WebSocket scope 处理有 bug（同 TokenAuthMiddleware）
+            # WS 帧无 HTTP header 概念，安全头不适用，直接放行
+            if request.scope.get("type") == "websocket":
+                return await call_next(request)
             response = await call_next(request)
             # 仅 HTTPS 请求添加 HSTS（防中间人降级）
             if request.url.scheme == "https":
@@ -892,10 +923,16 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
 
     # HTTPS 强制重定向（仅外网部署启用，dev mode 关闭）
-    # 通过 LUMIO_FORCE_HTTPS=1 启用，Cloudflare Tunnel/Tailscale Funnel 部署时设置
+    # 通过 LUMIO_FORCE_HTTPS=1 启用。
+    # 注意：Cloudflare Tunnel 场景 **不要** 启用此项！
+    # CF Tunnel 在边缘终止 HTTPS，origin 收到的是 HTTP 请求；
+    # 若启用 HTTPSRedirectMiddleware 会触发无限重定向（HTTP→HTTPS→CF 转发 HTTP→...）。
+    # CF Tunnel 的 HTTPS 由 CF 边缘保证，origin 侧无需重定向。
+    # 适用场景：裸机直接暴露公网 + 自签证书 / Tailscale Funnel（非 Tunnel）等。
+    # Tailscale Tunnel（funnel 子命令）同样在边缘终止 HTTPS，不应启用此项。
     if os.environ.get("LUMIO_FORCE_HTTPS", "") == "1":
         app.add_middleware(HTTPSRedirectMiddleware)
-        log.info("HTTPS redirect enabled (LUMIO_FORCE_HTTPS=1)")
+        logger.info("HTTPS redirect enabled (LUMIO_FORCE_HTTPS=1)")
 
     # CORS 白名单：从 LUMIO_CORS_ORIGINS 环境变量读取（逗号分隔）
     # 未设置时回退到 ["*"]（dev mode 兼容）
@@ -903,7 +940,7 @@ def create_app() -> FastAPI:
     cors_env = os.environ.get("LUMIO_CORS_ORIGINS", "").strip()
     if cors_env:
         cors_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
-        log.info("CORS origins: %s", cors_origins)
+        logger.info("CORS origins: %s", cors_origins)
     else:
         cors_origins = ["*"]  # dev mode 兼容
     # 后 add CORSMiddleware（外层）— 必须最后 add 才能在最外层
@@ -1108,7 +1145,7 @@ def create_app() -> FastAPI:
             )
         # 设备指纹为空时记日志（不阻断，保持向后兼容）
         if not req.device_fingerprint:
-            log.warning("pair: device_fingerprint empty, pair_code=%s", req.pair_code)
+            logger.warning("pair: device_fingerprint empty, pair_code=%s", req.pair_code)
         device = mobile_auth.register_device(req.device_name, req.device_fingerprint)
         # 阶段4：生成 session_secret 用于敏感路径 AES-GCM 加解密
         session_secret = mobile_auth.generate_session_secret()
@@ -1208,8 +1245,27 @@ def create_app() -> FastAPI:
         return device
 
     @app.delete("/api/devices/{device_id}")
-    async def revoke_device_endpoint(device_id: str) -> Response:
-        """撤销设备（吊销其 JWT）。"""
+    async def revoke_device_endpoint(
+        device_id: str,
+        purge: bool = False,
+    ) -> Response:
+        """撤销设备（吊销 JWT）或彻底删除记录。
+
+        - 默认（无 query）：撤销设备，标记 revoked=true，记录保留
+        - ?purge=1：彻底从 devices.json 移除记录（仅已撤销设备可删除）
+        """
+        if purge:
+            # 彻底删除（仅已撤销设备允许，防止误删活跃会话）
+            device = mobile_auth.get_device(device_id)
+            if device is None:
+                return JSONResponse(status_code=404, content={"detail": "device not found"})
+            if not device.get("revoked", False):
+                return JSONResponse(status_code=409,
+                                    content={"detail": "device not revoked, revoke first"})
+            if not mobile_auth.delete_device(device_id):
+                return JSONResponse(status_code=404, content={"detail": "device not found"})
+            return Response(status_code=204)
+        # 默认：撤销
         if not mobile_auth.revoke_device(device_id):
             return JSONResponse(status_code=404, content={"detail": "device not found"})
         return Response(status_code=204)
@@ -1266,6 +1322,49 @@ def create_app() -> FastAPI:
 
         asyncio.create_task(_run())
         return {"request_id": request_id, "status": "parsing"}
+
+    # ============================================================
+    # 1.6.2 Share 接收（移动端 Share Sheet 离线中转 / Inbox 采集）
+    # ============================================================
+    # AGENTS.md 要求"api_fastapi.py 包装层新增 Share 接收路由"。
+    # 与 /api/mobile/enqueue 区别：
+    #   - enqueue: 立即异步解析 + 入队下载（在线模式主路径）
+    #   - share:   仅写入 Inbox（source="mobile"），不立即下载。
+    #             用于：1) 用户想先采集暂存后续再决定入队；
+    #                   2) 离线场景移动端恢复后批量回放到 Inbox。
+    # 写入后触发 inbox_manager.item_added signal → 自动桥接 inbox_changed WS 事件。
+
+    @app.post("/api/mobile/share")
+    async def mobile_share(req: MobileShareRequest, request: Request) -> dict:
+        """接收移动端 Share Sheet 转发的 URL，写入 Inbox。
+
+        鉴权：JWT（device_id 从 Authorization Bearer 提取）。
+        幂等：URL 重复时 inbox_manager.add_item 会更新元数据 + 重置状态为 new。
+        事件：写入后 item_added signal → inbox_changed WS 推送（前端/移动端自动刷新）。
+        """
+        # getattr 安全访问：未鉴权时 request.state.device_id 不存在（防御性编程避免 500）
+        device_id = getattr(request.state, "device_id", None)
+        if not device_id:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        url = (req.url or "").strip()
+        if not url:
+            return JSONResponse(status_code=400, content={"detail": "empty url"})
+        try:
+            item_id = _ctx().inbox_manager.add_item(
+                url=url,
+                source="mobile",
+                type_=req.type_ or "url",
+                title=req.title,
+                author=req.author,
+                platform=req.platform,
+                thumbnail_url=req.thumbnail,
+            )
+        except Exception as e:
+            logger.exception("mobile_share failed url=%s", url)
+            return JSONResponse(status_code=500, content={"detail": str(e)})
+        if not item_id:
+            return JSONResponse(status_code=409, content={"detail": "duplicate url"})
+        return {"inbox_id": item_id, "status": "saved"}
 
 # ============================================================
     # 1.7. 推送通知（M3，新增）
@@ -2317,7 +2416,7 @@ def create_app() -> FastAPI:
                 for d in _CDN_WHITELIST
             )
             if not allowed:
-                log.warning("media-proxy rejected host=%s", host)
+                logger.warning("media-proxy rejected host=%s", host)
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "host not allowed"},
@@ -2338,13 +2437,13 @@ def create_app() -> FastAPI:
             )
         except _requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else 0
-            log.warning("media-proxy HTTPError url=%s status=%s", url, status)
+            logger.warning("media-proxy HTTPError url=%s status=%s", url, status)
             return JSONResponse(
                 status_code=502,
                 content={"detail": f"upstream {status}"},
             )
         except Exception as e:
-            log.warning("media-proxy error url=%s err=%s: %s",
+            logger.warning("media-proxy error url=%s err=%s: %s",
                        url, type(e).__name__, e)
             return JSONResponse(
                 status_code=500,
@@ -2717,7 +2816,9 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     # 优先用环境变量（Electron 注入），否则回退到 config
-    host = os.environ.get("LUMIO_FASTAPI_HOST", "0.0.0.0")  # 默认 0.0.0.0 让移动端可连
+    # 默认 127.0.0.1 仅本机访问（安全默认，AGENTS.md 要求"用户主动开启移动端连接"）
+    # 移动端连接：设 LUMIO_FASTAPI_HOST=0.0.0.0（或桌面端设置页开启"允许移动端连接"）
+    host = os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1")
     port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
     logger.info("Starting FastAPI on %s:%d (token=%s)",
                 host, port,

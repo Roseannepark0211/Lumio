@@ -169,6 +169,9 @@ export function SettingsPage() {
   const [renameSubmitting, setRenameSubmitting] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<Device | null>(null);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
+  // 彻底删除已撤销设备（purge）
+  const [purgeTarget, setPurgeTarget] = useState<Device | null>(null);
+  const [purgeSubmitting, setPurgeSubmitting] = useState(false);
 
   // 在事件回调中引用最新 apifyState（避免闭包陈旧）
   const apifyStateRef = useRef<ApifyStatus | null>(null);
@@ -470,6 +473,22 @@ export function SettingsPage() {
       setRevokeSubmitting(false);
     }
   }, [revokeTarget, showToast, tr]);
+
+  const onConfirmPurge = useCallback(async () => {
+    if (!purgeTarget) return;
+    const target = purgeTarget;
+    setPurgeSubmitting(true);
+    try {
+      await api.purgeDevice(target.device_id);
+      setDevices((prev) => prev.filter((d) => d.device_id !== target.device_id));
+      showToast(tr("devices_purged", { name: target.device_name }));
+      setPurgeTarget(null);
+    } catch (e) {
+      showToast(`删除失败: ${e}`);
+    } finally {
+      setPurgeSubmitting(false);
+    }
+  }, [purgeTarget, showToast, tr]);
 
   // —— Apify 操作 ——
   const onValidateApify = useCallback(async () => {
@@ -1050,6 +1069,7 @@ export function SettingsPage() {
                   tr={tr}
                   onRename={() => openRenameDialog(d)}
                   onRevoke={() => setRevokeTarget(d)}
+                  onPurge={() => setPurgeTarget(d)}
                 />
               ))}
             </div>
@@ -1429,6 +1449,30 @@ export function SettingsPage() {
         </ModalDialog>
       )}
 
+      {/* 彻底删除已撤销设备确认对话框 */}
+      {purgeTarget && (
+        <ModalDialog
+          title={tr("devices_purge_btn")}
+          onClose={() => setPurgeTarget(null)}
+        >
+          <p className="text-sm text-text">
+            {tr("devices_purge_confirm")}
+          </p>
+          <p className="mt-1 text-xs text-text-muted">
+            {purgeTarget.device_name} · <span className="font-mono">{purgeTarget.device_id}</span>
+          </p>
+          <DialogActions
+            onCancel={() => setPurgeTarget(null)}
+            onConfirm={onConfirmPurge}
+            confirmText={tr("devices_purge_btn")}
+            danger
+          />
+          {purgeSubmitting && (
+            <p className="mt-2 text-xs text-text-muted">{tr("loading")}</p>
+          )}
+        </ModalDialog>
+      )}
+
       {/* 检查更新对话框（打开时自动检查 → 显示 release notes → 下载 → 重启安装） */}
       <UpdateDialog open={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} />
     </div>
@@ -1705,9 +1749,10 @@ interface DeviceRowProps {
   tr: (key: string, params?: Record<string, string | number>) => string;
   onRename: () => void;
   onRevoke: () => void;
+  onPurge: () => void;
 }
 
-function DeviceRow({ device, tr, onRename, onRevoke }: DeviceRowProps) {
+function DeviceRow({ device, tr, onRename, onRevoke, onPurge }: DeviceRowProps) {
   return (
     <div className="rounded-lg border border-text/15 bg-text/[0.06] p-3">
       <div className="flex items-center gap-2">
@@ -1736,13 +1781,21 @@ function DeviceRow({ device, tr, onRename, onRevoke }: DeviceRowProps) {
         >
           ✎ {tr("devices_rename")}
         </button>
-        <button
-          onClick={onRevoke}
-          disabled={device.revoked}
-          className="rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/20 disabled:opacity-40 disabled:hover:bg-transparent"
-        >
-          🗑 {tr("devices_revoke")}
-        </button>
+        {device.revoked ? (
+          <button
+            onClick={onPurge}
+            className="rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            🗑 {tr("devices_purge")}
+          </button>
+        ) : (
+          <button
+            onClick={onRevoke}
+            className="rounded-lg bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            🗑 {tr("devices_revoke")}
+          </button>
+        )}
       </div>
     </div>
   );

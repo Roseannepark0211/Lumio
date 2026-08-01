@@ -780,9 +780,13 @@ export const api = {
   /** 重命名设备（PATCH body: {device_name}） */
   renameDevice: (deviceId: string, newName: string) =>
     patch<Device>(`/api/devices/${encodeURIComponent(deviceId)}`, { device_name: newName }),
-  /** 撤销设备（吊销 JWT）。返回 204 No Content。 */
+  /** 撤销设备（吊销 JWT，记录保留）。返回 204 No Content。 */
   revokeDevice: (deviceId: string) =>
     del<void>(`/api/devices/${encodeURIComponent(deviceId)}`),
+
+  /** 彻底删除已撤销设备记录（从 devices.json 移除）。返回 204 No Content。 */
+  purgeDevice: (deviceId: string) =>
+    del<void>(`/api/devices/${encodeURIComponent(deviceId)}?purge=1`),
 
   // —— SettingsPage: 缓存管理 ——
   getCacheStats: () => get<CacheStats>("/api/cache/stats"),
@@ -885,8 +889,11 @@ export function subscribeEvents(
   onError?: (e: Event) => void
 ): () => void {
   // WebSocket URL 需要把 http base 转成 ws
+  // 必须带 ?token=xxx：后端 ws_events 在 accept() 前校验 token，
+  // 缺失会 close(code=4401)，ASGI 协议在 accept 前 close 会返回 HTTP 403
   const wsBase = BASE.replace(/^http/, "ws");
-  const url = `${wsBase}/ws/events`;
+  const tokenQuery = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : "";
+  const url = `${wsBase}/ws/events${tokenQuery}`;
 
   // 心跳超时阈值：后端每 25s 发一次 ping，2 个周期内必须收到任何消息
   const HEARTBEAT_TIMEOUT_MS = 60_000;
