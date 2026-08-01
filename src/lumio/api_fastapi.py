@@ -844,6 +844,14 @@ def create_app() -> FastAPI:
                 # 1. 移动端路径：Authorization: Bearer <access_jwt>
                 bearer = mobile_auth.extract_bearer_token(
                     request.headers.get("Authorization", ""))
+                # M5：媒体文件代理路径（expo-video 无法加 Authorization header），
+                # 支持 ?token=<jwt> 兜底，与 WS 鉴权方式对齐
+                if not bearer:
+                    query_token = request.query_params.get("token", "")
+                    if query_token and path == "/api/library/file":
+                        bearer = mobile_auth.extract_bearer_token(query_token)
+                        if not bearer:
+                            bearer = query_token  # extract_bearer_token 可能不返回，直接用
                 if bearer:
                     # fp 比对已移除：_build_request_fingerprint(UA+IP) 要求客户端预知服务端视角 IP，
                     # 移动端无法实现（CF Tunnel 下 origin 看到 CF 节点 IP）。安全性靠 JWT 签名 +
@@ -2410,6 +2418,108 @@ def create_app() -> FastAPI:
             # 仅当原本应是 library 来源时触发（路径非空）
             _bus().publish("file_missing", {"path": req.file_path, "source": "library"})
         return {"items": items}
+
+    @app.get("/api/library/file")
+    async def library_file(
+        path: str = Query(...),
+        request: Request = None,
+    ) -> StreamingResponse:
+        """M5：流式代理本地素材文件（移动端预览用，支持 HTTP Range）。
+
+        与 Electron 前端的 lumioFileUrl() 区别：
+        - Electron: 直接用 file:// 协议访问本地文件（同机）
+        - 移动端: 无法访问桌面端文件系统，必须通过此端点流式代理
+
+        特性：
+        - JWT 鉴权（中间件已校验，受保护路径）
+        - HTTP Range 支持（视频拖动播放）
+        - Content-Type 自动推断（视频/图片/音频）
+        - 路径安全检查：只允许 ~/.lumio/ 下的文件（防止任意文件读取）
+
+        参数：
+        - path: 本地文件绝对路径（由 /api/library/preview-items 返回）
+        """
+        import mimetypes
+        from pathlib import Path as _Path
+
+        # 路径安全检查：只允许 ~/.lumio/ 下的文件
+        lumio_home = _Path.home() / ".lumio"
+        try:
+            abs_path = _Path(path).resolve()
+            # 必须在 ~/.lumio/ 下（防止 ../../../etc/passwd 等路径穿越）
+            abs_path.relative_to(lumio_home)
+        except (ValueError, OSError):
+            raise HTTPException(status_code=403, detail="path not allowed")
+
+        if not abs_path.exists() or not abs_path.is_file():
+            raise HTTPException(status_code=404, detail="file not found")
+
+        # 推断 Content-Type
+        mime_type, _ = mimetypes.guess_type(str(abs_path))
+        if not mime_type:
+            mime_type = "application/octet-stream"
+
+        # 文件大小
+        file_size = abs_path.stat().st_size
+
+        # HTTP Range 支持（视频拖动播放）
+        range_header = request.headers.get("range") if request else None
+        if range_header:
+            # 解析 Range: bytes=start-end
+            import re
+            m = re.match(r"bytes=(d+)-(d*)", range_header)
+            if m:
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else file_size - 1
+                if start >= file_size:
+                    return Response(
+                        status_code=416,
+                        headers={"Content-Range": f"bytes */{file_size}"},
+                    )
+                end = min(end, file_size - 1)
+                content_length = end - start + 1
+
+                async def range_gen():
+                    with open(abs_path, "rb") as f:
+                        f.seek(start)
+                        remaining = content_length
+                        while remaining > 0:
+                            chunk = f.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+                            yield chunk
+
+                return StreamingResponse(
+                    range_gen(),
+                    status_code=206,
+                    media_type=mime_type,
+                    headers={
+                        "Content-Range": f"bytes {start}-{end}/{file_size}",
+                        "Content-Length": str(content_length),
+                        "Accept-Ranges": "bytes",
+                        "Cache-Control": "private, max-age=3600",
+                    },
+                )
+
+        # 无 Range 头：完整文件流式返回
+        async def full_gen():
+            with open(abs_path, "rb") as f:
+                while True:
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return StreamingResponse(
+            full_gen(),
+            media_type=mime_type,
+            headers={
+                "Content-Length": str(file_size),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "private, max-age=3600",
+            },
+        )
 
     @app.post("/api/open-external-url")
     async def open_external_url(req: OpenExternalUrlRequest) -> dict:
