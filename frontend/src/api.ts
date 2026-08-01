@@ -79,7 +79,7 @@ export type UpdateEventChannel =
   | "update:downloaded"
   | "update:error";
 
-const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: LumioGlobal }).lumio : undefined);
+export const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: LumioGlobal }).lumio : undefined);
 
 const BASE = lumioGlobal?.fastapiBase || "http://127.0.0.1:38910";
 const TOKEN = lumioGlobal?.fastapiToken || "";
@@ -297,45 +297,10 @@ export interface TelegramValidateResult {
 }
 
 // ============================================================
-// SettingsPage: 移动设备管理（FastAPI 安全阶段 2）
-// 与 src/lumio/mobile_auth.py register_device 返回字段对齐
+// SettingsPage: 移动设备管理类型已移至 apiMobile.ts
+// （独立模块，构建时随 MobileDevicesSettings 一起 tree-shake，
+//   避免移动端 API 端点字符串进入构建产物）
 // ============================================================
-
-/** 已配对设备（GET /api/devices 列表项） */
-export interface Device {
-  device_id: string;
-  device_name: string;
-  device_fingerprint: string;
-  /** ISO 8601 UTC 字符串 */
-  paired_at: string;
-  last_active_at: string;
-  /** 已撤销的设备 JWT 立即失效 */
-  revoked: boolean;
-}
-
-/** /api/auth/pair-code 响应 */
-export interface PairCodeResponse {
-  pair_code: string;
-  expires_in: number;
-}
-
-/** /api/auth/server-info 响应（移动端配对前读取，无鉴权） */
-export interface ServerInfo {
-  /** 是否允许移动端连接（config.allow_mobile_connect） */
-  allow_mobile_connect: boolean;
-  /** FastAPI 监听 host（"127.0.0.1" 或 "0.0.0.0"） */
-  host: string;
-  /** FastAPI 监听端口 */
-  port: number;
-  /** 桌面端局域网 IPv4 列表（移动端据此选择正确 IP 输入） */
-  lan_ips: string[];
-  /** 桌面端版本号（lumio.__version__） */
-  version: string;
-  /** HTTPS 证书指纹（SHA-256，用于移动端校验自签证书；HTTP 模式为空串） */
-  cert_fingerprint: string;
-  /** 是否监听所有接口（host == "0.0.0.0"） */
-  listening_all_interfaces: boolean;
-}
 
 /** Apify 配置状态（持久） */
 export interface ApifyStatus {
@@ -515,13 +480,13 @@ async function fetchWithRetry(
   throw lastError;
 }
 
-async function get<T>(path: string): Promise<T> {
+export async function get<T>(path: string): Promise<T> {
   const r = await fetchWithRetry(`${BASE}${path}`, { headers: authHeaders() });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
   return r.json() as Promise<T>;
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
@@ -541,7 +506,7 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-async function del<T>(path: string): Promise<T> {
+export async function del<T>(path: string): Promise<T> {
   const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "DELETE",
     headers: authHeaders(),
@@ -553,7 +518,7 @@ async function del<T>(path: string): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-async function patch<T>(path: string, body?: unknown): Promise<T> {
+export async function patch<T>(path: string, body?: unknown): Promise<T> {
   const hasBody = body !== undefined;
   const r = await fetchWithRetry(`${BASE}${path}`, {
     method: "PATCH",
@@ -792,24 +757,6 @@ export const api = {
   refreshApifyUsage: () => post<{ ok: boolean; cached?: boolean }>("/api/apify/refresh-usage"),
   forceRefreshApifyUsage: () => post<{ ok: boolean }>("/api/apify/force-refresh-usage"),
 
-  // —— SettingsPage: 移动设备管理（FastAPI 安全阶段 2） ——
-  /** 生成 6 位配对码（5 分钟过期）。桌面端无需鉴权，限流 5/min/IP。 */
-  genPairCode: () => post<PairCodeResponse>("/api/auth/pair-code"),
-  /** 获取桌面端服务信息（IP/端口/指纹/版本/允许状态，无鉴权，移动端配对前读取） */
-  getServerInfo: () => get<ServerInfo>("/api/auth/server-info"),
-  /** 列出所有已配对设备 */
-  listDevices: () => get<Device[]>("/api/devices"),
-  /** 重命名设备（PATCH body: {device_name}） */
-  renameDevice: (deviceId: string, newName: string) =>
-    patch<Device>(`/api/devices/${encodeURIComponent(deviceId)}`, { device_name: newName }),
-  /** 撤销设备（吊销 JWT，记录保留）。返回 204 No Content。 */
-  revokeDevice: (deviceId: string) =>
-    del<void>(`/api/devices/${encodeURIComponent(deviceId)}`),
-
-  /** 彻底删除已撤销设备记录（从 devices.json 移除）。返回 204 No Content。 */
-  purgeDevice: (deviceId: string) =>
-    del<void>(`/api/devices/${encodeURIComponent(deviceId)}?purge=1`),
-
   // —— SettingsPage: 缓存管理 ——
   getCacheStats: () => get<CacheStats>("/api/cache/stats"),
   cleanCacheByRules: () => post<{ ok: boolean }>("/api/cache/clean-by-rules"),
@@ -847,17 +794,6 @@ export const api = {
       );
     }
     return lumioGlobal.pickFiles(filters);
-  },
-  /**
-   * 重启 FastAPI 子进程（用于"允许移动端连接"开关变化后让新 host 生效）。
-   * 仅 Electron 环境可用。重启期间所有 API 请求会失败，前端应显示 loading。
-   * 返回 { ok: boolean, error?: string }。
-   */
-  restartFastApi: async (): Promise<{ ok: boolean; error?: string }> => {
-    if (!lumioGlobal?.restartFastApi) {
-      throw new Error("需要 Electron 环境才能重启 FastAPI");
-    }
-    return lumioGlobal.restartFastApi();
   },
 };
 

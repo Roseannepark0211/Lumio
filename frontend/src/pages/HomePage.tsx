@@ -467,8 +467,7 @@ export function HomePage() {
               </button>
               <button
                 onClick={clearInput}
-                disabled={!urlText}
-                className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-30"
+                className="rounded-lg bg-white/5 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text"
               >
                 {tr("reset")}
               </button>

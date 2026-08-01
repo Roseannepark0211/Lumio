@@ -17,6 +17,7 @@ from .base import BaseProvider, LivePhoto, MediaInfo, MediaItem, MediaType, Plat
 from .network.client import NetworkClient
 from .network.headers import platform_headers
 from .registry import register
+from ..utils.ua import DEFAULT_UA
 from ..utils.error_types import ErrorCategory, classify_error as _ce
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,27 @@ def _extract_note_id(url: str) -> Optional[str]:
     """从 URL 提取笔记 ID。"""
     m = _NOTE_ID_RE.search(url)
     return m.group(1) if m else None
+
+
+def _expand_short_url(url: str) -> Optional[str]:
+    """展开小红书短链接（xhslink.com/xxx → www.xiaohongshu.com/explore/xxx）。
+
+    url_normalizer.resolve_url 可能失败（网络超时/反爬），这里作为 Provider 内的兜底。
+    """
+    import requests
+    try:
+        resp = requests.get(
+            url,
+            allow_redirects=True,
+            timeout=10,
+            headers={"User-Agent": DEFAULT_UA},
+        )
+        if resp.status_code < 400 and resp.url != url:
+            logger.debug("小红书短链接展开: %s -> %s", url[:60], resp.url[:60])
+            return resp.url
+    except Exception as e:
+        logger.warning("小红书短链接展开失败 %s: %s", url[:60], e)
+    return None
 
 
 def _is_profile_url(url: str) -> bool:
@@ -216,6 +238,12 @@ class XiaohongshuProvider(BaseProvider):
         return bool(_NOTE_ID_RE.search(url) or _SHORTLINK_RE.search(url) or _PROFILE_ID_RE.search(url))
 
     def extract_info(self, url: str) -> MediaInfo:
+        # 短链接展开兜底：normalize_url 的 resolve_url 可能失败，这里重试一次
+        if _SHORTLINK_RE.search(url) and not _extract_note_id(url):
+            expanded = _expand_short_url(url)
+            if expanded:
+                url = expanded
+
         note_id = _extract_note_id(url)
         if not note_id:
             return MediaInfo(

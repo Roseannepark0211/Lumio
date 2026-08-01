@@ -1709,6 +1709,7 @@ def create_app() -> FastAPI:
     @app.post("/api/library/items/{item_id}/favorite")
     async def toggle_favorite(item_id: str) -> dict:
         new_val = bool(_ctx().library_manager.toggle_favorite(item_id))
+        _bus().publish("library_changed")
         return {"is_favorite": new_val}
 
     @app.delete("/api/library/items/{item_id}")
@@ -1815,6 +1816,7 @@ def create_app() -> FastAPI:
                     output_dir=str(get_download_dir()),
                 )
                 ctx.manager.add_task(qt)
+                _bus().publish("inbox_changed")
                 ctx.inbox_manager.mark_status(item_id, "queued")
                 _set_inbox_task_map(qt.task_id, item_id)
                 return {"ok": True, "task_id": qt.task_id}
@@ -1842,6 +1844,7 @@ def create_app() -> FastAPI:
             )
             ctx.inbox_manager.mark_status(item_id, "queued")
             _set_inbox_task_map(task_id, item_id)
+            _bus().publish("inbox_changed")
             return {"ok": True, "task_id": task_id}
         except Exception as e:
             logger.exception("inbox_download failed item=%s", item_id)
@@ -1881,6 +1884,7 @@ def create_app() -> FastAPI:
                     ctx.manager.add_task(qt)
                     ctx.inbox_manager.mark_status(iid, "queued")
                     _set_inbox_task_map(qt.task_id, iid)
+                    _bus().publish("inbox_changed")
                     continue
 
                 # ★ 无 direct_url，调 extract_info 重新解析
@@ -1901,6 +1905,7 @@ def create_app() -> FastAPI:
                 )
                 ctx.inbox_manager.mark_status(iid, "queued")
                 _set_inbox_task_map(batch_task_id, iid)
+                _bus().publish("inbox_changed")
             except Exception as e:
                 logger.warning("inbox_batch_download item=%s failed: %s", iid, e)
                 ctx.inbox_manager.mark_status(iid, "failed")
@@ -2459,12 +2464,14 @@ def create_app() -> FastAPI:
         import mimetypes
         from pathlib import Path as _Path
 
-        # 路径安全检查：只允许 ~/.lumio/ 下的文件
-        lumio_home = _Path.home() / ".lumio"
+        # 路径安全检查：允许用户主目录下任意文件（覆盖 Downloads/Documents/.lumio 等常见素材存储位置）
+        # 原 MVP 实现仅允许 ~/.lumio/，但用户实际下载目录常在 ~/Downloads/Lumio 等，
+        # 导致移动端预览 403。安全防线：JWT + device_id 绑定 + 限流 + HTTPS（away 模式），
+        # 路径检查退化为"必须在用户主目录下"，防止 /etc/passwd、Windows 系统文件等被读取。
+        user_home = _Path.home()
         try:
             abs_path = _Path(path).resolve()
-            # 必须在 ~/.lumio/ 下（防止 ../../../etc/passwd 等路径穿越）
-            abs_path.relative_to(lumio_home)
+            abs_path.relative_to(user_home)  # 必须在 ~/ 下
         except (ValueError, OSError):
             raise HTTPException(status_code=403, detail="path not allowed")
 

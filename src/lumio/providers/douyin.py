@@ -63,6 +63,28 @@ def _extract_video_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _expand_share_url(url: str) -> Optional[str]:
+    """展开抖音短链接（v.douyin.com/xxx → www.douyin.com/video/123）。
+
+    url_normalizer.resolve_url 用 PC UA，可能被抖音反爬拦截导致重定向失败。
+    这里用移动端 UA 重试一次（share 页需要移动端 UA）。
+    """
+    import requests
+    try:
+        resp = requests.get(
+            url,
+            allow_redirects=True,
+            timeout=10,
+            headers={"User-Agent": _MOBILE_UA},
+        )
+        if resp.status_code < 400 and resp.url != url:
+            logger.debug("抖音短链接展开: %s -> %s", url[:60], resp.url[:60])
+            return resp.url
+    except Exception as e:
+        logger.warning("抖音短链接展开失败 %s: %s", url[:60], e)
+    return None
+
+
 def _get_douyin_cookies() -> dict[str, str]:
     """读取用户导入的抖音 cookie（可选增强，无则返回空）。
 
@@ -259,6 +281,13 @@ class DouyinProvider(BaseProvider):
         )
 
     def extract_info(self, url: str) -> MediaInfo:
+        # 短链接展开兜底：normalize_url 的 resolve_url 用 PC UA，可能被抖音反爬拦截
+        # 这里用移动端 UA 重试一次
+        if _SHARE_URL_RE.search(url) and not _extract_video_id(url):
+            expanded = _expand_share_url(url)
+            if expanded:
+                url = expanded
+
         video_id = _extract_video_id(url)
         if not video_id:
             # 个人主页
