@@ -2506,15 +2506,20 @@ def create_app() -> FastAPI:
                 content_length = end - start + 1
 
                 async def range_gen():
-                    with open(abs_path, "rb") as f:
-                        f.seek(start)
-                        remaining = content_length
-                        while remaining > 0:
-                            chunk = f.read(min(64 * 1024, remaining))
-                            if not chunk:
-                                break
-                            remaining -= len(chunk)
-                            yield chunk
+                    # 客户端断开（关闭预览/刷新页面）时 Starlette 抛 GeneratorExit，
+                    # 主动 break 避免 transport 层 socket.shutdown 报 WinError 10054
+                    try:
+                        with open(abs_path, "rb") as f:
+                            f.seek(start)
+                            remaining = content_length
+                            while remaining > 0:
+                                chunk = f.read(min(64 * 1024, remaining))
+                                if not chunk:
+                                    break
+                                remaining -= len(chunk)
+                                yield chunk
+                    except (GeneratorExit, ConnectionResetError, BrokenPipeError):
+                        return
 
                 return StreamingResponse(
                     range_gen(),
@@ -2530,12 +2535,15 @@ def create_app() -> FastAPI:
 
         # 无 Range 头：完整文件流式返回
         async def full_gen():
-            with open(abs_path, "rb") as f:
-                while True:
-                    chunk = f.read(64 * 1024)
-                    if not chunk:
-                        break
-                    yield chunk
+            try:
+                with open(abs_path, "rb") as f:
+                    while True:
+                        chunk = f.read(64 * 1024)
+                        if not chunk:
+                            break
+                        yield chunk
+            except (GeneratorExit, ConnectionResetError, BrokenPipeError):
+                return
 
         return StreamingResponse(
             full_gen(),
@@ -3061,6 +3069,20 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    # 过滤 Windows asyncio proactor 的 WinError 10054 噪音：
+    # 客户端中途断开 TCP 连接时，_ProactorBasePipeTransport._call_connection_lost
+    # 调用 socket.shutdown 抛 ConnectionResetError，asyncio 默认 handler 把它
+    # 当 ERROR 打到日志。这是无害的连接清理噪音，过滤掉避免刷屏。
+    def _silence_connection_reset(loop, context):
+        exc = context.get("exception")
+        if exc is not None and isinstance(exc, ConnectionResetError):
+            return  # 静默吞掉，不打日志
+        # 其他异常走默认处理
+        loop.default_exception_handler(context)
+
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().set_exception_handler(_silence_connection_reset)
     # 优先用环境变量（Electron 注入），否则回退到 config
     # 默认 127.0.0.1 仅本机访问（安全默认，AGENTS.md 要求"用户主动开启移动端连接"）
     # 移动端连接：LUMIO_FASTAPI_HOST=0.0.0.0（由 Electron 根据 config.allow_mobile_connect 注入）
