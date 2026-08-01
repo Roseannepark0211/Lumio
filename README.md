@@ -21,6 +21,7 @@
 - [开发者指南](#开发者指南)
 - [技术栈](#技术栈)
 - [常见问题](#常见问题)
+- [截图](#截图)
 - [许可证](#许可证)
 
 ---
@@ -237,8 +238,6 @@ Instagram 多图帖子 DOM 仅渲染当前 + 相邻 slide（约 4 张），扩�
 ## 素材管理
 
 ### 素材库
-
-![素材库](docs/images/素材库.png)
 
 - **自动入库**：每个下载任务完成自动入库，含标题 / 作者 / 平台 / 媒体类型 / 文件路径 / 发布时间 / 批次 ID
 - **缩略图预览**：启动时自动为缺失缩略图的素材后台生成
@@ -487,23 +486,16 @@ X 图片下载和批量枚举必须导入 `auth_token` + `ct0` 两个 cookie。�
 
 ## 截图
 
-| 主页 | 素材库 |
-|------|--------|
-| ![主页](docs/images/主页.png) | ![素材库](docs/images/素材库.png) |
+| 主页 | 收件箱 | 下载历史 |
+|------|--------|---------|
+| ![主页](docs/images/主页.png) | ![收件箱](docs/images/收件箱.png) | ![下载历史](docs/images/下载历史.png) |
+
+| 素材库 | 素材库（预览） | 统计页 |
+|--------|---------------|--------|
+| ![素材库](docs/images/素材库.png) | ![素材库2](docs/images/素材库2.png) | ![统计页](docs/images/统计页.png) |
 
 ---
 
 ## 许可证
 
 [MIT License](LICENSE) — 仅供个人学习使用。
-
-## 致谢
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — YouTube / X 视频下载引擎
-- [instaloader](https://github.com/instaloader/instaloader) — Instagram 下载（迁移中逐步弃用）
-- [FastAPI](https://fastapi.tiangolo.com/) — 后端 API 框架
-- [Electron](https://www.electronjs.org/) — 跨平台桌面应用框架
-- [React](https://react.dev/) — 前端 UI 框架
-- [Tailwind CSS](https://tailwindcss.com/) — 原子化 CSS 框架
-- [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) — 内置 ffmpeg 二进制
-- [SQLAlchemy](https://www.sqlalchemy.org/) — Python ORM
