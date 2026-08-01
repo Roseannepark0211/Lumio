@@ -100,6 +100,39 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '4.4.7',
+    date: '2026-08-02',
+    sections: [
+      {
+        title: '🐛 Bug 修复',
+        items: [
+          '[主程序] 修复 Home 页面 reset 按钮在输入框为空时仍可点击的问题',
+          '[主程序] 修复抖音短链接（v.douyin.com）展开失败导致解析失败，增加移动 UA 兜底重试',
+          '[主程序] 修复小红书短链接（xhslink.com）展开失败的 Provider 内兜底处理',
+          '[主程序] 修复素材库收藏状态变更后 UI 不实时刷新（添加 library_changed 事件总线通知）',
+          '[主程序] 修复收件箱入队后列表状态未同步刷新（添加 inbox_changed 事件总线通知）',
+        ],
+      },
+      {
+        title: '🔒 安全增强',
+        items: [
+          '双 Token 鉴权：access token（2h 有效）+ refresh token（30d 有效）+ jti 黑名单 + 设备指纹校验，token 泄露后可即时吊销',
+          '传输层加密：HSTS 强制 HTTPS + HTTP→HTTPS 自动重定向 + CORS 白名单 + Electron 证书校验（pin 防中间人）',
+          '敏感数据加密：AES-256-GCM 对称加密 + HKDF 派生密钥（每次加密派生独立密钥）+ media-proxy 鉴权增强',
+          '路径安全检查优化：media-proxy 端点从仅允许 ~/.lumio/ 扩展到用户主目录，修复 ~/Downloads/Lumio 等自定义下载目录素材预览 403 问题，同时保持防路径穿越能力',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+          '主程序：V4.4.2 → V4.4.7，直接覆盖安装，用户数据（~/.lumio/）不会丢失',
+          '浏览器扩展：ext-v4.4.7，本次随主程序 Release 一起发布 zip 包，可在 Release 资产中下载 lumio-extension-v4.4.7.zip',
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.7',
+  },
+  {
     version: '4.4.2',
     date: '2026-07-29',
     sections: [
@@ -143,22 +176,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.2',
-  },
-  {
-    version: '4.4.1',
-    date: '2026-07-29',
-    sections: [
-      {
-        title: '🐛 修复内容',
-        items: [
-          '修复 YouTube 视频已存在时下载队列卡在"合并中"的 bug：glob(f"{stem}.*") 用 fnmatch 模式匹配，方括号 [4K]/[1080p] 被解释为字符集；改用 iterdir() + startswith() 做字面量匹配，覆盖 4 处下载路径；修复 skip 策略分支未设置 task.filename 导致 on_done 判定失败无限重试',
-          '修复托盘右键菜单偶发"未连接"状态：fetch 添加 AbortController 4 秒超时；重试次数 3 次/1.5s 改为 8 次/1s（覆盖 FastAPI 冷启动 10s+）；先用 /api/health 探活再拉业务数据；tray:reload 立即显示"加载中"；菜单隐藏时停止轮询和重试定时器',
-          '修复主页粘贴按钮无法读取剪贴板（迁移架构时引入）：64 位 Windows 上 ctypes 默认 restype=c_int（32 位），GetClipboardData/GlobalLock 返回 64 位指针被截断 → 访问违例 0xC0000005 崩溃；显式设置 restype=wintypes.HANDLE/LPVOID，添加 GlobalLock/GlobalUnlock 配对；添加 OpenClipboard 失败重试',
-          '修复 CI 测试失败：TaskStatus 枚举测试同步新增 MERGING/PARSING 状态',
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.1',
   },
   {
     version: '4.4.0',

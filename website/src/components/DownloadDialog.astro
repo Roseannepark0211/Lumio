@@ -30,36 +30,36 @@ interface ReleaseInfo {
   assets: ReleaseAsset[];
 }
 
-// 硬编码 fallback — 当前版本（v4.4.2）的资产数据
+// 硬编码 fallback — 当前版本（v4.4.7）的资产数据
 // 用于：构建时 fetch 失败（网络问题/限流）+ dev 模式跳过 fetch
 // 发新 Release 后需手动更新此处（或 prod 构建时 fetch 成功则自动覆盖）
 const FALLBACK_RELEASE: ReleaseInfo = {
-  version: '4.4.2',
+  version: '4.4.7',
   assets: [
     {
-      name: 'Lumio-Setup-4.4.2.exe',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-Setup-4.4.2.exe',
-      size: 131619392,
+      name: 'Lumio-Setup-4.4.7.exe',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-Setup-4.4.7.exe',
+      size: 134647115,
     },
     {
-      name: 'Lumio-4.4.2-arm64.dmg',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-4.4.2-arm64.dmg',
-      size: 143119085,
+      name: 'Lumio-4.4.7-arm64.dmg',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-4.4.7-arm64.dmg',
+      size: 146859109,
     },
     {
-      name: 'Lumio-4.4.2-x86_64.AppImage',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/Lumio-4.4.2-x86_64.AppImage',
-      size: 147954975,
+      name: 'Lumio-4.4.7-x86_64.AppImage',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-4.4.7-x86_64.AppImage',
+      size: 151789402,
     },
     {
-      name: 'lumio_4.4.2_amd64.deb',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/lumio_4.4.2_amd64.deb',
-      size: 135183500,
+      name: 'lumio_4.4.7_amd64.deb',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/lumio_4.4.7_amd64.deb',
+      size: 138386148,
     },
     {
-      name: 'lumio-4.4.2.x86_64.rpm',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.2/lumio-4.4.2.x86_64.rpm',
-      size: 136263173,
+      name: 'lumio-4.4.7.x86_64.rpm',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/lumio-4.4.7.x86_64.rpm',
+      size: 139832813,
     },
   ],
 };
