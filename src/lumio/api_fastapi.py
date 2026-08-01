@@ -1050,6 +1050,15 @@ def create_app() -> FastAPI:
         ctx["bus"] = EventBus(loop)
         push_service.install_event_hook(ctx["bus"])  # M3: 安装 push 事件钩子
         ctx["app_ctx"] = AppContext()
+
+        # 在 uvicorn 的 loop 上设 exception handler（main() 里设无效，loop 不是同一个）
+        # 过滤客户端断开连接时的 ConnectionResetError 噪音
+        def _silence_conn_reset(loop_, context):
+            exc = context.get("exception")
+            if exc is not None and isinstance(exc, ConnectionResetError):
+                return  # 静默吞掉
+            loop_.default_exception_handler(context)
+        loop.set_exception_handler(_silence_conn_reset)
         # 绑定 Qt Signal → EventBus
         _wire_signals(ctx["app_ctx"], ctx["bus"])
         logger.info("Lumio FastAPI started")
@@ -3070,19 +3079,21 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # 过滤 Windows asyncio proactor 的 WinError 10054 噪音：
-    # 客户端中途断开 TCP 连接时，_ProactorBasePipeTransport._call_connection_lost
-    # 调用 socket.shutdown 抛 ConnectionResetError，asyncio 默认 handler 把它
-    # 当 ERROR 打到日志。这是无害的连接清理噪音，过滤掉避免刷屏。
-    def _silence_connection_reset(loop, context):
-        exc = context.get("exception")
-        if exc is not None and isinstance(exc, ConnectionResetError):
-            return  # 静默吞掉，不打日志
-        # 其他异常走默认处理
-        loop.default_exception_handler(context)
-
-    import asyncio as _asyncio
-    _asyncio.get_event_loop().set_exception_handler(_silence_connection_reset)
+    # 过滤 Windows asyncio proactor 的 WinError 10054 噪音（双层过滤）：
+    # 1. asyncio logger filter：拦截 default_exception_handler 打的 ERROR 日志
+    # 2. loop exception handler：在 startup 事件中设置（见 _startup），拦截 call_exception_handler 路径
+    #    （不能在这里设：main() 调 asyncio.get_event_loop() 拿到的是旧 loop，
+    #     uvicorn.run() 会创建新 loop，handler 不会继承）
+    class _ConnResetFilter(logging.Filter):
+        def filter(self, record):
+            msg = record.getMessage()
+            # 精确匹配 _ProactorBasePipeTransport._call_connection_lost 的噪音
+            if "_call_connection_lost" in msg and "WinError 10054" in msg:
+                return False
+            if "ConnectionResetError" in msg and "10054" in msg:
+                return False
+            return True
+    logging.getLogger("asyncio").addFilter(_ConnResetFilter())
     # 优先用环境变量（Electron 注入），否则回退到 config
     # 默认 127.0.0.1 仅本机访问（安全默认，AGENTS.md 要求"用户主动开启移动端连接"）
     # 移动端连接：LUMIO_FASTAPI_HOST=0.0.0.0（由 Electron 根据 config.allow_mobile_connect 注入）
@@ -3109,6 +3120,9 @@ def main() -> None:
         reload=False,
         access_log=False,
         log_level="info",
+        # Windows 下 Ctrl+C 退出时，streaming generator 可能卡在 f.read()，
+        # uvicorn 默认无限等待 background tasks 完成。设 3 秒超时强制退出。
+        timeout_graceful_shutdown=3,
     )
 
 
