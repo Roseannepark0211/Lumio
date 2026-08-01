@@ -30,6 +30,7 @@ import base64
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -56,6 +57,76 @@ def _ensure_qt_app() -> QApplication:
     if _qt_app is None:
         _qt_app = QApplication.instance() or QApplication(sys.argv[:1])
     return _qt_app
+
+
+def _scan_lan_ipv4_addresses() -> list[str]:
+    """扫描本机所有 LAN IPv4 地址（排除 127.0.0.1 loopback 和 169.254 link-local）。
+
+    用于 /api/auth/server-info 端点，移动端 App 据此展示桌面端可访问的 LAN IP 列表。
+
+    实现方式（跨平台，无第三方依赖）：
+    1. socket.getaddrinfo() + socket.gethostname()：获取本机 hostname 解析的 IP
+    2. UDP connect trick：connect 到 8.8.8.8:80（不发包），getsockname() 拿主网卡 IP
+    3. 优先用 UDP connect（最可靠，不依赖 DNS），socket.getaddrinfo 作为补充
+
+    返回示例：["192.168.1.100", "10.0.0.5"]
+    """
+    ips: list[str] = []
+    seen: set[str] = set()
+
+    def _add(ip: str) -> None:
+        # 排除 loopback / link-local / 空字符串
+        if not ip or ip.startswith("127.") or ip.startswith("169.254."):
+            return
+        if ip not in seen:
+            seen.add(ip)
+            ips.append(ip)
+
+    # 方法1: UDP connect trick — 最可靠，拿主网卡出口 IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            _add(s.getsockname()[0])
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+    # 方法2: getaddrinfo(hostname) — 补充，可能拿到虚拟网卡 IP
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            _add(info[4][0])
+    except Exception:
+        pass
+
+    return ips
+
+
+def _get_build_date() -> str:
+    """获取构建日期（YYYY.MM.DD 格式），用于 SettingsPage 关于页显示。
+
+    优先级：
+    1. PyInstaller 打包模式：读 version.txt 的 mtime（build-backend.js 生成时间）
+    2. dev 模式：读 src/lumio/__init__.py 的 mtime（最后修改时间）
+    3. 兜底：返回固定字符串
+
+    注意：version.txt 在 packaged 模式位于 resources/build/version.txt（Electron 复制过去），
+    FastAPI 进程内访问的是源码路径 frontend/build/version.txt（build-backend.js 写入位置）。
+    PyInstaller 打包后这个文件不在 _MEIPASS 内，所以打包模式读不到 → fallback 到 __init__.py mtime。
+    实际打包后 __init__.py 的 mtime 是 PyInstaller 解压时间，接近构建时间，可用。
+    """
+    try:
+        from datetime import datetime
+        # dev 模式：读 src/lumio/__init__.py
+        init_path = Path(__file__).parent / "__init__.py"
+        if init_path.exists():
+            mtime = init_path.stat().st_mtime
+            return datetime.fromtimestamp(mtime).strftime("%Y.%m.%d")
+    except Exception:
+        pass
+    return "2026.01.01"
 
 
 # ============================================================
@@ -131,8 +202,9 @@ from . import push_service  # M3: 推送通知服务（Expo Push Server 集成�
 # 鉴权白名单：以下 /api/ 路径不需要 JWT/X-Lumio-Token
 # - /api/health: 心跳，移动端 useNetworkStatus 用
 # - /api/auth/pair-code: 生成配对码（无 JWT，单独限流）
+# - /api/auth/server-info: 服务信息（IP/端口/指纹，移动端配对前需读取，无 JWT）
 # - /api/auth/pair: 配对（无 JWT，单独限流）
-_AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/pair", "/api/auth/refresh"}
+_AUTH_WHITELIST = {"/api/health", "/api/auth/pair-code", "/api/auth/server-info", "/api/auth/pair", "/api/auth/refresh"}
 
 # 阶段4敏感路径白名单：仅这些路径启用 AES-GCM 加解密
 # 客户端通过 X-Lumio-Crypto: 1 头声明支持加密，服务端检测到才加解密（向后兼容）
@@ -1125,6 +1197,40 @@ def create_app() -> FastAPI:
         code = mobile_auth.generate_pair_code()
         return {"pair_code": code, "expires_in": 300}
 
+    @app.get("/api/auth/server-info")
+    async def server_info() -> dict:
+        """返回桌面端服务信息（无鉴权，移动端配对前需读取）。
+
+        用于移动端 App 在配对界面展示：
+        - 局域网 IP 列表（移动端用户据此选择正确的桌面端 IP 输入）
+        - 服务端口（FastAPI 监听端口，由 Electron 启动时注入）
+        - 是否允许移动端连接（false 时移动端无法配对，提示用户在桌面端开启）
+        - 桌面端版本号（移动端可据此判断兼容性）
+        - 证书指纹（HTTPS 模式下移动端校验自签证书，防中间人）
+
+        无需鉴权原因：移动端在配对前没有 JWT，必须能匿名访问此端点获取连接信息。
+        限流由通用中间件保证（白名单端点 60/min/IP）。
+        """
+        cfg = load_config()
+        # 端口优先用环境变量（Electron 启动时注入），回退到默认 38910
+        # 注意：不读 config.api_port（那是 Flask /capture 端口 38900），
+        # FastAPI 端口与 main() 函数对齐（int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910）
+        port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
+        # 扫描本机所有 LAN IPv4 地址（排除 loopback/link-local）
+        lan_ips = _scan_lan_ipv4_addresses()
+        # 证书指纹（HTTPS 模式才有，由 LUMIO_CERT_FINGERPRINT 环境变量传入）
+        cert_fingerprint = os.environ.get("LUMIO_CERT_FINGERPRINT", "")
+        return {
+            "allow_mobile_connect": bool(cfg.get("allow_mobile_connect", False)),
+            "host": os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1"),
+            "port": port,
+            "lan_ips": lan_ips,
+            "version": __import__("lumio").__version__,
+            "cert_fingerprint": cert_fingerprint,
+            # 是否监听所有接口（0.0.0.0 表示移动端可通过 LAN IP 访问）
+            "listening_all_interfaces": os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1") == "0.0.0.0",
+        }
+
     @app.post("/api/auth/pair")
     async def pair(req: PairRequest, request: Request) -> dict:
         """配对：校验配对码 + 注册设备 + 签发 access + refresh 双 token。
@@ -1881,6 +1987,10 @@ def create_app() -> FastAPI:
         if safe.get("apify_token"):
             t = safe["apify_token"]
             safe["apify_token"] = ("apify_api_" + t[10:] + "...") if len(t) > 14 else t
+        # 注入真实版本号 + 构建日期（前端 SettingsPage「关于」展示用）
+        # config.json 本身不持久化这两个字段（避免升级后旧值残留），每次请求实时计算
+        safe["version"] = __import__("lumio").__version__
+        safe["build_date"] = _get_build_date()
         return safe
 
     @app.put("/api/config/{key}")
@@ -2817,8 +2927,15 @@ def main() -> None:
     )
     # 优先用环境变量（Electron 注入），否则回退到 config
     # 默认 127.0.0.1 仅本机访问（安全默认，AGENTS.md 要求"用户主动开启移动端连接"）
-    # 移动端连接：设 LUMIO_FASTAPI_HOST=0.0.0.0（或桌面端设置页开启"允许移动端连接"）
-    host = os.environ.get("LUMIO_FASTAPI_HOST", "127.0.0.1")
+    # 移动端连接：LUMIO_FASTAPI_HOST=0.0.0.0（由 Electron 根据 config.allow_mobile_connect 注入）
+    # 兜底：环境变量未注入时，读 config.allow_mobile_connect 决定 host（独立运行模式）
+    host = os.environ.get("LUMIO_FASTAPI_HOST")
+    if not host:
+        try:
+            cfg = load_config()
+            host = "0.0.0.0" if cfg.get("allow_mobile_connect") else "127.0.0.1"
+        except Exception:
+            host = "127.0.0.1"
     port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
     logger.info("Starting FastAPI on %s:%d (token=%s)",
                 host, port,

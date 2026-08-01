@@ -23,6 +23,9 @@ DEFAULTS = {
     # 由 Electron main.ts 的 close 事件读取；用户在 close-dialog 勾选「记住选择」时写入
     "close_behavior": "ask",
     "api_port": 38900,
+    # 移动端连接开关：默认 false，FastAPI 仅监听 127.0.0.1（安全默认）
+    # 开启后 FastAPI 监听 0.0.0.0，移动端可通过 LAN IP 配对（需重启 FastAPI 生效）
+    "allow_mobile_connect": False,
     "telegram_bot_token": "",
     "telegram_enabled": False,
     "telegram_poll_interval": 10,

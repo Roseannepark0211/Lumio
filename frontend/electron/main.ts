@@ -38,7 +38,7 @@ let trayManager: TrayManager | null = null;
 let updaterManager: UpdaterManager | null = null;
 
 // FastAPI 连接信息（每次启动随机生成，传给子进程 + 渲染进程）
-const fastapiPort = pickUnusedPort();
+const fastapiPort = pickFastApiPort();
 const fastapiToken = crypto.randomBytes(24).toString("hex");
 const FASTAPI_BASE = `http://127.0.0.1:${fastapiPort}`;
 
@@ -236,12 +236,26 @@ const MIME_TYPES: Record<string, string> = {
   ".heif": "image/heif",
 };
 
-/** 在 10000-60000 之间挑一个看起来没被占用的端口。 */
-function pickUnusedPort(): number {
-  // 简单策略：随机一个高位端口。即使偶尔冲突，FastAPI 启动失败也能感知。
-  // 真正避免冲突需要 net.createServer().listen(0)，但那是异步的，启动时机太早。
-  // 这里用 38910-38999 范围（保留端口段），冲突时 FastAPI 会立即报错。
-  return 38910 + Math.floor(Math.random() * 90);
+/**
+ * 选择 FastAPI 监听端口：按序尝试 38910-38919，返回第一个看起来没被占用的端口。
+ *
+ * 设计权衡（方案 A+）：
+ *  - 默认 38910 与移动端 DEFAULT_PORT 对齐，99% 用户无冲突时零配置即可配对
+ *  - 38910 被占用时自动 fallback 到 38911-38919，避免启动失败
+ *  - 全部占用时返回 38910（FastAPI 启动会立即报 "Address already in use"，
+ *    startFastApi 会被 reject，错误对话框可见）
+ *  - 同步检测（用 netstat/lsof）而非 net.createServer().listen(0) 异步检测，
+ *    因为 fastapiPort 在模块顶层 const 初始化，无法 await
+ *  - 二次防护：startFastApi 内仍会调用 isPortInUse(fastapiPort) 早期拒绝
+ */
+function pickFastApiPort(): number {
+  for (let port = 38910; port <= 38919; port++) {
+    if (!isPortInUse(port)) {
+      return port;
+    }
+  }
+  // 38910-38919 全占用：返回 38910 让 FastAPI 启动报错（错误可见，用户能感知）
+  return 38910;
 }
 
 /**
@@ -259,7 +273,8 @@ function pickUnusedPort(): number {
 function isPortInUse(port: number): boolean {
   try {
     if (process.platform === "win32") {
-      const out = execSync(`netstat -ano -p tcp | findstr ":${port} "`, {
+      // 只检测 LISTENING 状态，避免把 ESTABLISHED 连接（如前端 WS）误判为端口占用
+      const out = execSync(`netstat -ano -p tcp | findstr "LISTENING" | findstr ":${port} "`, {
         windowsHide: true,
         encoding: "utf8",
       });
@@ -380,6 +395,30 @@ function readCloseBehavior(): string {
 }
 
 /**
+ * 同步读取 config.allow_mobile_connect（用于 FastAPI 启动时决定监听 host）。
+ *  - true  → FastAPI 监听 0.0.0.0（移动端可通过 LAN IP 配对）
+ *  - false → FastAPI 监听 127.0.0.1（仅本机访问，安全默认）
+ *
+ * 与 readCloseBehavior 一样直接读 ~/.lumio/config.json：
+ * startFastApi 在 app.whenReady 之前调用，FastAPI 还没启动，无法走 /api/config。
+ * config.json 变化后需用户重启 FastAPI 才生效（通过 IPC restart-fastapi 触发）。
+ */
+function readAllowMobileConnect(): boolean {
+  try {
+    const home = process.env.USERPROFILE || process.env.HOME;
+    if (!home) return false;
+    const cfgPath = path.join(home, ".lumio", "config.json");
+    if (!fs.existsSync(cfgPath)) return false;
+    let raw = fs.readFileSync(cfgPath, { encoding: "utf-8" });
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1); // strip BOM
+    const cfg = JSON.parse(raw);
+    return cfg.allow_mobile_connect === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 同步读取 Python lumio.__version__（用于 splash 窗口显示真实版本号）。
  *
  * dev 模式：读 src/lumio/__init__.py 解析 __version__ = "x.y.z"
@@ -464,6 +503,8 @@ function startFastApi(): Promise<void> {
         ...process.env,
         LUMIO_FASTAPI_PORT: String(fastapiPort),
         LUMIO_FASTAPI_TOKEN: fastapiToken,
+        // 移动端连接开关：true → 0.0.0.0（移动端可通过 LAN IP 配对）
+        LUMIO_FASTAPI_HOST: readAllowMobileConnect() ? "0.0.0.0" : "127.0.0.1",
       };
       console.log(`[electron] starting packaged FastAPI: ${exePath}`);
     } else {
@@ -476,6 +517,7 @@ function startFastApi(): Promise<void> {
         PYTHONPATH: path.join(projectRoot, "src"),
         LUMIO_FASTAPI_PORT: String(fastapiPort),
         LUMIO_FASTAPI_TOKEN: fastapiToken,
+        LUMIO_FASTAPI_HOST: readAllowMobileConnect() ? "0.0.0.0" : "127.0.0.1",
       };
       // 用 args 字段传递 -m lumio.api_fastapi
       (env as any)._devArgs = ["-m", "lumio.api_fastapi"];
@@ -861,6 +903,34 @@ app.whenReady().then(async () => {
     }
   );
 
+  // 重启 FastAPI 子进程（用于"允许移动端连接"开关变化后让新 host 生效）
+  // 流程：stopFastApi（shutdown 信号 + 3s 等待 + force kill）→ startFastApi（重新 spawn + health 轮询）
+  // 重启期间前端会显示 loading，重启完成后前端重新拉数据
+  // 风险：重启失败时 FastAPI 不可用，前端显示错误状态（用户可通过托盘菜单退出）
+  ipcMain.handle("restart-fastapi", async () => {
+    console.log("[electron] restart-fastapi requested");
+    try {
+      // 1. 停止现有 FastAPI（含 3s 优雅退出 + force kill 兜底）
+      await stopFastApi();
+      // 2. 重置 fastApiReady 状态，让 tryShowMainWindow 重新等待
+      fastapiReady = false;
+      fastApiReadyPromise = null;
+      // 3. 重新启动 FastAPI（startFastApiEarly 会创建新的 fastApiReadyPromise）
+      startFastApiEarly();
+      if (fastApiReadyPromise) {
+        await fastApiReadyPromise;
+        fastapiReady = true;
+      }
+      console.log("[electron] FastAPI restarted successfully");
+      return { ok: true };
+    } catch (e: any) {
+      console.error("[electron] FastAPI restart failed:", e);
+      // 即使失败也标记 ready，让前端显示错误状态而非永远 loading
+      fastapiReady = true;
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
   // 注册 lumio-file:// protocol 的实际 handler
   // lumio-file:///C:/Users/.../foo.mp4 → 本地文件 → Response(stream)
   //
@@ -1062,7 +1132,7 @@ app.on("window-all-closed", async () => {
 app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
   // dev mode：放行所有证书错误（本地 self-signed 方便开发）
   if (!app.isPackaged) {
-    debugLog(`certificate-error (dev allow): ${url} - ${error}`);
+    console.log(`[cert] dev allow: ${url} - ${error}`);
     event.preventDefault();
     callback(true);
     return;
@@ -1072,15 +1142,15 @@ app.on("certificate-error", (event, webContents, url, error, certificate, callba
     .split(",")
     .map((f) => f.trim().toLowerCase())
     .filter(Boolean);
-  const certFp = (certificate.fingerprints?.sha256 || "").toLowerCase();
+  const certFp = (certificate.fingerprint || "").toLowerCase();
   if (allowedFingerprints.length > 0 && certFp && allowedFingerprints.includes(certFp)) {
-    debugLog(`certificate-error (whitelisted): ${url} fp=${certFp}`);
+    console.log(`[cert] whitelisted: ${url} fp=${certFp}`);
     event.preventDefault();
     callback(true);
     return;
   }
   // 默认拒绝（不调用 callback(true)），Electron 会显示证书错误页
-  debugLog(`certificate-error (rejected): ${url} - ${error} fp=${certFp}`);
+  console.log(`[cert] rejected: ${url} - ${error} fp=${certFp}`);
   callback(false);
 });
 

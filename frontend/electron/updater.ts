@@ -171,8 +171,12 @@ export class UpdaterManager {
         return { hasUpdate: false, info: null, error: null };
       }
       const info = result.updateInfo;
+      // 用语义版本对比代替字符串 !==，避免 "4.4.2" vs "4.4.10" 误判
+      // electron-updater 内部已做 isUpdateAvailable 判断，但这里二次校验
+      // 防止 allowDowngrade=false 时旧版本被误判为新版本
+      const hasUpdate = this.compareVersions(app.getVersion(), info.version) < 0;
       return {
-        hasUpdate: info.version !== app.getVersion(),
+        hasUpdate,
         info: {
           version: info.version,
           releaseNotes: this.normalizeReleaseNotes(info.releaseNotes),

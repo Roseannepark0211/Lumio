@@ -100,6 +100,10 @@ contextBridge.exposeInMainWorld("lumio", {
   /** 打开文件选择对话框（支持多选），返回路径数组 */
   pickFiles: (filters?: ElectronFileFilter[]): Promise<string[]> =>
     ipcRenderer.invoke("dialog:open-files", filters),
+  /** 重启 FastAPI 子进程（用于"允许移动端连接"开关变化后让新 host 生效）
+   *  返回 { ok: boolean, error?: string } */
+  restartFastApi: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("restart-fastapi"),
   /** 托盘菜单 IPC 桥接 — tray-menu.html / close-dialog.html 调用 */
   tray: {
     showWindow: () => ipcRenderer.send("tray:action", "showWindow"),

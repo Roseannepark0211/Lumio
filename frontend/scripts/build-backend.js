@@ -106,15 +106,30 @@ if (useAppBundle) {
 
 // 5.5 生成 version.txt（packaged 模式 splash 窗口显示真实版本号）
 // main.ts 的 readAppVersion() 会读 resources/build/version.txt
+// 同时同步 package.json 的 version 字段，确保 electron-updater 版本对比一致
 const initPath = path.resolve(__dirname, "..", "..", "src", "lumio", "__init__.py");
 if (fs.existsSync(initPath)) {
   const content = fs.readFileSync(initPath, { encoding: "utf-8" });
   const m = content.match(/__version__\s*=\s*["']([^"']+)["']/);
   if (m) {
+    const pyVersion = m[1];
     const versionDir = path.resolve(__dirname, "..", "build");
     if (!fs.existsSync(versionDir)) fs.mkdirSync(versionDir, { recursive: true });
-    fs.writeFileSync(path.join(versionDir, "version.txt"), m[1], { encoding: "utf-8" });
-    log(`wrote build/version.txt: ${m[1]}`);
+    fs.writeFileSync(path.join(versionDir, "version.txt"), pyVersion, { encoding: "utf-8" });
+    log(`wrote build/version.txt: ${pyVersion}`);
+
+    // 同步 package.json version（electron-updater 用 app.getVersion() 读此字段做版本对比）
+    // 若 __init__.py 升级但忘记 bump package.json，会导致 updater 误判"已是最新版本"
+    const pkgPath = path.resolve(__dirname, "..", "package.json");
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, { encoding: "utf-8" }));
+      const oldVer = pkg.version;
+      if (oldVer !== pyVersion) {
+        pkg.version = pyVersion;
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", { encoding: "utf-8" });
+        log(`synced package.json version: ${pyVersion} (was ${oldVer || "?"})`);
+      }
+    }
   }
 }
 
