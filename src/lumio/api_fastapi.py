@@ -1030,6 +1030,14 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        # 暴露流式预览必需的 header，否则浏览器跨域读不到 →
+        # video/img 标签拒绝播放（"Format error"）。CORS 默认只暴露简单响应头。
+        expose_headers=[
+            "Content-Range",
+            "Accept-Ranges",
+            "Content-Length",
+            "Content-Type",
+        ],
     )
 
     # EventBus 需要 asyncio loop，延迟到 startup 创建
@@ -2455,7 +2463,25 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="file not found")
 
         # 推断 Content-Type
-        mime_type, _ = mimetypes.guess_type(str(abs_path))
+        # Windows mimetypes 模块对 .webm/.mkv/.webp/.ts 等扩展名可能返回 None，
+        # 显式补充常见媒体类型映射，避免 fallback 到 application/octet-stream
+        # 导致浏览器 media element 报 "Format error" 拒绝播放。
+        _EXTRA_MIME = {
+            ".webm": "video/webm",
+            ".mkv": "video/x-matroska",
+            ".ts": "video/mp2t",
+            ".webp": "image/webp",
+            ".m4v": "video/x-m4v",
+            ".m4a": "audio/mp4",
+            ".aac": "audio/aac",
+            ".flac": "audio/flac",
+            ".mov": "video/quicktime",
+            ".heic": "image/heic",
+        }
+        suffix = abs_path.suffix.lower()
+        mime_type = _EXTRA_MIME.get(suffix)
+        if not mime_type:
+            mime_type, _ = mimetypes.guess_type(str(abs_path))
         if not mime_type:
             mime_type = "application/octet-stream"
 
@@ -2467,7 +2493,7 @@ def create_app() -> FastAPI:
         if range_header:
             # 解析 Range: bytes=start-end
             import re
-            m = re.match(r"bytes=(d+)-(d*)", range_header)
+            m = re.match(r"bytes=(\d+)-(\d*)", range_header)
             if m:
                 start = int(m.group(1))
                 end = int(m.group(2)) if m.group(2) else file_size - 1
