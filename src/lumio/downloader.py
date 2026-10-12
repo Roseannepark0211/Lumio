@@ -21,7 +21,7 @@ from .utils.ua import DEFAULT_UA, CHROME_120_UA  # M5: 跨平台 UA
 from .utils.config import get_cookie_path, get_file_conflict_policy, get_platform_mode, get_storage_mode
 from .utils.url_parser import Platform, parse_url
 from .providers.registry import get_provider_for
-from .utils.media_utils import MediaItem, VideoInfo
+from .providers.base import MediaItem, MediaInfo
 
 logger = logging.getLogger(__name__)
 
@@ -416,10 +416,11 @@ from .x_sou_client import x_sou_search
 
 # ---- Public API ----
 
-def extract_info(url: str) -> VideoInfo:
+def extract_info(url: str) -> MediaInfo:
     """V4 统一架构：所有平台都走 Provider 系统。
 
     优先级：缓存 → 已注册 Provider (YouTube/IG/X/国内) → Apify 兜底（仅 IG）。
+    返回 providers.base.MediaInfo（迁移完成，不再经 VideoInfo 桥接）。
     """
     # IG api 模式仍走 Apify（用户主动选择的代理模式）
     parsed = parse_url(url)
@@ -433,89 +434,6 @@ def extract_info(url: str) -> VideoInfo:
     if result is not None:
         return result
     raise ValueError(f"Unsupported URL: {url}")
-
-
-def _build_format_options(info: VideoInfo) -> list[dict]:
-    """Build a clean, user-friendly format list for YouTube videos."""
-    options: list[dict] = [{"id": "best", "label": "Best Quality", "_type": "combined"}]
-
-    seen_res: set[int] = set()
-    video_opts: list[dict] = []
-    audio_opts: list[dict] = []
-
-    for f in info.formats:
-        fid = f.get("format_id", "")
-        ext = f.get("ext", "")
-        vcodec = f.get("vcodec", "none")
-        acodec = f.get("acodec", "none")
-        height = f.get("height")
-        abr = f.get("abr")
-        vbr = f.get("tbr") or f.get("vbr") or 0
-
-        if ext in ("mhtml", "json", "json3"):
-            continue
-        if f.get("format_note") == "storyboard":
-            continue
-        if vcodec == "none" and acodec == "none":
-            continue
-
-        has_video = vcodec != "none"
-        has_audio = acodec != "none"
-
-        # Combined stream (video+audio in one)
-        if has_video and has_audio and height:
-            if height not in seen_res:
-                seen_res.add(height)
-                video_opts.append({
-                    "id": fid,
-                    "label": f"{height}P",
-                    "_type": "combined",
-                    "_height": height,
-                    "_vbr": vbr,
-                })
-
-        # Video-only stream
-        elif has_video and height:
-            if height in seen_res:
-                for opt in video_opts:
-                    if opt.get("_height") == height and vbr > opt.get("_vbr", 0):
-                        opt["id"] = fid
-                        opt["_vbr"] = vbr
-                        opt["label"] = f"{height}P"
-                        break
-                continue
-            seen_res.add(height)
-            video_opts.append({
-                "id": fid,
-                "label": f"{height}P",
-                "_type": "video",
-                "_height": height,
-                "_vbr": vbr,
-            })
-
-        # Audio-only stream
-        elif has_audio and not has_video:
-            label = f"Audio ({ext})" if not abr else f"Audio {int(abr)}kbps"
-            audio_opts.append({"id": fid, "label": label, "_type": "audio"})
-
-    video_opts.sort(key=lambda o: o.get("_height", 0), reverse=True)
-    for o in video_opts:
-        o.pop("_height", None)
-        o.pop("_vbr", None)
-
-    if video_opts or audio_opts:
-        options.append({"id": "___sep1", "label": "─────────", "disabled": True})
-        options.extend(video_opts)
-    if audio_opts:
-        options.append({"id": "___sep2", "label": "─────────", "disabled": True})
-        options.extend(audio_opts)
-
-    return options
-
-
-# ---- Download engine ----
-
-ProgressCallback = Callable[[DownloadTask], None]
 
 
 class _CancelledError(Exception):
@@ -826,9 +744,9 @@ def _apify_download_with_pause(task, pause_event, on_progress):
         media_items = [MediaItem(url=i["url"], is_video=i["is_video"], index=i.get("index", 0)) for i in raw_items]
     else:
         info = _get_apify_client().extract_post_info(task.url)
-        if not info.items:
+        if not info.media_items:
             raise ValueError("Apify returned no media items")
-        media_items = info.items
+        media_items = info.media_items
 
     task.status = "downloading"
     if on_progress:

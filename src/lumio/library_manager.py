@@ -164,15 +164,29 @@ class LibraryManager(QObject):
         finally:
             session.close()
 
-    def delete_item(self, item_id: str):
+    def delete_item(self, item_id: str, delete_file: bool = False):
+        """删除素材记录。delete_file=True 时同时删除磁盘上的文件及其本地缩略图。"""
+        file_path = ""
+        thumb_path = ""
         session = self._session()
         try:
             item = session.get(LibraryItem, item_id)
             if item:
+                file_path = item.file_path or ""
+                thumb_path = item.local_thumbnail_path or ""
                 session.delete(item)
                 session.commit()
         finally:
             session.close()
+        if delete_file:
+            for p in (file_path, thumb_path):
+                if p:
+                    try:
+                        import os
+                        if os.path.isfile(p):
+                            os.remove(p)
+                    except OSError:
+                        pass
         self.collection_changed.emit()
 
     # ---- Favorites ----
@@ -319,10 +333,43 @@ class LibraryManager(QObject):
 
     # ---- Dedup ----
 
+    # CDN 直链 host：query 参数多为过期签名/追踪参数，去重时忽略 query 只比 path
+    _CDN_HOSTS = ("cdninstagram.com", "fbcdn.net", "googlevideo.com",
+                  "v16-web", "v3-web", "muscdn", "musical.ly")
+
+    @classmethod
+    def _dedup_key(cls, url: str) -> str:
+        """去重用的归一化 URL：CDN host 去掉 query/fragment，其余原样。"""
+        try:
+            from urllib.parse import urlsplit, urlunsplit
+            parts = urlsplit(url)
+            if any(h in (parts.netloc or "") for h in cls._CDN_HOSTS):
+                return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        except Exception:
+            pass
+        return url
+
     def url_exists(self, url: str) -> bool:
         session = self._session()
         try:
-            return session.query(LibraryItem).filter_by(url=url).first() is not None
+            if session.query(LibraryItem).filter_by(url=url).first() is not None:
+                return True
+            # CDN 直链：再用去掉 query 参数的形式比对（签名过期后 URL 会变）
+            norm = self._dedup_key(url)
+            if norm != url:
+                from sqlalchemy import or_
+                return (
+                    session.query(LibraryItem)
+                    .filter(
+                        or_(
+                            LibraryItem.url == norm,
+                            LibraryItem.url.like(norm + "?%"),
+                        )
+                    )
+                    .first()
+                    is not None
+                )
+            return False
         finally:
             session.close()
 
