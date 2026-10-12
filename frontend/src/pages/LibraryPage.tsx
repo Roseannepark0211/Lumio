@@ -380,7 +380,8 @@ export function LibraryPage() {
   const onShowCollectionMenu = useCallback(
     async (itemId: string, anchor: { x: number; y: number }) => {
       try {
-        const joinedIds = await api.getItemCollections(itemId);
+        const joined = await api.getItemCollections(itemId);
+        const joinedIds = joined.map((c) => c.id);
         setCollectionMenu({ itemId, joinedIds, anchor });
       } catch (e) {
         console.warn("get item collections failed:", e);

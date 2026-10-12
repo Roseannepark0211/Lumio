@@ -66,8 +66,8 @@ class ApifyIGClient:
         except Exception:
             return False
 
-    def extract_post_info(self, url: str) -> VideoInfo:
-        """Extract single post/reel info."""
+    def extract_post_info(self, url: str):
+        """Extract single post/reel info. Returns providers.base.MediaInfo."""
         run = self._client.actor(self._actor_id).call(run_input={
             "directUrls": [url],
             "resultsType": "posts",
@@ -78,7 +78,7 @@ class ApifyIGClient:
         items = list(self._client.dataset(dataset_id).iterate_items())
         if not items:
             raise ValueError(f"Apify returned no data for {url}")
-        return self._to_video_info(items[0])
+        return self._to_media_info(items[0])
 
     # fetch_profile_info / enumerate_profile_posts 已删除（无任何调用点，完全死代码）
     # 历史用途：React 前端批量下载迁移被否决（commit f590fc5）后，profile/channel URL
@@ -88,35 +88,34 @@ class ApifyIGClient:
     # Conversion helpers
     # ------------------------------------------------------------------
 
-    def _to_video_info(self, item: dict) -> VideoInfo:
-        """Convert Apify result item → Lumio VideoInfo.
+    def _to_media_info(self, item: dict):
+        """Convert Apify result item → providers.base.MediaInfo.
 
         Filters out comment-related fields, only keeps media data.
         """
-        from .utils.media_utils import VideoInfo
+        from .providers.base import MediaInfo, Platform
         items = self._extract_media_items(item)
         caption = (item.get("caption") or "").strip()
         title = caption[:80] if caption else "Instagram post"
         timestamp = self._parse_timestamp(item.get("timestamp"))
 
-        return VideoInfo(
-            title=title,
+        return MediaInfo(
+            platform=Platform.INSTAGRAM,
             url=item.get("url", ""),
-            thumbnail=item.get("displayUrl"),
-            duration=None,
-            formats=[],
-            platform="instagram",
+            title=title,
             author=item.get("ownerUsername", ""),
-            items=items,
             post_time=timestamp,
+            thumbnail=item.get("displayUrl") or "",
+            description=caption,
+            media_items=items,
         )
 
-    def _extract_media_items(self, item: dict) -> list[MediaItem]:
+    def _extract_media_items(self, item: dict):
         """Extract MediaItem list from an Apify result item.
 
         Handles Sidecar (carousel), Image, and Video types.
         """
-        from .utils.media_utils import MediaItem
+        from .providers.base import MediaItem
         item_type = item.get("type", "")
 
         # Sidecar (carousel): use childPosts
@@ -146,9 +145,9 @@ class ApifyIGClient:
         return []
 
     @staticmethod
-    def _child_posts_to_media_items(children: list[dict]) -> list[MediaItem]:
+    def _child_posts_to_media_items(children: list[dict]):
         """Convert Apify childPosts array → MediaItem list."""
-        from .utils.media_utils import MediaItem
+        from .providers.base import MediaItem
         media_items = []
         for idx, child in enumerate(children):
             child_type = child.get("type", "Image")

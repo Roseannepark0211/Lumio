@@ -654,9 +654,11 @@ export const api = {
     post<{ ok: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}/collections/${cid}`),
   removeItemFromCollection: (itemId: string, cid: number) =>
     del<{ ok: boolean }>(`/api/library/items/${encodeURIComponent(itemId)}/collections/${cid}`),
-  /** 获取某素材已加入的 Collection id 列表 */
+  /** 获取某素材已加入的 Collection 列表 */
   getItemCollections: (itemId: string) =>
-    get<number[]>(`/api/library/items/${encodeURIComponent(itemId)}/collections`),
+    get<{ id: number; name: string; icon: string }[]>(
+      `/api/library/items/${encodeURIComponent(itemId)}/collections`,
+    ),
 
   // —— 历史记录 ——
   getHistory: () => get<HistoryRecord[]>("/api/history"),

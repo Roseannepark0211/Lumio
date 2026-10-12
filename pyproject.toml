@@ -1,12 +1,11 @@
 [project]
 name = "lumio"
-version = "4.4.0"
+version = "4.5.0"
 description = "Download videos/images from Instagram and YouTube via share links"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "yt-dlp>=2024.1.0",
-    "instaloader>=4.10",
     "requests>=2.28",
     "imageio-ffmpeg>=0.4.9",
     "sqlalchemy>=2.0",

@@ -1,4 +1,8 @@
-"""本地 HTTP API — 接收浏览器扩展采集的内容，写入 Inbox。"""
+"""浏览器插件伴随服务（固定端口 38900）— 接收插件采集的内容，写入 Inbox。
+
+设计说明：FastAPI 主服务端口由 Electron 动态分配（38910-38919 找空闲），
+浏览器插件需要一个启动前已知的固定地址，因此保留此轻量 Flask 服务，
+仅提供插件所需的 /health、/capture、/stats 三个端点。"""
 
 from __future__ import annotations
 
