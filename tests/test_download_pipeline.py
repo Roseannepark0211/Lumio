@@ -9,13 +9,12 @@ from dataclasses import dataclass, field
 from lumio.utils.url_parser import Platform, parse_url
 from lumio.downloader import (
     DownloadTask,
-    VideoInfo,
-    MediaItem,
     _safe_filename,
     _effective_name,
     _resolve_conflict_path,
     _resolve_conflict_stem,
 )
+from lumio.providers.base import MediaInfo, MediaItem, Platform as ProviderPlatform
 from lumio.queue_manager import QueueTask, TaskStatus
 from lumio.history_manager import HistoryRecord
 
@@ -289,16 +288,14 @@ class TestExtractInfoMock:
         provider_cache.clear_cache()
 
     def _make_video_info(self, platform, author="testuser", title="Test Video"):
-        return VideoInfo(
-            title=title,
+        return MediaInfo(
+            platform=platform,
             url="https://example.com",
+            title=title,
+            author=author,
+            post_time="20260605_120000",
             thumbnail="https://example.com/thumb.jpg",
             duration=120,
-            formats=[],
-            platform=platform,
-            author=author,
-            items=[],
-            post_time="20260605_120000",
         )
 
     @patch("lumio.providers.youtube.YouTubeProvider.extract_info")
@@ -312,7 +309,7 @@ class TestExtractInfoMock:
         )
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["yt_video_short"])
-        assert info.platform == "youtube"
+        assert info.platform.value == "youtube"
         assert info.author == "DeepBlue"
         mock_yt.assert_called_once()
 
@@ -330,7 +327,7 @@ class TestExtractInfoMock:
         with patch("lumio.downloader.get_platform_mode", return_value="cookie"):
             from lumio.downloader import extract_info
             info = extract_info(TEST_URLS["ig_post"])
-        assert info.platform == "instagram"
+        assert info.platform.value == "instagram"
         assert info.author == "test_user_123"
         mock_ig.assert_called_once()
 
@@ -345,7 +342,7 @@ class TestExtractInfoMock:
         )
         from lumio.downloader import extract_info
         info = extract_info(TEST_URLS["x_tweet"])
-        assert info.platform == "x"
+        assert info.platform.value == "x"
         assert info.author == "test_user"
         mock_x.assert_called_once()
 

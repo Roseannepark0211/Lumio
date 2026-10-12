@@ -167,9 +167,14 @@ class QThread(QObject):
     def __init__(self, parent: QObject = None) -> None:
         super().__init__()
         self._thread: threading.Thread | None = None
-        # QThread.started/finished 在 PySide6 是 Signal，这里简化为 callback 列表
-        self.started = _SignalLike()
-        self.finished = _SignalLike()
+        # QThread.started/finished 在 PySide6 是 Signal，这里简化为 callback 列表。
+        # 若子类已定义同名 Signal（如 _ThumbWorker.finished = Signal(str, str)），
+        # 则保留子类定义，不用无参 _SignalLike 覆盖，否则回调签名会被破坏。
+        self._has_custom_finished = "finished" in type(self).__dict__
+        if "started" not in type(self).__dict__:
+            self.started = _SignalLike()
+        if not self._has_custom_finished:
+            self.finished = _SignalLike()
 
     def run(self) -> None:
         """子类重写。默认什么都不做。"""
@@ -192,7 +197,10 @@ class QThread(QObject):
         try:
             self.run()
         finally:
-            self.finished.emit()
+            # 子类自定义了 finished 信号时（如 Signal(str, str)），run() 内已按
+            # 子类契约 emit，这里不再无参 emit，避免回调签名不匹配抛 TypeError。
+            if not self._has_custom_finished:
+                self.finished.emit()
 
     def wait(self, timeout: int = 0xFFFFFFFF) -> bool:
         """阻塞等待线程结束。timeout 单位 ms（PySide6 兼容）。返回 True 表示已结束。"""

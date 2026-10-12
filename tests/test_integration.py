@@ -15,10 +15,10 @@ import pytest
 
 from lumio.downloader import (
     DownloadTask,
-    VideoInfo,
     extract_info,
     start_download_with_pause,
 )
+from lumio.providers.base import MediaInfo
 from lumio.utils.url_parser import Platform, parse_url
 
 # ---- Test links (from 测试链接.md) ----
@@ -32,9 +32,13 @@ X_TWEET = "https://x.com/justinbieber/status/2049344366985331105"
 TIMEOUT = 120  # seconds per download
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def tmp_dir():
-    """Create a temp download directory; clean up after all tests."""
+    """Create a temp download directory; clean up after each test.
+
+    function 级别：downloader 失败时会删掉空的输出目录（_cleanup_empty_dir），
+    module 共享目录会被前一个失败测试删掉，导致后续测试级联 FileNotFoundError。
+    """
     d = Path(tempfile.mkdtemp(prefix="lumio_test_"))
     yield d
     shutil.rmtree(d, ignore_errors=True)
@@ -78,7 +82,7 @@ class TestURLParsing:
 class TestExtractInfo:
     def test_ig_post_info(self):
         info = extract_info(IG_POST)
-        assert isinstance(info, VideoInfo)
+        assert isinstance(info, MediaInfo)
         assert info.platform == "instagram"
         assert info.title, "IG post title should not be empty"
         assert info.author, "IG post author should not be empty"
@@ -86,7 +90,7 @@ class TestExtractInfo:
 
     def test_yt_video_info(self):
         info = extract_info(YT_VIDEO)
-        assert isinstance(info, VideoInfo)
+        assert isinstance(info, MediaInfo)
         assert info.platform == "youtube"
         assert info.title, "YT video title should not be empty"
         assert info.author, "YT video author should not be empty"
@@ -94,7 +98,7 @@ class TestExtractInfo:
     @pytest.mark.xfail(reason="测试推文可能无视频内容", raises=Exception)
     def test_x_tweet_info(self):
         info = extract_info(X_TWEET)
-        assert isinstance(info, VideoInfo)
+        assert isinstance(info, MediaInfo)
         assert info.platform == "x"
         assert info.title, "X tweet title should not be empty"
         assert len(info.items) > 0, "X tweet should have at least 1 media item"
