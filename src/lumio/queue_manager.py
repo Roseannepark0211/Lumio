@@ -210,37 +210,50 @@ class DownloadManager(QObject):
         return False
 
     def add_task_from_info(self, info, format_id, format_type, custom_name, output_dir, batch_id="") -> str:
+        """info: providers.base.MediaInfo（迁移完成，不再接受旧 VideoInfo）。"""
+        from .providers.base import MediaInfo as _MediaInfo
+        if not isinstance(info, _MediaInfo):
+            raise TypeError(f"add_task_from_info expects MediaInfo, got {type(info).__name__}")
         media_json = ""
         # Serialize media items for all platforms (IG Apify, Weibo, Bilibili, etc.)
         # avoids re-fetching during download
-        if info.items:
+        if info.media_items:
             import json as _json
             def _it_to_dict(it):
+                mt = it.media_type
+                mt_val = mt.value if hasattr(mt, "value") else str(mt or "")
                 d = {"url": it.url, "is_video": it.is_video, "index": it.index}
-                if hasattr(it, "media_type") and it.media_type:
-                    d["media_type"] = it.media_type
-                if hasattr(it, "width") and it.width:
+                if mt_val:
+                    d["media_type"] = mt_val
+                if it.width:
                     d["width"] = it.width
-                if hasattr(it, "height") and it.height:
+                if it.height:
                     d["height"] = it.height
-                if hasattr(it, "extension") and it.extension:
+                if it.extension:
                     d["extension"] = it.extension
-                if hasattr(it, "size") and it.size:
+                if it.size:
                     d["size"] = it.size
-                if hasattr(it, "quality") and it.quality:
+                if it.quality:
                     d["quality"] = it.quality
-                if hasattr(it, "mime") and it.mime:
+                if it.mime:
                     d["mime"] = it.mime
-                if hasattr(it, "id") and it.id:
+                if it.id:
                     d["id"] = it.id
-                if hasattr(it, "filename") and it.filename:
+                if it.filename:
                     d["filename"] = it.filename
-                if hasattr(it, "live_photo") and it.live_photo is not None:
-                    d["live_photo"] = it.live_photo if isinstance(it.live_photo, dict) else {"image": str(it.live_photo), "video": "", "cover": ""}
-                if hasattr(it, "original_url") and it.original_url:
+                if it.live_photo is not None:
+                    lp = it.live_photo
+                    d["live_photo"] = lp if isinstance(lp, dict) else {
+                        "image": getattr(lp, "image", ""),
+                        "video": getattr(lp, "video", ""),
+                        "cover": getattr(lp, "cover", ""),
+                    }
+                if it.original_url:
                     d["original_url"] = it.original_url
                 return d
-            media_json = _json.dumps([_it_to_dict(it) for it in info.items])
+            media_json = _json.dumps([_it_to_dict(it) for it in info.media_items])
+        platform = info.platform
+        platform_val = platform.value if hasattr(platform, "value") else str(platform or "")
         qt = QueueTask(
             url=info.url,
             format_id=format_id,
@@ -249,7 +262,7 @@ class DownloadManager(QObject):
             custom_name=custom_name,
             batch_id=batch_id,
             title=info.title,
-            platform=info.platform,
+            platform=platform_val,
             author=info.author,
             post_time=info.post_time,
             thumbnail_url=info.thumbnail,
@@ -583,8 +596,8 @@ class DownloadManager(QObject):
                 qt.progress = 1.0  # 统一 0..1 范围（与下载中一致）
                 self._record_history(qt)
                 # 关键：必须 emit task_status_changed！
-                # qml_bridge 未连接 task_finished 信号，UI 只监听 task_status_changed
-                # 旧实现只 emit task_finished → UI 永远不知道任务完成 → 卡在"下载中"
+                # 前端只监听 task_status_changed（task_finished 无 UI 订阅），
+                # 若只 emit task_finished → UI 永远不知道任务完成 → 卡在"下载中"
                 # （适用于所有平台：视频/图片/音频，yt-dlp/直链/媒体项下载）
                 self.task_status_changed.emit(qt.task_id, qt.status)
                 self.task_finished.emit(qt.task_id, True, "")

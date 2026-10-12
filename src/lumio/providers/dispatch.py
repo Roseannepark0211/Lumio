@@ -1,8 +1,7 @@
 """Provider dispatch — bridge between Provider system and existing download flow.
 
 Phase 1 Step 2:
-  Provider → MediaInfo → VideoInfo → Queue
-  (The "DownloadTask" bridge from the design doc)
+  Provider → MediaInfo → Queue（迁移完成，旧 VideoInfo 已删除）
 
 V4.0 additions:
   - URL normalization before detection (Section 20)
@@ -21,90 +20,6 @@ from .registry import get_provider
 from .url_normalizer import normalize_url
 
 logger = logging.getLogger(__name__)
-
-
-def _to_downloader_item(item):
-    """Convert provider MediaItem to media_utils.MediaItem for queue/GUI compatibility.
-
-    V4.0 Phase 3: passes all fields including media_type, extension, live_photo, etc.
-    """
-    from ..utils.media_utils import MediaItem as _DownloaderMediaItem
-    from .base import LivePhoto as _LivePhoto
-
-    # Convert LivePhoto dataclass to dict for serialization
-    lp_dict = None
-    if item.live_photo is not None:
-        if isinstance(item.live_photo, _LivePhoto):
-            lp_dict = {
-                "image": item.live_photo.image,
-                "video": item.live_photo.video,
-                "cover": item.live_photo.cover,
-            }
-        elif isinstance(item.live_photo, dict):
-            lp_dict = item.live_photo
-        else:
-            lp_dict = None
-
-    return _DownloaderMediaItem(
-        url=item.url,
-        is_video=item.is_video,
-        index=item.index,
-        media_type=item.media_type.value if hasattr(item.media_type, "value") else str(item.media_type),
-        width=item.width,
-        height=item.height,
-        extension=item.extension,
-        size=item.size,
-        quality=item.quality,
-        mime=item.mime,
-        id=item.id,
-        filename=item.filename,
-        live_photo=lp_dict,
-        original_url=item.original_url,
-    )
-
-
-def media_info_to_video_info(media: MediaInfo, url: str) -> object:
-    """Convert provider MediaInfo to the existing VideoInfo format.
-
-    This bridges the Provider → Queue flow so that Provider results can be
-    fed into DownloadManager.add_task_from_info().
-
-    Lazy-imports VideoInfo to avoid circular dependency:
-      downloader → providers.dispatch → downloader
-    """
-    from ..utils.media_utils import VideoInfo as _VideoInfo
-
-    items = [_to_downloader_item(it) for it in media.media_items]
-
-    # Build format dicts for compatibility with format selection UI
-    # 注意：必须包含 label 和 type 字段，QML 端 ComboBox 用 textRole:"label"
-    # 和 valueRole:"format_id" 渲染，info.formats[i].type 用于下载路由
-    formats = []
-    for fmt in media.formats:
-        formats.append({
-            "format_id": fmt.format_id,
-            "label": fmt.label,
-            "type": fmt.type,
-            "ext": fmt.ext,
-            "height": fmt.height,
-            "width": fmt.width,
-            "vcodec": "avc1",
-            "acodec": "mp4a",
-            "tbr": 0,
-            "format_note": fmt.label,
-        })
-
-    return _VideoInfo(
-        title=media.title or "Untitled",
-        url=url,
-        thumbnail=media.thumbnail or None,
-        duration=media.duration,
-        formats=formats,
-        platform=media.platform.value,
-        author=media.author,
-        items=items,
-        post_time=media.post_time,
-    )
 
 
 def _is_failed_media_info(info: MediaInfo) -> bool:
@@ -139,10 +54,10 @@ def _normalize_cache_key(url: str) -> str:
         return url
 
 
-def resolve_via_providers(url: str) -> Optional[object]:
+def resolve_via_providers(url: str) -> Optional[MediaInfo]:
     """Try to resolve a URL through the Provider system.
 
-    Returns a VideoInfo if a registered provider handles the URL,
+    Returns a MediaInfo if a registered provider handles the URL,
     or None if no provider matches.
 
     V4 统一架构：所有平台（YouTube/Instagram/X/国内平台）都走此入口。
@@ -166,7 +81,7 @@ def resolve_via_providers(url: str) -> Optional[object]:
             logger.debug("resolve_via_providers: 跳过失败缓存 %s", cache_key[:60])
         else:
             logger.debug("resolve_via_providers: cache hit for %s", cache_key[:60])
-            return media_info_to_video_info(cached, url)
+            return cached
 
     # Step 3: get_provider 会先遍历已注册 Provider 的 match()，
     # 再回退到 detect_domestic() 识别国内平台
@@ -186,4 +101,4 @@ def resolve_via_providers(url: str) -> Optional[object]:
     else:
         logger.debug("resolve_via_providers: 解析失败，跳过缓存 %s", cache_key[:60])
 
-    return media_info_to_video_info(media_info, url)
+    return media_info

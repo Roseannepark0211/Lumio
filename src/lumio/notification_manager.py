@@ -42,7 +42,6 @@ _VERSION_CHECK_INTERVAL = 7 * 24 * 3600  # seconds
 #   - python-telegram-bot 包的 import 名是 telegram
 _PYTHON_DEPS = {
     "yt_dlp": "YouTube/X 视频解析与下载",
-    "instaloader": "Instagram 下载（逐步弃用）",
     "PySide6": "GUI 框架",
     "flask": "本地 API 服务",
     "sqlalchemy": "素材库 + 收件箱 ORM",

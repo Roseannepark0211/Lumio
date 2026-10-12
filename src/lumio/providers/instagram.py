@@ -232,7 +232,11 @@ class InstagramProvider(BaseProvider):
                 url=url,
                 title="Instagram（解析失败）",
                 author="",
-                description=f"无法获取帖子信息：{e}",
+                description=(
+                    f"无法获取帖子信息：{e}。"
+                    "请在设置中导入 Instagram Cookie 后重试，"
+                    "或使用浏览器插件在已登录的帖子页面直接抓取下载。"
+                ),
             )
 
         items = _ig_media_to_items(media)

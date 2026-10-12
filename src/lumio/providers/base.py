@@ -105,7 +105,7 @@ class FormatOption:
 
 @dataclass
 class MediaInfo:
-    """统一解析结果 —— 替换 VideoInfo 用于新平台。
+    """统一解析结果（迁移完成，旧 VideoInfo 已删除）。
 
     所有 Provider 的 extract_info() 均返回此结构。
     """
