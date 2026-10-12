@@ -19,10 +19,22 @@ from lumio.providers.registry import (
     is_registered,
     register,
 )
-from lumio.providers.dispatch import (
-    media_info_to_video_info,
-    resolve_via_providers,
-)
+from lumio.providers.dispatch import resolve_via_providers
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _restore_provider_registry():
+    """每个测试前后快照/恢复 provider 注册表。
+
+    clear() 会清空全局注册表（含真实 Provider），不恢复会导致后续
+    测试文件（如 test_download_pipeline）的 mock 提取失败。
+    """
+    from lumio.providers import registry as _reg
+    snapshot = dict(_reg._registry)
+    yield
+    _reg._registry.clear()
+    _reg._registry.update(snapshot)
 
 
 # ========================================================================
@@ -272,65 +284,22 @@ class TestRegistry:
 
 
 # ========================================================================
-# 3. dispatch — MediaInfo → VideoInfo conversion
+# 3. dispatch — 直接返回 MediaInfo（迁移完成，无桥接）
 # ========================================================================
 
 
 class TestDispatch:
-    def test_media_info_to_video_info_basic(self):
-        media = MediaInfo(
-            platform=Platform.WEIBO,
-            url="https://weibo.com/12345/AbCdEf",
-            title="Test Post",
-            author="test_user",
-            post_time="2025-01-01 12:00:00",
-            thumbnail="https://weibo.com/thumb.jpg",
-            duration=60,
-            media_items=[
-                MediaItem(url="https://example.com/img1.jpg", is_video=False, index=0),
-                MediaItem(url="https://example.com/vid1.mp4", is_video=True, index=1),
-            ],
-            formats=[
-                FormatOption(format_id="best", label="Best quality", type="video"),
-            ],
-        )
-    
-        vi = media_info_to_video_info(media, media.url)
-        assert vi.title == "Test Post"
-        assert vi.url == "https://weibo.com/12345/AbCdEf"
-        assert vi.thumbnail == "https://weibo.com/thumb.jpg"
-        assert vi.duration == 60
-        assert vi.platform == "weibo"
-        assert vi.author == "test_user"
-        assert vi.post_time == "2025-01-01 12:00:00"
-        assert len(vi.items) == 2
-        assert vi.items[0].url == "https://example.com/img1.jpg"
-        assert vi.items[0].is_video is False
-        assert vi.items[1].url == "https://example.com/vid1.mp4"
-        assert vi.items[1].is_video is True
-        assert len(vi.formats) == 1
-        assert vi.formats[0]["format_id"] == "best"
-
-    def test_media_info_empty_media_items(self):
-        media = MediaInfo(
-            platform=Platform.BILIBILI,
-            url="https://bilibili.com/video/BV1xx",
-            title="B站视频",
-            author="up主",
-        )
-        vi = media_info_to_video_info(media, media.url)
-        assert len(vi.items) == 0
-
-    def test_media_info_none_thumbnail(self):
-        media = MediaInfo(
-            platform=Platform.DOUYIN,
-            url="https://douyin.com/video/123",
-            title="抖音",
-            author="user",
-            thumbnail="",
-        )
-        vi = media_info_to_video_info(media, media.url)
-        assert vi.thumbnail is None
+    def test_resolve_returns_media_info_directly(self):
+        """resolve_via_providers 直接返回 MediaInfo，不再经 VideoInfo 桥接。"""
+        clear()
+        register(_TestProvider)
+        result = resolve_via_providers("https://weibo.com/12345/AbCdEf")
+        assert result is not None
+        assert isinstance(result, MediaInfo)
+        assert result.title == "Test"
+        assert result.author == "test_author"
+        assert result.platform == Platform.WEIBO
+        assert result.platform.value == "weibo"
 
     def test_resolve_via_providers_no_match(self):
         clear()
@@ -349,7 +318,7 @@ class TestDispatch:
         assert result is not None
         assert result.title == "Test"
         assert result.author == "test_author"
-        assert result.platform == "weibo"
+        assert result.platform == Platform.WEIBO
 
 
 # ========================================================================
