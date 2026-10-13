@@ -1,7 +1,9 @@
 """Lumio FastAPI 服务 — React + Electron 前端的后端 API。
 
 架构原则（参见 AGENTS.md "架构迁移规则"）：
-- **零侵入**：不修改任何现有业务代码（qml_bridge.py / queue_manager.py / providers/* 等）
+- **零侵入**：不修改任何现有业务代码（queue_manager.py / providers/* 等）
+- 注：qml_bridge.py（旧 QML 前端桥接层）已在迁移中删除，下方"与 qml_bridge 对齐"类注释
+  均指迁移时保留的数据格式约定，现由本模块直接实现
 - **共享数据**：与 QML 版共享 `~/.lumio/` 数据，schema 不变
 - **独立启动**：`python -m lumio.api_fastapi` 单独启动，不依赖 QML UI
 - **Signal 桥接**：现有 manager 的 Qt Signal 通过 DirectConnection 接到 EventBus，
@@ -228,20 +230,32 @@ _CRYPTO_PATHS = {
 # ============================================================
 
 class TaskFromInfoRequest(BaseModel):
-    info: dict  # VideoInfo 字典
+    info: dict  # MediaInfo 字典
     format_id: str = ""
     format_type: str = ""
     custom_name: str = ""
     output_dir: str = ""
 
 
+class CollectionCreateRequest(BaseModel):
+    name: str = ""
+    icon: str = ""
+
+
+class CollectionRenameRequest(BaseModel):
+    name: str = ""
+
+
 class TaskFromDirectRequest(BaseModel):
+
     url: str
     title: str
     platform: str = ""
     thumbnail: str = ""
     is_video: bool = False
     author: str = ""
+    output_dir: str = ""
+    auto_start: bool = True
 
 
 class InboxBatchRequest(BaseModel):
@@ -351,6 +365,7 @@ class DeviceRenameRequest(BaseModel):
 class ParseUrlRequest(BaseModel):
     url: str
     request_id: str = ""
+    wait_timeout: float = 0  # >0 时同步等待解析完成并直接返回结果（秒）
 
 
 class SearchXSouRequest(BaseModel):
@@ -449,7 +464,9 @@ class AppContext:
         self.preview_worker = None
 
         cfg = load_config()
-        # 浏览器扩展的 /capture API 仍由原 Flask 服务提供（端口 38900）
+        # 浏览器扩展的 /capture、/health、/stats 由 Flask 伴随服务提供（固定端口 38900）。
+        # 注意：这不是迁移残留——FastAPI 端口由 Electron 动态分配（38910-38919 找空闲），
+        # 插件需要一个固定地址，因此保留独立的轻量 Flask 服务。
         # 传入 queue_manager 让 /stats 也能返回队列统计
         start_server(self.inbox_manager, self.manager, port=cfg.get("api_port", 38900))
         self._stop_flask = stop_server
@@ -503,7 +520,7 @@ class AppContext:
 
 
 # ============================================================
-# 序列化辅助（与 qml_bridge.py 内部函数对齐）
+# 序列化辅助（数据格式约定沿自旧 QML 桥接层，现由本模块直接实现）
 # ============================================================
 
 def _task_to_dict(qt) -> dict:
@@ -561,7 +578,7 @@ def _history_to_dict(r) -> dict:
 
 def _library_item_to_dict(it, lib_mgr) -> dict:
     # 收集该素材已加入的 Collection id 列表（供前端按分类筛选）
-    # 与 qml_bridge.py 保持一致（参考 AGENTS.md "Collection sidebar" 行为）
+    # 行为约定参考 AGENTS.md "Collection sidebar"
     collection_ids: list[int] = []
     if lib_mgr is not None:
         try:
@@ -649,7 +666,7 @@ def _notification_to_dict(n) -> dict:
 
 
 # ============================================================
-# 文件操作辅助（与 qml_bridge._openFileWithSource 等价）
+# 文件操作辅助（按来源打开文件的统一入口）
 # ============================================================
 
 def _first_openable_media(folder: str) -> str | None:
@@ -808,7 +825,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Lumio API",
         description="React + Electron 前端的后端 API（覆盖 QmlController 全部 82 个 Slot）",
-        version="3.2.0-api",
+        version=__import__("lumio").__version__ + "-api",
     )
 
     # 中间件顺序（Starlette 栈式：后添加的先执行/外层）：
@@ -1103,14 +1120,26 @@ def create_app() -> FastAPI:
     async def get_queue() -> list[dict]:
         return [_task_to_dict(t) for t in _ctx().manager.get_all_tasks()]
 
+    @app.get("/api/queue/tasks/{task_id}")
+    async def get_task(task_id: str) -> dict:
+        t = _ctx().manager.get_task(task_id)
+        if t is None:
+            raise HTTPException(404, f"task not found: {task_id}")
+        return _task_to_dict(t)
+
     @app.post("/api/queue/task/from-info")
     async def add_task_from_info(req: TaskFromInfoRequest) -> dict:
-        from .utils.media_utils import VideoInfo, MediaItem
+        from .providers.base import MediaInfo, MediaItem, MediaType, Platform, FormatOption
         info_data = req.info
+        def _to_mt(v):
+            try:
+                return MediaType(v) if v else MediaType.UNKNOWN
+            except ValueError:
+                return MediaType.UNKNOWN
         items = [MediaItem(
             url=it.get("url", ""),
             is_video=it.get("is_video", False),
-            media_type=it.get("media_type", ""),
+            media_type=_to_mt(it.get("media_type", "")),
             width=it.get("width", 0),
             height=it.get("height", 0),
             extension=it.get("extension", ""),
@@ -1118,16 +1147,28 @@ def create_app() -> FastAPI:
             quality=it.get("quality", ""),
             filename=it.get("filename", ""),
         ) for it in info_data.get("items", [])]
-        info = VideoInfo(
-            title=info_data.get("title", ""),
+        _plat = info_data.get("platform", "")
+        try:
+            _platform = Platform(_plat) if _plat else Platform.UNSUPPORTED
+        except ValueError:
+            _platform = Platform.UNSUPPORTED
+        info = MediaInfo(
+            platform=_platform,
             url=info_data.get("url", ""),
-            thumbnail=info_data.get("thumbnail", ""),
-            duration=info_data.get("duration", 0),
-            formats=info_data.get("formats", []),
-            platform=info_data.get("platform", ""),
+            title=info_data.get("title", ""),
             author=info_data.get("author", ""),
-            items=items,
             post_time=info_data.get("post_time", ""),
+            thumbnail=info_data.get("thumbnail", ""),
+            duration=info_data.get("duration"),
+            media_items=items,
+            formats=[FormatOption(
+                format_id=f.get("format_id", ""),
+                label=f.get("label", ""),
+                type=f.get("type", ""),
+                ext=f.get("ext", ""),
+                width=f.get("width", 0),
+                height=f.get("height", 0),
+            ) for f in info_data.get("formats", []) if isinstance(f, dict)],
         )
         out_dir = req.output_dir or str(get_download_dir())
         try:
@@ -1155,12 +1196,14 @@ def create_app() -> FastAPI:
             author=req.author,
             custom_name=req.title,
             thumbnail_url=thumb or None,
-            output_dir=str(get_download_dir()),
+            output_dir=req.output_dir or str(get_download_dir()),
         )
         qt.media_items_json = json.dumps([{
             "url": req.url, "is_video": req.is_video, "index": 0,
         }])
         _ctx().manager.add_task(qt)
+        if req.auto_start:
+            _ctx().manager.start_task(qt.task_id)
         return {"task_id": qt.task_id}
 
     @app.post("/api/queue/tasks/{task_id}/start")
@@ -1244,7 +1287,7 @@ def create_app() -> FastAPI:
         """
         cfg = load_config()
         # 端口优先用环境变量（Electron 启动时注入），回退到默认 38910
-        # 注意：不读 config.api_port（那是 Flask /capture 端口 38900），
+        # 注意：不读 config.api_port（那是插件伴随服务 Flask 的固定端口 38900），
         # FastAPI 端口与 main() 函数对齐（int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910）
         port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
         # 扫描本机所有 LAN IPv4 地址（排除 loopback/link-local）
@@ -1416,7 +1459,7 @@ def create_app() -> FastAPI:
         """移动端 URL 入队：立即返回 request_id，异步解析+入队，结果走 WS。
 
         WS 事件流（移动端订阅 /ws/events 接收）：
-        - 解析完成 -> parse_completed {request_id, info: VideoInfo}
+        - 解析完成 -> parse_completed {request_id, info: MediaInfo}
         - 入队后   -> task_added（由 _wire_signals 自动 publish，含 task_id）
         - 解析失败 -> parse_failed {request_id, error}
         """
@@ -1447,7 +1490,7 @@ def create_app() -> FastAPI:
                 info = await asyncio.to_thread(extract_info, norm_url)
                 _bus().publish("parse_completed", {
                     "request_id": request_id,
-                    "info": _video_info_to_dict(info),
+                    "info": _media_info_to_dict(info),
                 })
                 # 入队：默认最高画质（移动端不暴露格式选择，spec 规定）
                 format_type = "image" if any(
@@ -1602,14 +1645,28 @@ def create_app() -> FastAPI:
             # 解析失败时让后续 extract_info 报具体错误
             pass
 
+        async def _do_parse():
+            from .downloader import extract_info
+            return await asyncio.to_thread(extract_info, url)
+
+        # 同步模式：等待解析完成并直接返回结果（方便脚本/API 调用方）
+        if req.wait_timeout and req.wait_timeout > 0:
+            try:
+                info = await asyncio.wait_for(_do_parse(), timeout=req.wait_timeout)
+                return {"ok": True, "request_id": rid,
+                        "info": _media_info_to_dict(info)}
+            except asyncio.TimeoutError:
+                return {"ok": False, "request_id": rid, "error": "timeout"}
+            except Exception as e:
+                return {"ok": False, "request_id": rid, "error": str(e)}
+
         async def _run() -> None:
             try:
-                from .downloader import extract_info
-                info = await asyncio.to_thread(extract_info, url)
-                # 序列化 VideoInfo
+                info = await _do_parse()
+                # 序列化 MediaInfo
                 _bus().publish("parse_completed", {
                     "request_id": rid,
-                    "info": _video_info_to_dict(info),
+                    "info": _media_info_to_dict(info),
                 })
             except Exception as e:
                 _bus().publish("parse_failed", {
@@ -1737,6 +1794,31 @@ def create_app() -> FastAPI:
         return [_library_item_to_dict(it, _ctx().library_manager)
                 for it in _ctx().library_manager.get_all_items()]
 
+    @app.get("/api/library/search")
+    async def search_library(
+        q: str = Query(default=""),
+        platform: str = Query(default=""),
+        media_type: str = Query(default=""),
+        favorites_only: bool = Query(default=False),
+        collection_id: int | None = Query(default=None),
+        date_from: str = Query(default=""),
+        date_to: str = Query(default="", description="YYYYMMDD"),
+        batch_id: str = Query(default=""),
+    ) -> list[dict]:
+        """素材库多维搜索（标题/作者/链接/路径模糊匹配 + 平台/类型/收藏/合集/日期过滤）。"""
+        mgr = _ctx().library_manager
+        return [_library_item_to_dict(it, mgr) for it in mgr.search(
+            query=q, platform=platform, media_type=media_type,
+            favorites_only=favorites_only, collection_id=collection_id,
+            date_from=date_from, date_to=date_to, batch_id=batch_id)]
+
+    @app.get("/api/library/items/{item_id}")
+    async def get_library_item(item_id: str) -> dict:
+        it = _ctx().library_manager.get_item(item_id)
+        if it is None:
+            raise HTTPException(404, f"library item not found: {item_id}")
+        return _library_item_to_dict(it, _ctx().library_manager)
+
     @app.post("/api/library/items/{item_id}/favorite")
     async def toggle_favorite(item_id: str) -> dict:
         new_val = bool(_ctx().library_manager.toggle_favorite(item_id))
@@ -1744,8 +1826,10 @@ def create_app() -> FastAPI:
         return {"is_favorite": new_val}
 
     @app.delete("/api/library/items/{item_id}")
-    async def delete_library_item(item_id: str) -> dict:
-        _ctx().library_manager.delete_item(item_id)
+    async def delete_library_item(
+        item_id: str, delete_file: bool = Query(default=False)
+    ) -> dict:
+        _ctx().library_manager.delete_item(item_id, delete_file=delete_file)
         _bus().publish("library_changed")
         return {"ok": True}
 
@@ -1758,8 +1842,18 @@ def create_app() -> FastAPI:
         return out
 
     @app.post("/api/library/collections")
-    async def create_collection(name: str = Query(...)) -> dict:
-        cid = _ctx().library_manager.create_collection(name)
+    async def create_collection(
+        body: CollectionCreateRequest | None = None,
+        name: str = Query(default=""),
+        icon: str = Query(default=""),
+    ) -> dict:
+        # body 优先，query 兼容旧版前端/插件调用
+        final_name = (body.name if body else "") or name
+        final_icon = (body.icon if body else "") or icon
+        if not final_name.strip():
+            raise HTTPException(400, "collection name required")
+        cid = _ctx().library_manager.create_collection(
+            final_name.strip(), icon=final_icon or "\U0001F4C1")
         _bus().publish("library_changed")
         return {"id": cid}
 
@@ -1770,8 +1864,15 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.patch("/api/library/collections/{cid}")
-    async def rename_collection(cid: int, name: str = Query(...)) -> dict:
-        _ctx().library_manager.rename_collection(cid, name)
+    async def rename_collection(
+        cid: int,
+        body: CollectionRenameRequest | None = None,
+        name: str = Query(default=""),
+    ) -> dict:
+        final_name = (body.name if body else "") or name
+        if not final_name.strip():
+            raise HTTPException(400, "collection name required")
+        _ctx().library_manager.rename_collection(cid, final_name.strip())
         _bus().publish("library_changed")
         return {"ok": True}
 
@@ -1788,9 +1889,10 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/library/items/{item_id}/collections")
-    async def get_item_collections(item_id: str) -> list[int]:
+    async def get_item_collections(item_id: str) -> list[dict]:
         try:
-            return [c.id for c in _ctx().library_manager.get_item_collections(item_id)]
+            return [{"id": c.id, "name": c.name, "icon": c.icon or ""}
+                    for c in _ctx().library_manager.get_item_collections(item_id)]
         except Exception:
             return []
 
@@ -2055,7 +2157,7 @@ def create_app() -> FastAPI:
     async def set_config(key: str, req: ConfigUpdateRequest) -> dict:
         cfg = load_config()
         cfg[key] = req.value
-        # Apify token/actor 变化时清除验证状态（与 qml_bridge 对齐）
+        # Apify token/actor 变化时清除验证状态
         if key in ("apify_token", "apify_ig_actor"):
             cfg["apify_verified"] = False
             try:
@@ -3067,31 +3169,52 @@ def _do_refresh_apify_usage(app_ctx: AppContext, bus: EventBus) -> None:
     threading.Thread(target=_fetch, daemon=True).start()
 
 
-def _video_info_to_dict(info) -> dict:
-    """VideoInfo → dict（与 qml_bridge 的 _info_to_json 对齐）。"""
+def _media_info_to_dict(info) -> dict:
+    """providers.base.MediaInfo → dict（前端解析结果契约）。"""
+    plat = info.platform
+    plat_val = plat.value if hasattr(plat, "value") else str(plat or "")
+    def _item_to_dict(it):
+        mt = it.media_type
+        mt_val = mt.value if hasattr(mt, "value") else str(mt or "")
+        lp = it.live_photo
+        lp_dict = None
+        if lp is not None:
+            lp_dict = lp if isinstance(lp, dict) else {
+                "image": getattr(lp, "image", ""),
+                "video": getattr(lp, "video", ""),
+                "cover": getattr(lp, "cover", ""),
+            }
+        return {
+            "url": it.url,
+            "is_video": it.is_video,
+            "media_type": mt_val,
+            "width": it.width,
+            "height": it.height,
+            "extension": it.extension,
+            "size": it.size,
+            "quality": it.quality,
+            "filename": it.filename,
+            "live_photo": lp_dict,
+        }
     return {
         "title": info.title,
         "url": info.url,
         "thumbnail": info.thumbnail or "",
         "duration": info.duration,
-        "formats": info.formats,
-        "platform": info.platform,
-        "author": info.author,
-        "items": [
+        "formats": [
             {
-                "url": it.url,
-                "is_video": it.is_video,
-                "media_type": it.media_type,
-                "width": it.width,
-                "height": it.height,
-                "extension": it.extension,
-                "size": it.size,
-                "quality": it.quality,
-                "filename": it.filename,
-                "live_photo": getattr(it, "live_photo", None),
+                "format_id": f.format_id,
+                "label": f.label,
+                "type": f.type,
+                "ext": f.ext,
+                "width": f.width,
+                "height": f.height,
             }
-            for it in (info.items or [])
+            for f in (info.formats or [])
         ],
+        "platform": plat_val,
+        "author": info.author,
+        "items": [_item_to_dict(it) for it in (info.media_items or [])],
         "post_time": info.post_time or "",
     }
 
@@ -3137,18 +3260,26 @@ def main() -> None:
                 return False
             return True
     logging.getLogger("asyncio").addFilter(_ConnResetFilter())
-    # 优先用环境变量（Electron 注入），否则回退到 config
+    # 命令行参数优先，其次环境变量（Electron 注入），否则回退到 config
+    import argparse
+    _ap = argparse.ArgumentParser(description="Lumio FastAPI backend")
+    _ap.add_argument("--host", default=None, help="监听地址（默认 127.0.0.1）")
+    _ap.add_argument("--port", type=int, default=None, help="监听端口")
+    _ap.add_argument("--token", default=None, help="API token")
+    _args, _ = _ap.parse_known_args()
+    if _args.token:
+        os.environ["LUMIO_FASTAPI_TOKEN"] = _args.token
     # 默认 127.0.0.1 仅本机访问（安全默认，AGENTS.md 要求"用户主动开启移动端连接"）
     # 移动端连接：LUMIO_FASTAPI_HOST=0.0.0.0（由 Electron 根据 config.allow_mobile_connect 注入）
     # 兜底：环境变量未注入时，读 config.allow_mobile_connect 决定 host（独立运行模式）
-    host = os.environ.get("LUMIO_FASTAPI_HOST")
+    host = _args.host or os.environ.get("LUMIO_FASTAPI_HOST")
     if not host:
         try:
             cfg = load_config()
             host = "0.0.0.0" if cfg.get("allow_mobile_connect") else "127.0.0.1"
         except Exception:
             host = "127.0.0.1"
-    port = int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
+    port = _args.port or int(os.environ.get("LUMIO_FASTAPI_PORT", "0")) or 38910
     logger.info("Starting FastAPI on %s:%d (token=%s)",
                 host, port,
                 "yes" if os.environ.get("LUMIO_FASTAPI_TOKEN") else "no")
