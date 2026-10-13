@@ -1,6 +1,9 @@
 # build output
 dist/
 
+# 构建时生成的 og.png（由 scripts/gen-og.js 从 og.png.b64 解码，勿提交二进制）
+public/og.png
+
 # dependencies
 node_modules/
 
