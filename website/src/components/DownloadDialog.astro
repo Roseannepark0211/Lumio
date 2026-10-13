@@ -30,36 +30,36 @@ interface ReleaseInfo {
   assets: ReleaseAsset[];
 }
 
-// 硬编码 fallback — 当前版本（v4.4.7）的资产数据
+// 硬编码 fallback — 当前版本（v4.5.0）的资产数据
 // 用于：构建时 fetch 失败（网络问题/限流）+ dev 模式跳过 fetch
 // 发新 Release 后需手动更新此处（或 prod 构建时 fetch 成功则自动覆盖）
 const FALLBACK_RELEASE: ReleaseInfo = {
-  version: '4.4.7',
+  version: '4.5.0',
   assets: [
     {
-      name: 'Lumio-Setup-4.4.7.exe',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-Setup-4.4.7.exe',
-      size: 134647115,
+      name: 'Lumio-Setup-4.5.0.exe',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.0/Lumio-Setup-4.5.0.exe',
+      size: 134856975,
     },
     {
-      name: 'Lumio-4.4.7-arm64.dmg',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-4.4.7-arm64.dmg',
-      size: 146859109,
+      name: 'Lumio-4.5.0-arm64.dmg',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.0/Lumio-4.5.0-arm64.dmg',
+      size: 147421169,
     },
     {
-      name: 'Lumio-4.4.7-x86_64.AppImage',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/Lumio-4.4.7-x86_64.AppImage',
-      size: 151789402,
+      name: 'Lumio-4.5.0-x86_64.AppImage',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.0/Lumio-4.5.0-x86_64.AppImage',
+      size: 152728497,
     },
     {
-      name: 'lumio_4.4.7_amd64.deb',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/lumio_4.4.7_amd64.deb',
-      size: 138386148,
+      name: 'lumio_4.5.0_amd64.deb',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.0/lumio_4.5.0_amd64.deb',
+      size: 140189570,
     },
     {
-      name: 'lumio-4.4.7.x86_64.rpm',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.4.7/lumio-4.4.7.x86_64.rpm',
-      size: 139832813,
+      name: 'lumio-4.5.0.x86_64.rpm',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.0/lumio-4.5.0.x86_64.rpm',
+      size: 140619485,
     },
   ],
 };

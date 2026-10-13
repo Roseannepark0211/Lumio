@@ -100,6 +100,47 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '4.5.0',
+    date: '2026-10-13',
+    sections: [
+      {
+        title: '🏗️ 架构迁移',
+        items: [
+          '完成数据模型统一：旧 VideoInfo 模型彻底删除，全链路统一使用 MediaInfo',
+          '移除新旧模型间的桥接转换代码，解析→入队→下载链路更直接',
+          '删除无调用的死代码 _build_format_options',
+        ],
+      },
+      {
+        title: '🖼️ 素材库修复',
+        items: [
+          '修复缩略图工作线程的信号冲突，视频缩略图异步生成恢复正常',
+          '删除素材时可选择同时删除磁盘文件',
+          '新增素材库搜索 API（关键词/平台/类型/收藏/合集/日期/批次）',
+          'CDN 链接去重（忽略易过期的签名参数）',
+        ],
+      },
+      {
+        title: '✨ 体验与稳定性',
+        items: [
+          'Instagram 解析失败时提示导入 Cookie 或使用浏览器插件',
+          '粘贴链接任务默认自动开始下载（可关闭）',
+          '粘贴任务支持指定输出目录',
+          '链接解析支持同步等待模式，命令行支持 --host/--port/--token 参数',
+        ],
+      },
+      {
+        title: '🧹 清理',
+        items: [
+          '移除无用依赖 instaloader',
+          '明确浏览器插件伴随服务的固定端口设计（非迁移残留）',
+          '修复测试间 provider 注册表互相污染的问题',
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.0',
+  },
+  {
     version: '4.4.7',
     date: '2026-08-02',
     sections: [
@@ -176,44 +217,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.2',
-  },
-  {
-    version: '4.4.0',
-    date: '2026-07-28',
-    sections: [
-      {
-        title: '✨ 新功能',
-        items: [
-          '架构迁移完成：从 QML 单体架构完整迁移至 Electron + React + FastAPI 双进程架构，前端 8 个页面全部 React 化',
-          'Liquid Glass 设计语言：3D 字标 + 蓝青色主题 + 柔和光球 + 大圆角',
-          '系统托盘菜单 + 关闭确认弹窗（最小化/退出/取消）',
-          '内置媒体预览对话框：图片缩放/平移/多图切换 + 视频/音频播放器',
-          '小红书 Live Photo 支持：实况图返回图片+视频双项',
-          'Collection 智能操作 + 右键菜单支持重命名/删除',
-          '前端 i18n 双语：全页面接入中英即时切换',
-          '自动更新机制：electron-updater + UpdateDialog 弹窗',
-          'CI/CD 自动发布：GitHub Actions 三平台矩阵构建',
-          '跨平台原生安装包：Windows NSIS + macOS DMG（x64/arm64）+ Linux AppImage/deb/rpm',
-        ],
-      },
-      {
-        title: '⚡ 性能优化',
-        items: [
-          '启动速度：splash 秒开 + FastAPI spawn 前移 + React 页面延迟到 FastAPI ready 后加载',
-          '安装包体积：compression: "maximum" + asar: true，从 ~600MB 降至 ~140MB',
-          '虚拟列表：react-window 长列表虚拟滚动',
-          'WebSocket 增量更新：避免全量轮询',
-        ],
-      },
-      {
-        title: '⚠️ 已知问题',
-        items: [
-          '抖音超高清原画档位（60帧 H.265）仍需 app API 或登录态，web API 无法获取',
-          'X GraphQL API query ID 会定期轮换，422 报错时需从 yt-dlp 源码更新硬编码',
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.0',
   },
 ];
 
