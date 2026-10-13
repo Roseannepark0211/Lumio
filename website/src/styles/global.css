@@ -1,6 +1,68 @@
 @import "tailwindcss";
 
 /* ============================================================
+   自托管 Geist 字体 — 构建时由 scripts/gen-assets.js 从 .b64 解码生成
+   不再依赖 Google Fonts，国内用户无需特殊网络即可加载标题字体
+   font-display: swap — 先用 fallback 渲染，字体就绪后无缝切换
+   ============================================================ */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Geist-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Geist-500-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Geist-600-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Geist-700-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/Geist-800-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/GeistMono-400-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/GeistMono-500-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/GeistMono-600-latin.woff2') format('woff2');
+}
+
+/* ============================================================
    Lumio 官网 v4 — 直角基调 · Geist 字体 · 暗夜模式
    设计方向：Vercel / Linear / Raycast / Arc 风
    关键变化：

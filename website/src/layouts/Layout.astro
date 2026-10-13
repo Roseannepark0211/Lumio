@@ -63,15 +63,10 @@ const {
       })();
     </script>
 
-    {/* 字体预加载 — Geist Sans + Geist Mono
-        Geist 几何感强、终端平直、略带技术调性，呼应「直角」基调
-        参考 Vercel / Linear / Raycast 的字标处理 */}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    {/* 字体预加载 — Geist 自托管（/fonts/*.woff2，构建时由 .b64 解码生成）
+        不再依赖 Google Fonts，国内直连可用；font-display: swap 避免文字不可见闪烁 */}
+    <link rel="preload" href="/fonts/Geist-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/Geist-400-latin.woff2" as="font" type="font/woff2" crossorigin />
 
     {/* Open Graph — 社交分享预览 */}
     <meta property="og:title" content={title} />
