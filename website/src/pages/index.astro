@@ -181,7 +181,7 @@ const platforms = [
             rel="noopener noreferrer"
             data-sound-freq={p.freq}
             data-index={i}
-            aria-label={`访问 ${p.name} 官网`}
+            data-i18n-attr="aria-label:platforms.visit" data-i18n-name={p.name} aria-label={`访问 ${p.name} 官网`}
             title={`${p.name} · ${p.url}`}
           >
             <svg class="platform-icon" width="28" height="28" viewBox="0 0 24 24" fill={p.color} aria-hidden="true">
@@ -244,9 +244,9 @@ const platforms = [
         </div>
         <div class="browser-frame">
           <div class="browser-bar">
-            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · Home</div>
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.home">Lumio · Home</div>
           </div>
-          <img src="/screenshots/主页.png" alt="Lumio 主页 — 链接解析" loading="lazy" class="w-full block" />
+          <img src="/screenshots/主页.png" alt="Lumio 主页 — 链接解析" data-i18n-attr="alt:img.alt.home" loading="lazy" class="w-full block" />
         </div>
       </div>
 
@@ -271,9 +271,9 @@ const platforms = [
         </div>
         <div class="md:order-1 browser-frame">
           <div class="browser-bar">
-            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 内部播放器</div>
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.player">Lumio · 内部播放器</div>
           </div>
-          <img src="/screenshots/内部播放器.png" alt="Lumio 内部播放器 — 原画质播放" loading="lazy" class="w-full block" />
+          <img src="/screenshots/内部播放器.png" alt="Lumio 内部播放器 — 原画质播放" data-i18n-attr="alt:img.alt.player" loading="lazy" class="w-full block" />
         </div>
       </div>
 
@@ -299,9 +299,9 @@ const platforms = [
         </div>
         <div class="browser-frame extension-frame">
           <div class="browser-bar">
-            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 浏览器插件</div>
+            <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.extension">Lumio · 浏览器插件</div>
           </div>
-          <img src="/screenshots/插件.png" alt="Lumio 浏览器扩展 — 右键发送到 Inbox" loading="lazy" class="w-full block" />
+          <img src="/screenshots/插件.png" alt="Lumio 浏览器扩展 — 右键发送到 Inbox" data-i18n-attr="alt:img.alt.extension" loading="lazy" class="w-full block" />
         </div>
       </div>
 
@@ -331,9 +331,9 @@ const platforms = [
         <div class="md:order-1">
           <div class="browser-frame">
             <div class="browser-bar">
-              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">Lumio · 媒体库</div>
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.library">Lumio · 媒体库</div>
             </div>
-            <img src="/screenshots/素材库.png" alt="Lumio 媒体库 — 缩略图网格 + 搜索 + 分类" loading="lazy" class="w-full block" />
+            <img src="/screenshots/素材库.png" alt="Lumio 媒体库 — 缩略图网格 + 搜索 + 分类" data-i18n-attr="alt:img.alt.library" loading="lazy" class="w-full block" />
           </div>
         </div>
       </div>
@@ -364,7 +364,7 @@ const platforms = [
         <div class="demo-card">
           <div class="browser-frame">
             <div class="browser-bar">
-              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">lumio · 解析全链路</div>
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.demo1">lumio · 解析全链路</div>
               <span class="demo-pill">REC</span>
             </div>
             <video
@@ -374,7 +374,7 @@ const platforms = [
               playsinline
               preload="none"
               class="w-full block demo-video"
-              aria-label="链接解析全过程演示"
+              aria-label="链接解析全过程演示" data-i18n-attr="aria-label:demo.01.video"
             />
           </div>
           <div class="demo-meta">
@@ -390,7 +390,7 @@ const platforms = [
         <div class="demo-card" style="transition-delay: 0.2s;">
           <div class="browser-frame">
             <div class="browser-bar">
-              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]">lumio · 浏览器插件发送</div>
+              <div class="ml-3 text-xs font-mono text-[rgb(var(--color-text-dim))]" data-i18n="chrome.demo2">lumio · 浏览器插件发送</div>
               <span class="demo-pill">REC</span>
             </div>
             <video
@@ -400,7 +400,7 @@ const platforms = [
               playsinline
               preload="none"
               class="w-full block demo-video"
-              aria-label="浏览器插件发送演示"
+              aria-label="浏览器插件发送演示" data-i18n-attr="aria-label:demo.02.video"
             />
           </div>
           <div class="demo-meta">
@@ -454,7 +454,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a1">
             <p>不需要。Lumio 是纯本地工具，无需注册、无需登录。下载 Instagram 内容需要导入你的 IG cookie（Netscape 格式），下载 X 图片和批量枚举需要导入 auth_token + ct0 cookie，其他 6 大平台（YouTube / B站 / 抖音 / 快手 / 微博 / 小红书）开箱即用，无需任何凭证。</p>
           </div>
         </details>
@@ -468,7 +468,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a2">
             <p>是的。所有平台默认下载 API 返回档位内的最高画质：</p>
             <ul>
               <li><strong>YouTube</strong>：4K / 8K + 自动合并音频（用户手动选择格式）</li>
@@ -491,7 +491,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a3">
             <p>Lumio 在设计上避免触发风控：</p>
             <ul>
               <li><strong>Instagram</strong>：右键 IG 页面时浏览器扩展一次性注入提取 DOM 直链，不调 IG API，不触发自动化检测</li>
@@ -512,7 +512,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a4">
             <p>支持。三平台安装包已通过 GitHub Actions 自动构建并发布，点击首页「下载 Lumio」即可选择对应平台：</p>
             <ul>
               <li><strong>Windows</strong>：NSIS 安装包（路径选择 + 卸载清理）</li>
@@ -532,7 +532,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a5">
             <p>所有数据完全本地存储，不上传任何服务器：</p>
             <ul>
               <li><strong>素材库</strong>：~/.lumio/library.db（SQLite，含元数据 + content_hash）</li>
@@ -554,7 +554,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a6">
             <p>Chrome / Edge 浏览器扩展（Manifest V3）使用流程：</p>
             <ol>
               <li>在社交媒体详情页打开 Lumio 插件</li>
@@ -580,7 +580,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a7">
             <p>Lumio 是 <strong>MIT 协议开源</strong>，完全免费，无任何付费功能。源码托管在 <a href={GITHUB_URL} target="_blank" rel="noopener" class="faq-link">GitHub</a>，欢迎 Star / Issue / PR。</p>
           </div>
         </details>
@@ -595,7 +595,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a8">
             <p><strong>分平台说明：</strong></p>
             <ul>
               <li><strong>国内平台</strong>（微博 / 小红书 / 抖音 / B站 / 快手）—— 无需代理，直接使用。</li>
@@ -617,7 +617,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a9">
             <p>Apify 是第三方爬虫代理平台，Lumio 通过它提取 Instagram 数据，<strong>替代直接调用 IG 移动 API，避免账号风控</strong>。Token 是免费的，个人使用足够。</p>
             <p><strong>获取步骤：</strong></p>
             <ol>
@@ -644,7 +644,7 @@ const platforms = [
               </svg>
             </span>
           </summary>
-          <div class="faq-item__body">
+          <div class="faq-item__body" data-i18n-html="faq.a10">
             <p>Lumio <strong>内置预览</strong>支持图片缩放、多图切换、视频/音频播放（QMediaPlayer），点击缩略图即可打开，无需切窗口。</p>
             <p>但下载的 HEVC/H.265、4K HDR、特殊编码格式，建议安装<strong>专用播放器</strong>获得最佳体验：</p>
             <ul>
