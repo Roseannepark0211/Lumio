@@ -380,3 +380,55 @@ jobs:
 
             ---
             **Full Changelog**: https://github.com/Roseannepark0211/Lumio/compare/${{ steps.notes.outputs.prev_tag }}...${{ github.ref_name }}
+
+  # ============================================================
+  # 官网版本号同步 → 触发 Cloudflare Pages 重建
+  # ============================================================
+  # 发版流水线的最后一步：把 website/ 下的硬编码版本号（首页徽标/页脚/
+  # 下载弹窗 fallback/JSON-LD/更新日志）同步到新版本，然后 commit 到 main，
+  # Cloudflare Pages 随即自动重新构建部署。
+  # 之后发版无需手动改官网版本号，也无需手动触发网站重建。
+  website-sync:
+    name: Sync Website Version
+    needs: [release-notes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出 main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 同步官网版本号
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/sync-website-version.py \
+            --tag "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: 构建验证官网
+        run: |
+          cd website
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: 提交并推送（触发 Pages 重建）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add website/
+          if git diff --cached --quiet; then
+            echo "官网已是最新版本，无变更，跳过提交"
+          else
+            git pull --rebase origin main
+            git commit -m "website: 同步 ${{ github.ref_name }}（发版自动更新）"
+            git push origin main
+          fi

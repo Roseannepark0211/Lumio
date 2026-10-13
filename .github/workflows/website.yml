@@ -1,0 +1,75 @@
+# Website — 手动回填官网版本号
+#
+# 正常发版时，release.yml 流水线末尾的 website-sync job 会自动同步官网版本号
+# 并触发 Cloudflare Pages 重建，本 workflow 仅用于手动回填历史版本：
+# Actions → Website → Run workflow → 填写 tag（如 v4.5.0）
+
+name: Website
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag（如 v4.5.0；留空则取最新 release）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出 main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 确定版本号
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "同步目标: $TAG"
+
+      - name: 同步官网版本号
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/sync-website-version.py \
+            --tag "${{ steps.ver.outputs.tag }}" \
+            --repo "${{ github.repository }}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: 构建验证官网
+        run: |
+          cd website
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: 提交并推送（触发 Pages 重建）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add website/
+          if git diff --cached --quiet; then
+            echo "官网已是最新版本，无变更，跳过提交"
+          else
+            git pull --rebase origin main
+            git commit -m "website: 同步 ${{ steps.ver.outputs.tag }}（发版自动更新）"
+            git push origin main
+          fi
