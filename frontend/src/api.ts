@@ -42,6 +42,8 @@ interface LumioGlobal {
     check: () => Promise<CheckUpdateResult>;
     download: () => Promise<{ ok: boolean; error: string | null }>;
     quitAndInstall: () => Promise<{ ok: boolean }>;
+    /** 打开 GitHub Release 页面（更新报错时的手动下载兜底） */
+    openReleasesPage: () => Promise<void>;
     onEvent: (callback: (channel: string, data: any) => void) => void;
   };
 }
@@ -60,7 +62,10 @@ export interface UpdateInfo {
 export interface CheckUpdateResult {
   hasUpdate: boolean;
   info: UpdateInfo | null;
+  /** 用户友好的中文错误提示（无错误时为 null） */
   error: string | null;
+  /** 原始英文技术错误（排查用，可选） */
+  errorDetail?: string | null;
 }
 
 export interface DownloadProgress {

@@ -136,6 +136,8 @@ contextBridge.exposeInMainWorld("lumio", {
     download: () => ipcRenderer.invoke("updater:download"),
     /** 退出并安装更新（用户在下载完成提示点"立即重启"触发） */
     quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
+    /** 打开 GitHub Release 页面（更新报错时的手动下载兜底） */
+    openReleasesPage: () => ipcRenderer.invoke("updater:open-releases"),
     /** 监听主进程推送的更新事件 */
     onEvent: (callback: (channel: string, data: any) => void) => {
       const channels = [

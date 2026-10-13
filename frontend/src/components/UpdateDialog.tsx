@@ -40,6 +40,8 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  /** 原始技术错误（小字展示，方便报障排查） */
+  const [errorDetail, setErrorDetail] = useState<string>("");
 
   // 当前平台（macOS 走手动下载模式）
   const isMacos = lumioGlobal?.platform === "darwin";
@@ -72,37 +74,51 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
           break;
         case "update:error":
           setErrorMsg(data?.message || "未知错误");
+          setErrorDetail(data?.detail || "");
           setStage("error");
           break;
       }
     });
   }, [open]);
 
-  /** 打开对话框时自动检查更新 */
-  useEffect(() => {
-    if (!open) return;
+  /** 执行检查更新（打开对话框时 + 重试按钮共用） */
+  const runCheck = useCallback(async () => {
     const updater = lumioGlobal?.updater;
     if (!updater) {
       setStage("error");
       setErrorMsg("非 Electron 环境，无法检查更新");
+      setErrorDetail("");
       return;
     }
     setStage("checking");
     setProgress(null);
     setErrorMsg("");
-    (async () => {
-      const result = await updater.check();
-      if (result.error) {
-        setErrorMsg(result.error);
-        setStage("error");
-      } else if (result.hasUpdate && result.info) {
-        setUpdateInfo(result.info);
-        setStage("available");
-      } else {
-        setStage("not-available");
-      }
-    })();
-  }, [open]);
+    setErrorDetail("");
+    const result = await updater.check();
+    if (result.error) {
+      setErrorMsg(result.error);
+      setErrorDetail(result.errorDetail || "");
+      setStage("error");
+    } else if (result.hasUpdate && result.info) {
+      setUpdateInfo(result.info);
+      setStage("available");
+    } else {
+      setStage("not-available");
+    }
+  }, []);
+
+  /** 打开对话框时自动检查更新 */
+  useEffect(() => {
+    if (!open) return;
+    runCheck();
+  }, [open, runCheck]);
+
+  /** 报错时打开 GitHub Release 页面手动下载 */
+  const onOpenReleases = useCallback(async () => {
+    const updater = lumioGlobal?.updater;
+    if (!updater) return;
+    await updater.openReleasesPage();
+  }, []);
 
   /** 用户点"立即下载" */
   const onDownload = useCallback(async () => {
@@ -263,18 +279,35 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
           </div>
         )}
 
-        {/* 错误 */}
+        {/* 错误 — 中文友好提示 + 原始错误小字 + 重试/手动下载 */}
         {stage === "error" && (
           <div className="space-y-3">
             <div className="py-2 text-sm text-red-400">
               ❌ {errorMsg}
             </div>
-            <div className="flex justify-end">
+            {errorDetail && (
+              <div className="break-all rounded bg-black/20 p-2 font-mono text-[11px] text-text-dim">
+                {errorDetail}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
               <button
-                className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                className="rounded-lg px-3 py-1.5 text-xs text-text-muted hover:bg-white/5"
                 onClick={onClose}
               >
                 关闭
+              </button>
+              <button
+                className="rounded-lg px-3 py-1.5 text-xs text-text-muted hover:bg-white/5"
+                onClick={onOpenReleases}
+              >
+                去官网手动下载
+              </button>
+              <button
+                className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                onClick={runCheck}
+              >
+                重试
               </button>
             </div>
           </div>

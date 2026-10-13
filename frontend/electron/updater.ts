@@ -19,11 +19,47 @@
  *   4. 安全：
  *      - verifyUpdateCodeSignature: true（默认）—— 校验下载包签名
  *      - electron-updater ≥6.3.0 修复 CVE-2024-39698 签名绕过漏洞
+ *
+ *   5. 错误提示用户友好化：
+ *      - electron-updater / Node 抛出的英文技术错误（如 net::ERR_CONNECTION_TIMED_OUT）
+ *        经 friendlyUpdateError() 映射为中文提示，原文保留为 detail 供排查
  */
 
 import { app, BrowserWindow, ipcMain, shell, dialog } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { ChildProcess } from "node:child_process";
+
+/** GitHub Release 页面（macOS 手动下载 / 报错兜底用） */
+const RELEASES_URL = "https://github.com/Roseannepark0211/Lumio/releases/latest";
+
+// ============================================================
+// 错误文案映射：英文技术错误 → 用户能看懂的中文提示
+// 原文保留为 detail，随事件一起发给渲染进程（小字展示，方便报障排查）
+// ============================================================
+const UPDATE_ERROR_PATTERNS: Array<[RegExp, string]> = [
+  [/ERR_INTERNET_DISCONNECTED/i, "网络未连接，请检查网络连接后重试"],
+  [/ERR_CONNECTION_TIMED_OUT|ETIMEDOUT|ERR_TIMED_OUT|GitHub API timeout/i, "连接 GitHub 超时，可能是网络较慢，请稍后重试"],
+  [/ERR_NAME_NOT_RESOLVED|ERR_NAME_RESOLUTION_FAILED|ENOTFOUND|getaddrinfo/i, "无法连接到 GitHub，请检查网络或 DNS 设置"],
+  [/ERR_CONNECTION_REFUSED|ECONNREFUSED/i, "连接被拒绝，请检查防火墙或代理设置"],
+  [/ERR_PROXY_CONNECTION_FAILED/i, "代理服务器连接失败，请检查系统代理设置"],
+  [/ERR_NETWORK_CHANGED/i, "网络环境发生变化，请重试"],
+  [/ERR_ABORTED/i, "更新请求被中断，请重试"],
+  [/HttpError:\s*404|GitHub API 404/i, "更新服务器暂时不可用，请稍后重试"],
+  [/HttpError:\s*403|GitHub API 403/i, "GitHub 访问受限（可能请求过于频繁），请稍后重试"],
+  [/HttpError:\s*5\d\d/i, "GitHub 服务器繁忙，请稍后重试"],
+  [/Latest version info is empty/i, "未能获取到版本信息，请检查网络后重试"],
+  [/not signed by the application owner/i, "新版本签名校验失败，已中止更新以保护你的设备"],
+  [/ENOENT/i, "更新文件读取失败，请重试"],
+];
+
+/** 把原始错误翻译成用户友好的中文提示（附带原文 detail） */
+export function friendlyUpdateError(raw: unknown): { message: string; detail: string } {
+  const detail = raw instanceof Error ? raw.message : String(raw ?? "");
+  for (const [pattern, message] of UPDATE_ERROR_PATTERNS) {
+    if (pattern.test(detail)) return { message, detail };
+  }
+  return { message: "检查更新失败，请检查网络连接后重试", detail };
+}
 
 // ============================================================
 // 类型定义（与渲染进程共享）
@@ -46,7 +82,10 @@ export interface DownloadProgress {
 export interface CheckUpdateResult {
   hasUpdate: boolean;
   info: UpdateInfo | null;
+  /** 用户友好的中文错误提示（无错误时为 null） */
   error: string | null;
+  /** 原始英文技术错误（排查用，可选） */
+  errorDetail?: string | null;
 }
 
 // ============================================================
@@ -136,7 +175,8 @@ export class UpdaterManager {
 
     autoUpdater.on("error", (err) => {
       console.error("[updater] error:", err);
-      this.sendToRenderer("update:error", { message: err.message });
+      const friendly = friendlyUpdateError(err);
+      this.sendToRenderer("update:error", { message: friendly.message, detail: friendly.detail });
     });
 
     this.registerIpcHandlers();
@@ -186,7 +226,8 @@ export class UpdaterManager {
         error: null,
       };
     } catch (e: any) {
-      return { hasUpdate: false, info: null, error: e.message };
+      const friendly = friendlyUpdateError(e);
+      return { hasUpdate: false, info: null, error: friendly.message, errorDetail: friendly.detail };
     }
   }
 
@@ -197,14 +238,15 @@ export class UpdaterManager {
     }
     if (process.platform === "darwin") {
       // macOS 手动模式：直接打开 Release 页面
-      await shell.openExternal("https://github.com/Roseannepark0211/Lumio/releases/latest");
+      await shell.openExternal(RELEASES_URL);
       return { ok: true, error: null };
     }
     try {
       await autoUpdater.downloadUpdate();
       return { ok: true, error: null };
     } catch (e: any) {
-      return { ok: false, error: e.message };
+      const friendly = friendlyUpdateError(e);
+      return { ok: false, error: friendly.message };
     }
   }
 
@@ -288,7 +330,8 @@ export class UpdaterManager {
         error: null,
       };
     } catch (e: any) {
-      return { hasUpdate: false, info: null, error: e.message };
+      const friendly = friendlyUpdateError(e);
+      return { hasUpdate: false, info: null, error: friendly.message, errorDetail: friendly.detail };
     }
   }
 
@@ -305,6 +348,10 @@ export class UpdaterManager {
     ipcMain.handle("updater:quit-and-install", async () => {
       await this.quitAndInstall();
       return { ok: true };
+    });
+
+    ipcMain.handle("updater:open-releases", async () => {
+      await shell.openExternal(RELEASES_URL);
     });
   }
 
