@@ -172,8 +172,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "LumioAPI",
             "CFBundleDisplayName": "Lumio API",
-            "CFBundleShortVersionString": "4.5.2",
-            "CFBundleVersion": "4.5.2",
+            "CFBundleShortVersionString": "4.5.3",
+            "CFBundleVersion": "4.5.3",
             "LSMinimumSystemVersion": "10.13",
             "LSBackgroundOnly": True,  # 后台服务，不显示 Dock 图标
             "NSHighResolutionCapable": True,
