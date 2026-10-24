@@ -100,6 +100,54 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '4.5.2',
+    date: '2026-10-24',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          '打包版抖音解析恢复：安装包补上浏览器组件与驱动，优先复用本机 Chrome/Edge，不用再下载 Chromium（修复 v4.5.1 安装包里浏览器兜底不可用的问题）',
+          '未找到可用浏览器时给出明确提示：请安装 Chrome 或 Edge 后重试，或运行 playwright install chromium',
+          '修复发版后官网版本同步失败的问题',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.2',
+  },
+  {
     version: '4.5.1',
     date: '2026-10-24',
     sections: [
@@ -187,39 +235,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.0',
-  },
-  {
-    version: '4.4.7',
-    date: '2026-08-02',
-    sections: [
-      {
-        title: '🐛 Bug 修复',
-        items: [
-          '[主程序] 修复 Home 页面 reset 按钮在输入框为空时仍可点击的问题',
-          '[主程序] 修复抖音短链接（v.douyin.com）展开失败导致解析失败，增加移动 UA 兜底重试',
-          '[主程序] 修复小红书短链接（xhslink.com）展开失败的 Provider 内兜底处理',
-          '[主程序] 修复素材库收藏状态变更后 UI 不实时刷新（添加 library_changed 事件总线通知）',
-          '[主程序] 修复收件箱入队后列表状态未同步刷新（添加 inbox_changed 事件总线通知）',
-        ],
-      },
-      {
-        title: '🔒 安全增强',
-        items: [
-          '双 Token 鉴权：access token（2h 有效）+ refresh token（30d 有效）+ jti 黑名单 + 设备指纹校验，token 泄露后可即时吊销',
-          '传输层加密：HSTS 强制 HTTPS + HTTP→HTTPS 自动重定向 + CORS 白名单 + Electron 证书校验（pin 防中间人）',
-          '敏感数据加密：AES-256-GCM 对称加密 + HKDF 派生密钥（每次加密派生独立密钥）+ media-proxy 鉴权增强',
-          '路径安全检查优化：media-proxy 端点从仅允许 ~/.lumio/ 扩展到用户主目录，修复 ~/Downloads/Lumio 等自定义下载目录素材预览 403 问题，同时保持防路径穿越能力',
-        ],
-      },
-      {
-        title: '📦 安装说明',
-        items: [
-          '主程序：V4.4.2 → V4.4.7，直接覆盖安装，用户数据（~/.lumio/）不会丢失',
-          '浏览器扩展：ext-v4.4.7，本次随主程序 Release 一起发布 zip 包，可在 Release 资产中下载 lumio-extension-v4.4.7.zip',
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.7',
   },
 ];
 
