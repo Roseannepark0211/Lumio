@@ -100,6 +100,54 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '4.5.3',
+    date: '2026-10-24',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          '收件箱下载修复：无直链条目（抖音/小红书/快手/微博）点击下载没反应的问题修好（字段名迁移遗留）',
+          '下载失败现在显示具体原因，不再悄悄失败',
+          'Python 依赖缺失通知的“安装”按钮改指 Python 官网下载页（之前误指到仓库）',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.3',
+  },
+  {
     version: '4.5.2',
     date: '2026-10-24',
     sections: [
@@ -194,47 +242,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.1',
-  },
-  {
-    version: '4.5.0',
-    date: '2026-10-13',
-    sections: [
-      {
-        title: '🏗️ 架构迁移',
-        items: [
-          '完成数据模型统一：旧 VideoInfo 模型彻底删除，全链路统一使用 MediaInfo',
-          '移除新旧模型间的桥接转换代码，解析→入队→下载链路更直接',
-          '删除无调用的死代码 _build_format_options',
-        ],
-      },
-      {
-        title: '🖼️ 素材库修复',
-        items: [
-          '修复缩略图工作线程的信号冲突，视频缩略图异步生成恢复正常',
-          '删除素材时可选择同时删除磁盘文件',
-          '新增素材库搜索 API（关键词/平台/类型/收藏/合集/日期/批次）',
-          'CDN 链接去重（忽略易过期的签名参数）',
-        ],
-      },
-      {
-        title: '✨ 体验与稳定性',
-        items: [
-          'Instagram 解析失败时提示导入 Cookie 或使用浏览器插件',
-          '粘贴链接任务默认自动开始下载（可关闭）',
-          '粘贴任务支持指定输出目录',
-          '链接解析支持同步等待模式，命令行支持 --host/--port/--token 参数',
-        ],
-      },
-      {
-        title: '🧹 清理',
-        items: [
-          '移除无用依赖 instaloader',
-          '明确浏览器插件伴随服务的固定端口设计（非迁移残留）',
-          '修复测试间 provider 注册表互相污染的问题',
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.0',
   },
 ];
 

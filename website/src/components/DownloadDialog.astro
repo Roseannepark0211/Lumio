@@ -30,37 +30,37 @@ interface ReleaseInfo {
   assets: ReleaseAsset[];
 }
 
-// 硬编码 fallback — 当前版本（v4.5.2）的资产数据
+// 硬编码 fallback — 当前版本（v4.5.3）的资产数据
 // 用于：构建时 fetch 失败（网络问题/限流）+ dev 模式跳过 fetch
 // 发新 Release 后需手动更新此处（或 prod 构建时 fetch 成功则自动覆盖）
 // 注：此块由 .github/workflows/website.yml 自动维护，请勿手工改版本号
 const FALLBACK_RELEASE: ReleaseInfo = {
-  version: '4.5.2',
+  version: '4.5.3',
   assets: [
     {
-      name: 'Lumio-4.5.2-arm64.dmg',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.2/Lumio-4.5.2-arm64.dmg',
-      size: 186559100,
+      name: 'Lumio-4.5.3-arm64.dmg',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.3/Lumio-4.5.3-arm64.dmg',
+      size: 186554494,
     },
     {
-      name: 'Lumio-4.5.2-x86_64.AppImage',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.2/Lumio-4.5.2-x86_64.AppImage',
-      size: 189129692,
+      name: 'Lumio-4.5.3-x86_64.AppImage',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.3/Lumio-4.5.3-x86_64.AppImage',
+      size: 189129589,
     },
     {
-      name: 'lumio-4.5.2.x86_64.rpm',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.2/lumio-4.5.2.x86_64.rpm',
-      size: 173532501,
+      name: 'lumio-4.5.3.x86_64.rpm',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.3/lumio-4.5.3.x86_64.rpm',
+      size: 173554337,
     },
     {
-      name: 'Lumio-Setup-4.5.2.exe',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.2/Lumio-Setup-4.5.2.exe',
-      size: 161637710,
+      name: 'Lumio-Setup-4.5.3.exe',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.3/Lumio-Setup-4.5.3.exe',
+      size: 161637907,
     },
     {
-      name: 'lumio_4.5.2_amd64.deb',
-      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.2/lumio_4.5.2_amd64.deb',
-      size: 172882970,
+      name: 'lumio_4.5.3_amd64.deb',
+      url: 'https://github.com/Roseannepark0211/Lumio/releases/download/v4.5.3/lumio_4.5.3_amd64.deb',
+      size: 172874660,
     },
   ],
 };
