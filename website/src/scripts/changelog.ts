@@ -100,6 +100,54 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '4.5.1',
+    date: '2026-10-24',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          '抖音解析恢复：Argus 升级后无签名请求被拦截，新增浏览器拦截兜底（视频优先走 www 页，图文走分享页），多清晰度与图文均已验证',
+          '更新检查报错提示改为中文友好文案，并附原始错误详情与重试、官网下载入口',
+          '关闭弹窗的“记住”只对应最小化与退出，点取消不再残留状态',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.1',
+  },
+  {
     version: '4.5.0',
     date: '2026-10-13',
     sections: [
@@ -172,51 +220,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.7',
-  },
-  {
-    version: '4.4.2',
-    date: '2026-07-29',
-    sections: [
-      {
-        title: '✨ 新功能',
-        items: [
-          '[插件 ext-v4.4.6] IG carousel（多图帖子）自动翻页提取完整图片：模拟点击"下一张"按钮逐张翻页去重合并，突破 IG DOM 仅渲染当前+相邻 slide（约 4 张）的限制 [API 行为变更]',
-          '[主程序 V4.4.2] Inbox 状态随下载任务终态自动同步：完成→downloaded、失败→failed、取消→new（可重新下载），通过 task_id↔inbox_item_id 映射在 task_status_changed 回调中更新 [API 行为变更]',
-        ],
-      },
-      {
-        title: '🐛 Bug 修复',
-        items: [
-          '[主程序] 修复素材文件缺失时弹出多次删除确认对话框：MediaPreviewDialog 移除内嵌删除按钮与 isFileMissing 状态，由 LibraryPage 通过 listPreviewItems 预检查 + 后端 file_missing 事件统一弹一次确认',
-          '[主程序] 修复托盘菜单频繁重连导致"连接中…"闪烁：WS 已连接时仅刷新 queue/inbox 业务数据，未连接才调 loadAll 重建连接',
-          '[主程序] 修复 TS 编译失败：移除 MediaPreviewDialog 中未使用的 isFileMissing 字段与 onDeleteMissingRecord 方法',
-          '[插件 ext-v4.4.5] 修复右键菜单对抖音 modal_id 模式、m.weibo.cn、weibo.com/detail/{id} 误判为非详情页导致不触发元数据提取：改用 shared/detailPage.ts 统一判定',
-        ],
-      },
-      {
-        title: '🔨 重构（插件）',
-        items: [
-          '[插件 ext-v4.4.6] 移除诊断采集工具：删除 shared/diagnose.ts（1402 行）+ SettingsGear.tsx 诊断 UI（164 行）+ content/index.ts 消息处理，累计减少约 1583 行代码',
-          '[插件 ext-v4.4.5] 共享代码去重：将 contextMenus.ts 的 isDetailPageUrl / platformLabel 提取到 shared/（platformLabels.ts + detailPage.ts），消除 background 与 popup 之间重复维护的映射表',
-          '[插件 ext-v4.4.5] IG 提取器路径规范化：ig_extract.ts → platforms/instagram.ts，统一 platforms/ 目录命名',
-          '[插件 ext-v4.4.5] tsconfig 清理：composite 模式仅为 vite.config.ts / manifest.config.ts 生成 .d.ts，移除 scripts 目录引用',
-          '[插件 ext-v4.4.6] 微博提取代码注释脱敏：真实 uid/post_id 替换为 {uid}/{post_id} 占位符',
-        ],
-      },
-      {
-        title: '⚠️ 已知问题',
-        items: ['（无）'],
-      },
-      {
-        title: '📦 安装说明',
-        items: [
-          '主程序：V4.4.1 → V4.4.2，electron-builder 输出目录改为 release4',
-          '浏览器扩展：ext-v4.4.0 → ext-v4.4.6，版本号独立，重新加载插件即可',
-          '升级建议：IG 多图帖子用户请优先更新插件以获得完整 carousel 提取能力',
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.4.2',
   },
 ];
 
