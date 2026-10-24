@@ -302,95 +302,100 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Update Release body and publish
-        uses: softprops/action-gh-release@v2
-        with:
-          # 显式 draft: false，把 extension-build 创建的 draft Release 转 published。
-          # 必须显式声明：softprops/action-gh-release@v2 在更新已有 Release 时，
-          # 如果不指定 draft，可能保持原 draft 状态导致用户看不到 Release。
-          draft: false
-          body: |
-            ## Lumio ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 注意：不要用 softprops/action-gh-release 更新已有 draft Release。
+          # 它在已有 draft 时会先建一个重复 draft、把 body 写到那个 draft 上，
+          # 再删掉重复 draft 并发布原 Release，导致原 Release 的 body 一直是空的
+          # （v4.5.1/v4.5.2/v4.5.3 三连复现，job 却显示成功）。
+          # 改用 gh release edit 直接更新原 Release，确定性高。
+          # 模板用 quoted heredoc（<<'EOF'）写文件，内容一字不改；
+          # 再用 sed 替换 __TAG__/__VERSION__/__PREV_TAG__ 占位符，
+          # 避免 heredoc 里的反引号触发命令替换。
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${CURRENT_TAG#v}
+          PREV_TAG="${{ steps.notes.outputs.prev_tag }}"
+          cat > /tmp/release-notes.md <<'EOF'
+          ## Lumio __TAG__
 
-            内容采集与素材管理桌面工具，通过分享链接下载 YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书的图片和视频。
+          内容采集与素材管理桌面工具，通过分享链接下载 YouTube / Instagram / X / B站 / 抖音 / 快手 / 微博 / 小红书的图片和视频。
 
-            ---
+          ---
 
-            ### 📥 普通用户下载（只需选一个）
+          ### 📥 普通用户下载（只需选一个）
 
-            | 系统 | 文件 | 说明 |
-            |------|------|------|
-            | **Windows x64** | `Lumio-Setup-${{ github.ref_name }}.exe` | NSIS 安装包，双击安装 |
-            | **macOS Apple Silicon** | `Lumio-${{ github.ref_name }}-arm64.dmg` | M1/M2/M3/M4 Mac（Intel Mac 暂不提供） |
-            | **Linux x64** | `Lumio-${{ github.ref_name }}.AppImage` | AppImage，无需安装，`chmod +x` 后直接运行 |
-            | **Linux x64** | `Lumio-${{ github.ref_name }}.x86_64.rpm` | Fedora / RHEL / openSUSE |
-            | **Linux x64** | `Lumio-${{ github.ref_name }}.amd64.deb` | Debian / Ubuntu |
+          | 系统 | 文件 | 说明 |
+          |------|------|------|
+          | **Windows x64** | `Lumio-Setup-__VERSION__.exe` | NSIS 安装包，双击安装 |
+          | **macOS Apple Silicon** | `Lumio-__VERSION__-arm64.dmg` | M1/M2/M3/M4 Mac（Intel Mac 暂不提供） |
+          | **Linux x64** | `Lumio-__VERSION__-x86_64.AppImage` | AppImage，无需安装，`chmod +x` 后直接运行 |
+          | **Linux x64** | `lumio-__VERSION__.x86_64.rpm` | Fedora / RHEL / openSUSE |
+          | **Linux x64** | `lumio___VERSION___amd64.deb` | Debian / Ubuntu |
 
-            > ⚠️ **不要下载** `latest.yml` / `latest-mac.yml` / `latest-linux.yml` / `*.blockmap` / `*-mac.zip` / `Source code *` —— 这些是自动更新机制和 GitHub 默认生成的辅助文件，不是安装包。
+          > ⚠️ **不要下载** `latest.yml` / `latest-mac.yml` / `latest-linux.yml` / `*.blockmap` / `*-mac.zip` / `Source code *` —— 这些是自动更新机制和 GitHub 默认生成的辅助文件，不是安装包。
 
-            > ℹ️ **从旧版本（lumio-frontend）升级**：此版本修正了安装路径为 `Lumio`，请先在「设置 → 应用」中卸载旧的 `lumio-frontend`，再安装新版本。用户数据（`~/.lumio/`）不会丢失。
+          > ℹ️ **从旧版本（lumio-frontend）升级**：此版本修正了安装路径为 `Lumio`，请先在「设置 → 应用」中卸载旧的 `lumio-frontend`，再安装新版本。用户数据（`~/.lumio/`）不会丢失。
 
-            ---
+          ---
 
-            ### 📋 更新内容
+          ### 📋 更新内容
 
-            ${{ steps.notes.outputs.notes }}
+          ${{ steps.notes.outputs.notes }}
 
-            ---
+          ---
 
-            ### 💻 系统要求
+          ### 💻 系统要求
 
-            - **Windows**: Windows 10/11 x64
-            - **macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）
-            - **Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64
+          - **Windows**: Windows 10/11 x64
+          - **macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）
+          - **Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64
 
-            ---
+          ---
 
-            ### 📦 安装说明
+          ### 📦 安装说明
 
-            1. 下载对应系统的安装包（见上方表格）
-            2. **Windows**: 双击 `.exe` 安装
-            3. **macOS**: 双击 `.dmg`，将 Lumio 拖入 Applications
-            4. **Linux**: `chmod +x Lumio-*.AppImage && ./Lumio-*.AppImage`，或用包管理器安装 `.deb`/`.rpm`
-            5. 首次启动会自动拉起内置 Python 后端（无需手动配置环境）
+          1. 下载对应系统的安装包（见上方表格）
+          2. **Windows**: 双击 `.exe` 安装
+          3. **macOS**: 双击 `.dmg`，将 Lumio 拖入 Applications
+          4. **Linux**: `chmod +x Lumio-*.AppImage && ./Lumio-*.AppImage`，或用包管理器安装 `.deb`/`.rpm`
+          5. 首次启动会自动拉起内置 Python 后端（无需手动配置环境）
 
-            > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有源码均开源可查。
+          > **Windows 用户**: 首次运行可能弹出 SmartScreen 警告，点击「更多信息」→「仍要运行」即可。本工具未购买代码签名证书，所有源码均开源可查。
 
-            > **macOS 用户**: 首次打开 DMG 后右键 →「打开」绕过 Gatekeeper；或终端执行 `xattr -dr com.apple.quarantine /Applications/Lumio.app`。
+          > **macOS 用户**: 首次打开 DMG 后右键 →「打开」绕过 Gatekeeper；或终端执行 `xattr -dr com.apple.quarantine /Applications/Lumio.app`。
 
-            ---
+          ---
 
-            ### 🔄 自动更新
+          ### 🔄 自动更新
 
-            已安装的用户可在「设置 → 关于」点击「检查更新」：
-            - **Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装
-            - **macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）
+          已安装的用户可在「设置 → 关于」点击「检查更新」：
+          - **Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装
+          - **macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）
 
-            ---
+          ---
 
-            ### 🛠️ 从源码运行（开发者）
+          ### 🛠️ 从源码运行（开发者）
 
-            ```bash
-            git clone https://github.com/Roseannepark0211/Lumio.git
-            cd Lumio
-            pip install -e .
-            # 启动 Python 后端
-            python -m lumio.api_fastapi
-            # 另开终端启动前端（需要 Node.js 20+）
-            cd frontend
-            npm ci
-            npm run dev:electron
-            ```
+          ```bash
+          git clone https://github.com/Roseannepark0211/Lumio.git
+          cd Lumio
+          pip install -e .
+          # 启动 Python 后端
+          python -m lumio.api_fastapi
+          # 另开终端启动前端（需要 Node.js 20+）
+          cd frontend
+          npm ci
+          npm run dev:electron
+          ```
 
-            ---
-            **Full Changelog**: https://github.com/Roseannepark0211/Lumio/compare/${{ steps.notes.outputs.prev_tag }}...${{ github.ref_name }}
+          ---
+          **Full Changelog**: https://github.com/Roseannepark0211/Lumio/compare/__PREV_TAG__...__TAG__
+          EOF
+          sed -i -e "s/__TAG__/$CURRENT_TAG/g" -e "s/__VERSION__/$VERSION/g" -e "s/__PREV_TAG__/$PREV_TAG/g" /tmp/release-notes.md
+          gh release edit "$CURRENT_TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/release-notes.md --draft=false
+          echo "body chars after update: $(gh release view "$CURRENT_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body | length')"
 
-  # ============================================================
-  # 官网版本号同步 → 触发 Cloudflare Pages 重建
-  # ============================================================
-  # 发版流水线的最后一步：把 website/ 下的硬编码版本号（首页徽标/页脚/
-  # 下载弹窗 fallback/JSON-LD/更新日志）同步到新版本，然后 commit 到 main，
-  # Cloudflare Pages 随即自动重新构建部署。
-  # 之后发版无需手动改官网版本号，也无需手动触发网站重建。
   website-sync:
     name: Sync Website Version
     needs: [release-notes]
@@ -431,10 +436,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "官网已是最新版本，无变更，跳过提交"
           else
-            # checkout ref: main 时可能是 detached HEAD，直接 pull/push 会失败；
-            # 先显式切到 main 分支（v4.5.1 的同步就是卡在这一步）。
+            # checkout -B main origin/main 已把分支同步到 origin/main，
+            # 且 git add 的改动会原样带过来；这里不能再 pull --rebase，
+            # 它会因 index 里有未提交改动直接失败（v4.5.3 的同步就是卡在这一步）。
             git checkout -B main origin/main
-            git pull --rebase origin main
             git commit -m "website: 同步 ${{ github.ref_name }}（发版自动更新）"
             git push origin main
           fi
