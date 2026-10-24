@@ -227,8 +227,17 @@ html, body {
     }).catch(function () {});
   }
 
+  // 「记住」只对应最小化/退出：取消绝不写入 close_behavior，且立即
+  // 清除勾选，避免残留的勾选状态影响下次弹窗
+  function clearRemember() {
+    var chk = document.getElementById('remember');
+    if (chk) chk.checked = false;
+  }
+  // 每次弹窗获得焦点都从未勾选开始（窗口被重用时也不会带上上次的勾选）
+  window.addEventListener('focus', clearRemember);
+
   document.getElementById('btn-cancel').onclick = function () {
-    // 取消不写入 close_behavior
+    clearRemember();
     if (TRAY.cancelClose) TRAY.cancelClose();
   };
   document.getElementById('btn-quit').onclick = function () {
@@ -242,7 +251,10 @@ html, body {
     });
   };
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && TRAY.cancelClose) TRAY.cancelClose();
+    if (e.key === 'Escape') {
+      clearRemember();
+      if (TRAY.cancelClose) TRAY.cancelClose();
+    }
   });
 })();
 </script>

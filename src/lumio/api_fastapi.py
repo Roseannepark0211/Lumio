@@ -2155,6 +2155,10 @@ def create_app() -> FastAPI:
 
     @app.put("/api/config/{key}")
     async def set_config(key: str, req: ConfigUpdateRequest) -> dict:
+        # close_behavior 只接受三个合法值：「记住」仅对应最小化/退出，
+        # 取消绝不能被持久化，非法值直接在 API 层拒绝，避免脏数据扩散
+        if key == "close_behavior" and req.value not in ("ask", "minimize", "quit"):
+            raise HTTPException(400, f"invalid close_behavior: {req.value!r}")
         cfg = load_config()
         cfg[key] = req.value
         # Apify token/actor 变化时清除验证状态

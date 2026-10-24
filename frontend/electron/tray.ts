@@ -400,7 +400,7 @@ export class TrayManager {
     });
 
     this.closeWin.on("blur", () => {
-      // 点击外部 = 取消
+      // 点击外部 = 取消（销毁窗口，下次重新创建，不留残留状态）
       this.hideCloseDialog();
     });
 
@@ -413,11 +413,21 @@ export class TrayManager {
     this.closeWin.focus();
   }
 
-  /** 隐藏关闭确认弹窗 */
+  /**
+   * 关闭确认弹窗：直接销毁窗口而非隐藏。
+   *
+   * 原因：隐藏会保留 close-dialog.html 的 DOM 状态（包括「记住我的选择」
+   * 勾选框）。用户上次勾选后点了取消，下次重用窗口时勾选仍残留，误点
+   * 最小化/退出就会把一次并未确认的选择写进 close_behavior，从此不再
+   * 弹窗。「记住」只应对应用户当次明确点的最小化/退出，取消（点取消、
+   * 点外部、Esc）必须不留任何状态。弹窗打开频率极低，重建窗口的成本
+   * 可忽略，因此每次关闭都销毁，下次打开必是全新状态。
+   */
   private hideCloseDialog(): void {
     if (this.closeWin && !this.closeWin.isDestroyed()) {
-      this.closeWin.hide();
+      this.closeWin.destroy();
     }
+    this.closeWin = null;
   }
 
   /** 加载 popup HTML（dev 用 Vite server，打包用本地文件） */
