@@ -9,11 +9,12 @@
 URL 格式：
 - v.douyin.com/{code}          → 移动端分享短链（normalize_url 先 302 展开）
 - www.douyin.com/video/{id}    → PC 视频页（JS 混淆空壳，纯 requests 拿不到数据）
-- www.iesdouyin.com/share/video/{id}/ → 移动端分享页（fallback，单清晰度）
+- www.iesdouyin.com/share/video/{id}/ → 移动端分享页（经 API 或浏览器兜底解析）
 
 解析优先级：
-1. aweme detail API（多清晰度，需要 ttwid，自动获取或用户 cookie）
-2. share 页 HTML（单清晰度 fallback）
+1. aweme detail API（多清晰度；签名服务可用时走签名 API，否则无签名尝试）
+2. 浏览器拦截（Argus 升级后 API 失效时的兜底：Playwright 真实浏览器
+   打开分享页或 www 视频页，拦截已签名的 detail 响应；见 douyin_browser.py）
 """
 
 from __future__ import annotations
@@ -21,10 +22,9 @@ from __future__ import annotations
 import logging
 import re
 from typing import Optional
-from urllib.parse import urlparse, parse_qs
 
 from .base import BaseProvider, MediaInfo, MediaItem, MediaType, FormatOption, Platform
-from .network.client import NetworkClient
+from .douyin_browser import fetch_aweme_detail_via_browser, playwright_available
 from .network.headers import platform_headers
 from .registry import register
 from ..utils.error_types import ErrorCategory, classify_error as _ce
@@ -36,7 +36,7 @@ _VIDEO_ID_RE = re.compile(r"douyin\.com/video/(\d+)")
 # 图文帖（note）路径，aweme_id 在路径里，API 与视频共用
 _NOTE_ID_RE = re.compile(r"douyin\.com/note/(\d+)")
 _PROFILE_RE = re.compile(r"douyin\.com/user/([\w.]+)")
-_IES_RE = re.compile(r"iesdouyin\.com/(?:share/)?video/(\d+)")
+_IES_RE = re.compile(r"iesdouyin\.com/(?:share/)?(?:video|note)/(\d+)")
 _SHARE_URL_RE = re.compile(r"v\.douyin\.com/[\w]+")
 
 # 移动端 UA（share 页需要移动端 UA，PC UA 会被反爬拦截）
@@ -49,7 +49,7 @@ from ..utils.ua import DEFAULT_UA as _PC_UA
 
 # ttwid 自动获取 endpoint
 _TTWID_REGISTER_URL = "https://ttwid.bytedance.com/ttwid/union/register/"
-# aweme detail API（无需 a_bogus 签名，只需 ttwid cookie）
+# aweme detail API（无签名尝试：Argus 升级后通常返回 403，仅作快速尝试；签名服务可用时走签名 API）
 _AWEME_DETAIL_API = "https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id={}&aid=6383&device_platform=webapp&channel=channel_pc_web"
 # a_bogus 签名服务（方案B Playwright，可选增强：签名后多拿 H.265 档位）
 _SIGN_SERVICE_URL = "http://localhost:9528"
@@ -316,19 +316,35 @@ class DouyinProvider(BaseProvider):
                 return info
             logger.warning("aweme detail API 返回数据但解析失败，回退到 share 页")
 
-        # 优先级 2：share 页 HTML（单清晰度 fallback）
-        html = self._fetch_share_page(video_id)
-        if html:
-            info = self._parse_from_share_html(html, url, video_id)
+        # 优先级 2：浏览器拦截（Argus 升级后 API 失效时的兜底）
+        # Playwright 未安装时直接返回空结果，不抛异常
+        # note 链接走分享页优先（已验证），视频链接走 www 页优先（更稳）；
+        # url 此时已是展开后的最终 URL，含 /note/ 即为图文
+        detail, filter_msg = fetch_aweme_detail_via_browser(
+            video_id, is_note=("/note/" in url))
+        if detail:
+            info = self._parse_aweme_detail(detail, url, video_id)
             if info.media_items:
                 return info
+            logger.warning("浏览器拦截返回数据但解析失败")
+        if filter_msg:
+            return MediaInfo(
+                platform=Platform.DOUYIN,
+                url=url,
+                title="抖音（作品不可看）",
+                author="",
+                description=f"该作品无法观看：{filter_msg}",
+            )
 
+        failure_desc = f"无法解析抖音视频（video_id: {video_id}）。视频可能不存在或已被删除。"
+        if not playwright_available():
+            failure_desc += "（浏览器兜底未启用：pip install lumio[browser] 后重试）"
         return MediaInfo(
             platform=Platform.DOUYIN,
             url=url,
             title="抖音（解析失败）",
             author="",
-            description=f"无法解析抖音视频（video_id: {video_id}）。视频可能不存在或已被删除。",
+            description=failure_desc,
         )
 
     # === 优先级 1：aweme detail API（多清晰度） ===
@@ -337,7 +353,7 @@ class DouyinProvider(BaseProvider):
         """调 aweme detail API，返回 aweme_detail dict。
 
         优先使用 a_bogus 签名 API（签名服务可用时，返回更多 H.265 档位）；
-        签名服务不可用时回退到无签名 API（只需 ttwid cookie）。
+        签名服务不可用时回退到无签名 API（Argus 升级后通常返回 403，仅作快速尝试）。
 
         注意：web API 即使签名也拿不到超高清原画档（需 app API + X-Argus 签名）。
         """
@@ -634,139 +650,6 @@ class DouyinProvider(BaseProvider):
             post_time=post_time,
             description=title or "抖音视频",
             duration=duration,
-            media_items=media_items,
-            formats=formats,
-            type="video",
-        )
-
-    # === 优先级 2：share 页 HTML（单清晰度 fallback） ===
-
-    def _fetch_share_page(self, video_id: str) -> Optional[str]:
-        """抓取 iesdouyin.com/share/video/{id}/ 移动端分享页 HTML。"""
-        client = NetworkClient(Platform.DOUYIN)
-        share_url = f"https://www.iesdouyin.com/share/video/{video_id}/"
-        return client.get_html(
-            share_url,
-            headers={
-                "User-Agent": _MOBILE_UA,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            },
-        )
-
-    def _parse_from_share_html(self, html: str, original_url: str, video_id: str) -> MediaInfo:
-        """从 share 页 HTML 提取单清晰度 MediaInfo（fallback）。
-
-        share 页只有单档清晰度（通常 720p），数据结构对齐多清晰度版本。
-        无水印原理：share 页返回的是 play_addr（无水印），不是 download_addr（带水印）。
-        """
-        title = ""
-        author = ""
-        thumbnail = ""
-        post_time = ""
-        video_url = ""
-        cover_url = ""
-
-        # 标题 desc
-        m = re.search(r'"desc"\s*:\s*"((?:[^"\\]|\\.)*)"', html)
-        if m:
-            title = m.group(1)[:80]
-
-        # 作者 nickname
-        m = re.search(r'"nickname"\s*:\s*"((?:[^"\\]|\\.)*)"', html)
-        if m:
-            author = m.group(1)
-
-        # 创建时间
-        m = re.search(r'"create_time"\s*:\s*(\d+)', html)
-        if m:
-            import datetime
-            try:
-                ts = int(m.group(1))
-                dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
-                post_time = dt.strftime("%Y%m%d_%H%M%S")
-            except (ValueError, OSError):
-                post_time = m.group(1)
-
-        # 视频 URL：play_addr.url_list[0]（playwm，302 跳转无水印 CDN 直链）
-        m = re.search(r'"play_addr"\s*:\s*\{[^}]*"url_list"\s*:\s*\[([^\]]+)\]', html)
-        if m:
-            urls = re.findall(r'"([^"]+)"', m.group(1))
-            for u in urls:
-                u_decoded = u.replace("\\u002F", "/")
-                if u_decoded.startswith("http") and "playwm" in u_decoded:
-                    video_url = u_decoded
-                    break
-            if not video_url:
-                for u in urls:
-                    u_decoded = u.replace("\\u002F", "/")
-                    if u_decoded.startswith("http"):
-                        video_url = u_decoded
-                        break
-
-        # 封面图
-        # ★ 优先 origin_cover（原始完整封面），fallback 到 cover（裁剪版）
-        for field_name in ("origin_cover", "cover"):
-            pattern = rf'"{field_name}"\s*:\s*\{{[^}}]*"url_list"\s*:\s*\[([^\]]+)\]'
-            for m in re.finditer(pattern, html):
-                urls = re.findall(r'"([^"]+)"', m.group(1))
-                for u in urls:
-                    u_decoded = u.replace("\\u002F", "/")
-                    if u_decoded.startswith("http"):
-                        cover_url = u_decoded
-                        break
-                if cover_url:
-                    break
-            if cover_url:
-                break
-        if cover_url:
-            thumbnail = cover_url
-
-        media_items: list[MediaItem] = []
-        formats: list[FormatOption] = []
-
-        if video_url:
-            # 从 playwm URL 的 ratio 参数推断清晰度
-            q = parse_qs(urlparse(video_url).query)
-            quality_label = q.get("ratio", [""])[0] or "720p"
-            media_items.append(MediaItem(
-                url=video_url, is_video=True, index=0,
-                media_type=MediaType.VIDEO, quality=quality_label,
-                mime="video/mp4", extension="mp4",
-            ))
-            formats.append(FormatOption(
-                format_id=quality_label, label=quality_label,
-                type="video", ext="mp4",
-            ))
-
-        # 封面图作为单独 MediaItem（与 B站一致：横向列表显示封面+视频两个卡片）
-        if cover_url and media_items:
-            media_items.append(MediaItem(
-                url=cover_url,
-                is_video=False,
-                index=len(media_items),
-                extension="jpg",
-                media_type=MediaType.IMAGE,
-                quality="封面",
-            ))
-
-        if not media_items:
-            return MediaInfo(
-                platform=Platform.DOUYIN,
-                url=original_url,
-                title=title or "抖音（解析失败）",
-                author=author,
-                description="无法从分享页提取媒体数据。",
-            )
-
-        return MediaInfo(
-            platform=Platform.DOUYIN,
-            url=original_url,
-            title=title or "抖音视频",
-            author=author,
-            thumbnail=thumbnail,
-            post_time=post_time,
-            description=title or "抖音视频",
             media_items=media_items,
             formats=formats,
             type="video",

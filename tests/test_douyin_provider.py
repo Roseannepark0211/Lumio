@@ -22,6 +22,12 @@ class TestExtractVideoId:
     def test_iesdouyin(self):
         assert _extract_video_id("https://iesdouyin.com/share/video/1234567890") == "1234567890"
 
+    def test_iesdouyin_share_note(self):
+        assert (
+            _extract_video_id("https://www.iesdouyin.com/share/note/7697947084242233737/")
+            == "7697947084242233737"
+        )
+
     def test_non_douyin(self):
         assert _extract_video_id("https://www.youtube.com/watch?v=xxx") is None
 

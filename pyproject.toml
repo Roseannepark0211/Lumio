@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
 lumio-api = "lumio.api_fastapi:main"
