@@ -31,6 +31,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -57,6 +60,81 @@ def playwright_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def find_system_browser() -> Optional[str]:
+    """找本机已装的 Chrome/Edge 可执行文件，未找到返回 None。
+
+    打包版没有 Playwright 自带浏览器时用它兜底：优先复用用户
+    已装的浏览器，不用再下载一份 Chromium。
+    """
+    if sys.platform == "win32":
+        candidates: list[str] = []
+        for base in (
+            os.environ.get("PROGRAMFILES", ""),
+            os.environ.get("PROGRAMFILES(X86)", ""),
+            os.environ.get("LOCALAPPDATA", ""),
+        ):
+            if not base:
+                continue
+            # 显式反斜杠拼接（不用 os.path.join）：测试在 POSIX 上模拟
+            # win32 时也能得到真实的 Windows 路径字符串
+            candidates += [
+                base + "\\Google\\Chrome\\Application\\chrome.exe",
+                base + "\\Microsoft\\Edge\\Application\\msedge.exe",
+            ]
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        for name in ("chrome", "msedge"):
+            found = shutil.which(name)
+            if found:
+                return found
+        return None
+    if sys.platform == "darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+        home = os.environ.get("HOME", "")
+        if home:
+            candidates += [
+                os.path.join(home, "Applications", "Google Chrome.app",
+                             "Contents", "MacOS", "Google Chrome"),
+                os.path.join(home, "Applications", "Microsoft Edge.app",
+                             "Contents", "MacOS", "Microsoft Edge"),
+            ]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        return None
+    for name in (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+    ):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def browser_executable_available() -> bool:
+    """任一浏览器可用：本机 Chrome/Edge，或 Playwright 自带浏览器。
+
+    仅在解析失败后调用（探查会短暂启动 Playwright 驱动进程）。
+    """
+    if find_system_browser() is not None:
+        return True
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            return Path(p.chromium.executable_path).exists()
+    except Exception:
+        return False
 
 
 def _default_user_data_dir() -> Path:
@@ -101,8 +179,9 @@ def fetch_aweme_detail_via_browser(
         timeout: 总等待时长（秒），超时返回 (None, None)。
         user_data_dir: 浏览器 profile 目录，默认 ~/.lumio/browser/douyin；
             复用同一目录是"养会话"的关键，不要传临时目录。
-        executable_path: 指定 Chromium 可执行文件（测试用；默认用
-            Playwright 自带的浏览器）。
+        executable_path: 指定 Chromium 可执行文件（测试用；默认按
+            Playwright 自带浏览器 → 本机 Chrome/Edge 的顺序自动解析，
+            两者皆无时由 Playwright 报错并返回 (None, None)）。
         chromium_args: 透传给 Chromium 的启动参数（如沙箱内需
             --no-sandbox；用户机器上一般不需要）。
         is_note: 是否为图文帖。图文走分享页优先（已验证），视频走
@@ -144,8 +223,21 @@ def fetch_aweme_detail_via_browser(
     try:
         with sync_playwright() as p:
             launch_kwargs: dict = {"headless": True}
-            if executable_path:
-                launch_kwargs["executable_path"] = executable_path
+            # 浏览器解析：显式指定 > Playwright 自带（版本最匹配）>
+            # 本机 Chrome/Edge（打包版无自带浏览器时的主力）>
+            # 都没有则不传 executable_path，让 Playwright 报明确错误。
+            exe = executable_path
+            if not exe:
+                try:
+                    managed = Path(p.chromium.executable_path)
+                except Exception:
+                    managed = None
+                if managed is not None and managed.exists():
+                    exe = None  # 自带浏览器存在，沿用 Playwright 默认
+                else:
+                    exe = find_system_browser()
+            if exe:
+                launch_kwargs["executable_path"] = exe
             if chromium_args:
                 launch_kwargs["args"] = chromium_args
             context = p.chromium.launch_persistent_context(

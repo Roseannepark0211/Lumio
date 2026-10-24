@@ -24,7 +24,11 @@ import re
 from typing import Optional
 
 from .base import BaseProvider, MediaInfo, MediaItem, MediaType, FormatOption, Platform
-from .douyin_browser import fetch_aweme_detail_via_browser, playwright_available
+from .douyin_browser import (
+    browser_executable_available,
+    fetch_aweme_detail_via_browser,
+    playwright_available,
+)
 from .network.headers import platform_headers
 from .registry import register
 from ..utils.error_types import ErrorCategory, classify_error as _ce
@@ -314,7 +318,7 @@ class DouyinProvider(BaseProvider):
             info = self._parse_aweme_detail(detail, url, video_id)
             if info.media_items:
                 return info
-            logger.warning("aweme detail API 返回数据但解析失败，回退到 share 页")
+            logger.warning("aweme detail API 返回数据但解析失败，回退到浏览器拦截")
 
         # 优先级 2：浏览器拦截（Argus 升级后 API 失效时的兜底）
         # Playwright 未安装时直接返回空结果，不抛异常
@@ -339,6 +343,11 @@ class DouyinProvider(BaseProvider):
         failure_desc = f"无法解析抖音视频（video_id: {video_id}）。视频可能不存在或已被删除。"
         if not playwright_available():
             failure_desc += "（浏览器兜底未启用：pip install lumio[browser] 后重试）"
+        elif not browser_executable_available():
+            failure_desc += (
+                "（未找到可用浏览器：请安装 Chrome 或 Edge 后重试，"
+                "或运行 playwright install chromium）"
+            )
         return MediaInfo(
             platform=Platform.DOUYIN,
             url=url,

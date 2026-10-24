@@ -18,14 +18,36 @@ block_cipher = None
 src_path = Path(SPECPATH) / "src"
 assets_path = src_path / "lumio" / "assets"
 
+# Playwright 驱动打包（抖音浏览器拦截兜底必需）：
+# Playwright 的 Python 包只含代码，真正驱动浏览器的 node + cli.js
+# 在 playwright/driver/ 下；PyInstaller 不会自动收集这类数据文件，
+# 必须显式声明为 datas，否则打包版里 import playwright 成功但启动
+# 浏览器时找不到驱动（v4.5.1 漏掉的不只是包，还有这一层）。
+# 未安装 Playwright 时跳过（与今天行为一致：后端无浏览器兜底），
+# 不中断构建。
+playwright_datas = []
+try:
+    import playwright
+
+    _pw_driver = Path(playwright.__file__).parent / "driver"
+    if _pw_driver.is_dir():
+        playwright_datas = [(str(_pw_driver), "playwright/driver")]
+    else:
+        print("警告：未找到 Playwright driver 目录，跳过驱动打包")
+except ImportError:
+    print("警告：未安装 Playwright，跳过驱动打包（浏览器兜底不可用）")
+
 a = Analysis(
     [str(Path(SPECPATH) / "run_api.py")],
     pathex=[str(src_path)],
     binaries=[],
     datas=[
         (str(assets_path / "logo.png"), "lumio/assets"),
-    ],
+    ]
+    + playwright_datas,
     hiddenimports=[
+        # douyin_browser.py 里函数内懒加载 Playwright，静态分析可能漏掉，显式声明
+        "playwright",
         "flask",
         "werkzeug",
         "werkzeug.serving",
@@ -150,8 +172,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "LumioAPI",
             "CFBundleDisplayName": "Lumio API",
-            "CFBundleShortVersionString": "4.4.1",
-            "CFBundleVersion": "4.4.1",
+            "CFBundleShortVersionString": "4.5.2",
+            "CFBundleVersion": "4.5.2",
             "LSMinimumSystemVersion": "10.13",
             "LSBackgroundOnly": True,  # 后台服务，不显示 Dock 图标
             "NSHighResolutionCapable": True,

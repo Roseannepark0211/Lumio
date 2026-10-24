@@ -7,13 +7,18 @@ End-to-end browser verification is done manually against a live video
 """
 from __future__ import annotations
 
+import os
+import shutil
 import sys
+import types
 
 from lumio.providers.base import Platform
 from lumio.providers.douyin import DouyinProvider
 from lumio.providers.douyin_browser import (
+    browser_executable_available,
     extract_detail_from_payload,
     fetch_aweme_detail_via_browser,
+    find_system_browser,
     playwright_available,
 )
 
@@ -146,7 +151,11 @@ class TestBrowserFallbackWiring:
         self.url = "https://www.douyin.com/video/1234567890"
 
     def _block_fast_paths(self, monkeypatch):
+        import lumio.providers.douyin as douyin_mod
+
         monkeypatch.setattr(DouyinProvider, "_fetch_aweme_detail", lambda self, vid: None)
+        # 失败分支会探查浏览器可用性；测试里固定为 True，避免真的启动驱动进程
+        monkeypatch.setattr(douyin_mod, "browser_executable_available", lambda: True)
 
     def test_browser_detail_becomes_media_info(self, monkeypatch):
         import lumio.providers.douyin as douyin_mod
@@ -204,3 +213,166 @@ class TestBrowserFallbackWiring:
         assert seen["is_note"] is True
         self.provider.extract_info("https://www.douyin.com/video/1234567890")
         assert seen["is_note"] is False
+
+    def test_no_browser_hint_in_failure(self, monkeypatch):
+        import lumio.providers.douyin as douyin_mod
+
+        self._block_fast_paths(monkeypatch)
+        monkeypatch.setattr(
+            douyin_mod, "fetch_aweme_detail_via_browser", lambda video_id, is_note=False: (None, None)
+        )
+        monkeypatch.setattr(douyin_mod, "playwright_available", lambda: True)
+        monkeypatch.setattr(douyin_mod, "browser_executable_available", lambda: False)
+        info = self.provider.extract_info(self.url)
+        assert "解析失败" in info.title
+        assert "未找到可用浏览器" in info.description
+
+
+# ========================================================================
+# find_system_browser - platform candidates
+# ========================================================================
+
+
+class TestFindSystemBrowser:
+    def test_linux_which(self, monkeypatch):
+        monkeypatch.setattr(
+            shutil, "which",
+            lambda name: "/usr/bin/google-chrome" if name == "google-chrome" else None,
+        )
+        assert find_system_browser() == "/usr/bin/google-chrome"
+
+    def test_linux_none_found(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        assert find_system_browser() is None
+
+    def test_windows_program_files(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setenv("PROGRAMFILES", "C:\\Program Files")
+        monkeypatch.setenv("PROGRAMFILES(X86)", "C:\\Program Files (x86)")
+        monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\x\\AppData\\Local")
+        monkeypatch.setattr(
+            os.path, "exists",
+            lambda p: p == "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        )
+        assert find_system_browser() == "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+
+    def test_macos_applications(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(
+            os.path, "exists",
+            lambda p: p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        )
+        assert find_system_browser() == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+# ========================================================================
+# fetch browser-executable resolution (fake Playwright, no real browser)
+# ========================================================================
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self.url = "https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=123"
+        self.status = 200
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakePage:
+    def __init__(self, payload):
+        self._payload = payload
+        self._cb = None
+
+    def on(self, event, cb):
+        self._cb = cb
+
+    def goto(self, url, wait_until=None, timeout=None):
+        if self._cb is not None:
+            self._cb(_FakeResponse(self._payload))
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+class _FakeContext:
+    def __init__(self, chromium, payload):
+        self._chromium = chromium
+        self._payload = payload
+
+    def add_init_script(self, script):
+        pass
+
+    def new_page(self):
+        return _FakePage(self._payload)
+
+    def close(self):
+        pass
+
+
+class _FakeChromium:
+    def __init__(self, managed_path, payload):
+        self.executable_path = str(managed_path)
+        self._payload = payload
+        self.launch_kwargs = None
+
+    def launch_persistent_context(self, profile_dir, **kwargs):
+        self.launch_kwargs = kwargs
+        return _FakeContext(self, self._payload)
+
+
+class _FakePlaywright:
+    def __init__(self, chromium):
+        self.chromium = chromium
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _install_fake_playwright(monkeypatch, managed_path, payload):
+    chromium = _FakeChromium(managed_path, payload)
+    mod = types.ModuleType("playwright.sync_api")
+    mod.sync_playwright = lambda: _FakePlaywright(chromium)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", mod)
+    return chromium
+
+
+class TestBrowserExecutableResolution:
+    _PAYLOAD = {"aweme_detail": {"video": {"duration": 10}}}
+
+    def test_system_browser_used_when_managed_missing(self, monkeypatch, tmp_path):
+        import lumio.providers.douyin_browser as br_mod
+
+        chromium = _install_fake_playwright(
+            monkeypatch, tmp_path / "nope" / "chrome", self._PAYLOAD
+        )
+        monkeypatch.setattr(br_mod, "find_system_browser", lambda: "/fake/chrome")
+        detail, msg = fetch_aweme_detail_via_browser(
+            "123", user_data_dir=tmp_path, timeout=30
+        )
+        assert detail == {"video": {"duration": 10}}
+        assert msg is None
+        assert chromium.launch_kwargs.get("executable_path") == "/fake/chrome"
+
+    def test_managed_browser_preferred_when_present(self, monkeypatch, tmp_path):
+        import lumio.providers.douyin_browser as br_mod
+
+        managed = tmp_path / "chrome"
+        managed.write_text("x")
+        chromium = _install_fake_playwright(monkeypatch, managed, self._PAYLOAD)
+        monkeypatch.setattr(br_mod, "find_system_browser", lambda: "/fake/chrome")
+        detail, _ = fetch_aweme_detail_via_browser(
+            "123", user_data_dir=tmp_path, timeout=30
+        )
+        assert detail == {"video": {"duration": 10}}
+        assert "executable_path" not in chromium.launch_kwargs
+
+    def test_browser_executable_available_prefers_system(self, monkeypatch):
+        import lumio.providers.douyin_browser as br_mod
+
+        monkeypatch.setattr(br_mod, "find_system_browser", lambda: "/fake/chrome")
+        assert browser_executable_available() is True

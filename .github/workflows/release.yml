@@ -117,7 +117,10 @@ jobs:
       - name: Install Python dependencies
         run: |
           ${{ matrix.python_cmd }} -m pip install --upgrade pip
-          pip install -e .
+          # browser extra 必装：抖音浏览器拦截兜底需要 Playwright 包，
+          # 且 lumio.spec 会把 Playwright 驱动一并打进后端包；
+          # 只装基础依赖会导致 v4.5.1 那样兜底在安装包里直接不可用。
+          pip install -e ".[browser]"
           pip install pyinstaller
 
       - name: Install system ffmpeg (Unix)
@@ -428,6 +431,9 @@ jobs:
           if git diff --cached --quiet; then
             echo "官网已是最新版本，无变更，跳过提交"
           else
+            # checkout ref: main 时可能是 detached HEAD，直接 pull/push 会失败；
+            # 先显式切到 main 分支（v4.5.1 的同步就是卡在这一步）。
+            git checkout -B main origin/main
             git pull --rebase origin main
             git commit -m "website: 同步 ${{ github.ref_name }}（发版自动更新）"
             git push origin main
