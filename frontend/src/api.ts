@@ -487,8 +487,24 @@ async function fetchWithRetry(
 
 export async function get<T>(path: string): Promise<T> {
   const r = await fetchWithRetry(`${BASE}${path}`, { headers: authHeaders() });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  if (!r.ok) await throwHttpError(r, path);
   return r.json() as Promise<T>;
+}
+
+/** HTTP 错误时抛出带后端 detail 的错误（后端 JSONResponse 的 detail 字段）。 */
+async function throwHttpError(r: Response, path: string): Promise<never> {
+  let detail = "";
+  try {
+    const body = (await r.clone().json()) as { detail?: unknown };
+    if (body && typeof body.detail === "string") detail = body.detail;
+  } catch {
+    // 非 JSON 错误体时忽略，只保留状态码信息
+  }
+  throw new Error(
+    detail
+      ? `${r.status} ${r.statusText} @ ${path}: ${detail}`
+      : `${r.status} ${r.statusText} @ ${path}`
+  );
 }
 
 export async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -497,7 +513,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  if (!r.ok) await throwHttpError(r, path);
   return r.json() as Promise<T>;
 }
 
@@ -507,7 +523,7 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  if (!r.ok) await throwHttpError(r, path);
   return r.json() as Promise<T>;
 }
 
@@ -516,7 +532,7 @@ export async function del<T>(path: string): Promise<T> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  if (!r.ok) await throwHttpError(r, path);
   // 204 No Content / 空 body 时不解析 JSON
   if (r.status === 204) return undefined as T;
   const text = await r.text();
@@ -530,7 +546,7 @@ export async function patch<T>(path: string, body?: unknown): Promise<T> {
     headers: authHeaders(hasBody ? { "Content-Type": "application/json" } : undefined),
     body: hasBody ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${path}`);
+  if (!r.ok) await throwHttpError(r, path);
   // 204 No Content / 空 body 时不解析 JSON
   if (r.status === 204) return undefined as T;
   const text = await r.text();

@@ -290,7 +290,8 @@ class NotificationManager(QObject):
                 priority="critical",
                 title=t("notif_python_deps_missing_title"),
                 message=t("notif_python_deps_missing_msg", ", ".join(missing)),
-                action="open_url:https://github.com/Roseannepark0211/Lumio",
+                # 之前误指到自家仓库；这是 Python 依赖缺失提示，应指到 Python 下载页
+                action="open_url:https://www.python.org/downloads/",
                 action_text=t("notif_action_install"),
                 source_key="python_deps_missing",
             ))

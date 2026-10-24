@@ -123,6 +123,9 @@ export function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // —— 操作失败提示（下载失败时显示后端原因，不再悄悄失败） ——
+  const [actionError, setActionError] = useState<string | null>(null);
+
   // —— 筛选状态（与 QML root 属性对齐） ——
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterSource, setFilterSource] = useState("all");
@@ -164,6 +167,7 @@ export function InboxPage() {
       const r = await api.getInbox();
       setItems(r);
       setError(null);
+      setActionError(null);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -218,11 +222,13 @@ export function InboxPage() {
 
   // —— 单条操作 ——
   const onDownload = useCallback(async (itemId: string) => {
+    setActionError(null);
     try {
       await api.inboxDownload(itemId);
       // 后端会推 inbox_changed 事件触发 reload
     } catch (e) {
       console.warn("inbox download failed:", e);
+      setActionError(e instanceof Error ? e.message : String(e));
     }
   }, []);
 
@@ -250,12 +256,14 @@ export function InboxPage() {
   // —— 批量操作 ——
   const onBatchDownload = useCallback(async () => {
     if (selectedIds.length === 0) return;
+    setActionError(null);
     try {
       await api.inboxBatchDownload(selectedIds);
       setSelectedIds([]);
       setSelectMode(false);
     } catch (e) {
       console.warn("inbox batch download failed:", e);
+      setActionError(e instanceof Error ? e.message : String(e));
     }
   }, [selectedIds]);
 
@@ -428,6 +436,21 @@ export function InboxPage() {
             ))}
           </select>
         </div>
+
+        {/* 操作失败提示（可关闭；下次刷新时自动清除） */}
+        {actionError && (
+          <div className="flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5">
+            <span className="text-sm text-danger">⚠</span>
+            <p className="flex-1 break-words text-xs text-danger">{actionError}</p>
+            <button
+              onClick={() => setActionError(null)}
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-sm text-danger transition-colors hover:bg-danger/20"
+              title="关闭"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* 空状态 */}
         {items.length === 0 && (
