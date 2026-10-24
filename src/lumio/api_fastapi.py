@@ -1494,7 +1494,7 @@ def create_app() -> FastAPI:
                 })
                 # 入队：默认最高画质（移动端不暴露格式选择，spec 规定）
                 format_type = "image" if any(
-                    not it.is_video for it in (info.items or [])
+                    not it.is_video for it in (info.media_items or [])
                 ) else "video"
                 # format_id 固定 "best"，走 downloader 默认 bestvideo+bestaudio 分支
                 # 旧实现取 info.formats[0] 会导致 YouTube 取到纯音频流（如 itag 140），
@@ -1960,7 +1960,7 @@ def create_app() -> FastAPI:
 
             # 判断 type：有图片项则为 image，否则 video
             format_type = "image" if any(
-                not it.is_video for it in (info.items or [])
+                not it.is_video for it in (info.media_items or [])
             ) else "video"
             # format_id 固定 "best"，走 downloader 默认 bestvideo+bestaudio 分支
             # 避免 YouTube 取到 info.formats[0]（可能是纯音频流）导致只有声音没有画面
@@ -2021,7 +2021,7 @@ def create_app() -> FastAPI:
                 # ★ 无 direct_url，调 extract_info 重新解析
                 info = await asyncio.to_thread(extract_info, item.url)
                 format_type = "image" if any(
-                    not it.is_video for it in (info.items or [])
+                    not it.is_video for it in (info.media_items or [])
                 ) else "video"
                 # format_id 固定 "best"，避免取到 info.formats[0] 纯音频流导致只有声音没画面
                 format_id = "best"
