@@ -41,6 +41,8 @@ _VIDEO_ID_RE = re.compile(r"douyin\.com/video/(\d+)")
 # 图文帖（note）路径，aweme_id 在路径里，API 与视频共用
 _NOTE_ID_RE = re.compile(r"douyin\.com/note/(\d+)")
 _PROFILE_RE = re.compile(r"douyin\.com/user/([\w.\-]+)")
+# 手机端主页分享短链展开后形态：www.iesdouyin.com/share/user/{sec_uid}
+_SHARE_USER_RE = re.compile(r"iesdouyin\.com/share/user/([\w.\-]+)")
 _IES_RE = re.compile(r"iesdouyin\.com/(?:share/)?(?:video|note)/(\d+)")
 _SHARE_URL_RE = re.compile(r"v\.douyin\.com/[\w]+")
 
@@ -66,6 +68,34 @@ def _extract_video_id(url: str) -> Optional[str]:
     """从 URL 提取抖音 aweme_id（视频/图文帖共用同一 API）。"""
     m = _VIDEO_ID_RE.search(url) or _NOTE_ID_RE.search(url) or _IES_RE.search(url)
     return m.group(1) if m else None
+
+
+def _extract_profile_sec_uid(url: str) -> Optional[str]:
+    """从抖音个人主页 URL 提取 sec_uid。
+
+    覆盖两种主页形态：
+    - www.douyin.com/user/{sec_uid}
+    - www.iesdouyin.com/share/user/{sec_uid}（手机端主页分享短链展开后形态）
+    share/user 路径上取不到 sec_uid 时，退到 sec_uid 查询参数。
+    """
+    if not url:
+        return None
+    m = _PROFILE_RE.search(url)
+    if m:
+        return m.group(1)
+    m = _SHARE_USER_RE.search(url)
+    if m:
+        return m.group(1)
+    # share/user 形态但路径 sec_uid 缺失时，退到 sec_uid 查询参数
+    if "iesdouyin.com/share/user/" in url:
+        try:
+            from urllib.parse import parse_qs, urlparse
+            values = parse_qs(urlparse(url).query).get("sec_uid")
+            if values and values[0]:
+                return values[0]
+        except Exception:
+            pass
+    return None
 
 
 def _expand_share_url(url: str) -> Optional[str]:
@@ -348,6 +378,7 @@ class DouyinProvider(BaseProvider):
             _VIDEO_ID_RE.search(url)
             or _NOTE_ID_RE.search(url)
             or _PROFILE_RE.search(url)
+            or _SHARE_USER_RE.search(url)
             or _IES_RE.search(url)
             or _SHARE_URL_RE.search(url)
         )
@@ -364,13 +395,13 @@ class DouyinProvider(BaseProvider):
         if not video_id:
             # 个人主页：单条解析拿不到列表，作品列表走
             # enumerate_profile_posts（浏览器拦截主页作品列表接口）
-            m = _PROFILE_RE.search(url)
-            if m:
+            sec_uid = _extract_profile_sec_uid(url)
+            if sec_uid:
                 return MediaInfo(
                     platform=Platform.DOUYIN,
                     url=url,
                     title="抖音（个人主页）",
-                    author=m.group(1),
+                    author=sec_uid,
                     description="抖音个人主页：请使用主页作品列表批量下载。",
                 )
             return MediaInfo(
@@ -711,9 +742,9 @@ class DouyinProvider(BaseProvider):
         标识符本身无法提取 sec_uid 时返回 []。
         """
         sec_uid = (identifier or "").strip()
-        m = _PROFILE_RE.search(identifier or "")
-        if m:
-            sec_uid = m.group(1)
+        extracted = _extract_profile_sec_uid(identifier or "")
+        if extracted:
+            sec_uid = extracted
         if not sec_uid:
             logger.warning(
                 "Douyin enumerate_profile_posts: 无法从标识符提取 sec_uid：%s",

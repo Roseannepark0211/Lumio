@@ -43,6 +43,9 @@ _DOMESTIC_PATTERNS: dict[Platform, list[tuple[re.Pattern, str]]] = {
         # 图文帖（note）：与视频共用 aweme detail API，aweme_id 在路径里
         (re.compile(r"douyin\.com/note/(\d+)"), "post"),
         (re.compile(r"douyin\.com/user/([\w.]+)"), "profile"),
+        # 手机端主页分享短链展开后形态：iesdouyin.com/share/user/{sec_uid}
+        # 必须放在宽泛的 iesdouyin → video 规则之前，否则会被误判为 video
+        (re.compile(r"iesdouyin\.com/share/user/([\w.\-]+)"), "profile"),
         (re.compile(r"iesdouyin\.com/[\w]+"), "video"),
         # v.douyin.com/{code}/ 移动端分享短链（normalize_url 会先 302 展开，这里是兜底）
         (re.compile(r"v\.douyin\.com/[\w]+"), "video"),

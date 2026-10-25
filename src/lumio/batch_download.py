@@ -161,9 +161,14 @@ def preview_batch(
         }
 
     # —— 抖音个人主页 ——
-    from .providers.douyin import _PROFILE_RE
+    # 手机端主页分享短链（v.douyin.com）需先 302 展开再判定：
+    # 展开后可能是 douyin.com/user/，也可能是 iesdouyin.com/share/user/。
+    # 非短链直接返回原 URL，无网络开销。
+    from .providers.douyin import _PROFILE_RE, _SHARE_USER_RE
+    from .providers.url_normalizer import normalize_url
 
-    if _PROFILE_RE.search(url):
+    expanded_url = normalize_url(url)
+    if _PROFILE_RE.search(expanded_url) or _SHARE_USER_RE.search(expanded_url):
         if douyin_enumerator is None:
             from .providers.douyin import DouyinProvider
 
@@ -172,7 +177,7 @@ def preview_batch(
         # 前端 v1 只用第 1 页，浏览器翻页成本由 limit 控制。
         fetch_limit = page * limit + 1
         try:
-            items = douyin_enumerator(url, limit=fetch_limit)
+            items = douyin_enumerator(expanded_url, limit=fetch_limit)
         except Exception as e:
             raise BatchPreviewError(
                 CODE_PREVIEW_FAILED, f"抖音主页作品列表拉取失败：{e}"
