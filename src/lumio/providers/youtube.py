@@ -8,12 +8,16 @@ URL 格式：
 - youtu.be/{id}
 - youtube.com/playlist?list={id}  （批量枚举，由 yt_dialog.py 处理）
 - youtube.com/@channel/videos       （批量枚举）
+- 频道/主页（批量下载重做阶段 1）：youtube.com/channel/{id}、
+  youtube.com/@handle、youtube.com/user/{name}、youtube.com/c/{name}
+  → 用 list_channel_works() 拉取作品列表（yt-dlp flat-playlist）。
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .base import BaseProvider, FormatOption, MediaInfo, MediaItem, MediaType, Platform
@@ -26,6 +30,195 @@ _YT_WATCH_RE = re.compile(r"youtube\.com/watch\?v=([\w-]+)")
 _YT_SHORT_RE = re.compile(r"youtu\.be/([\w-]+)")
 _YT_EMBED_RE = re.compile(r"youtube\.com/embed/([\w-]+)")
 _YT_SHORTS_RE = re.compile(r"youtube\.com/shorts/([\w-]+)")
+
+# 频道/主页 URL 模式（批量下载：主页作品列表入口）
+# 覆盖 /channel/UC…、/@handle、/user/…、/c/… 及其子路径（/videos、/shorts 等）
+_YT_CHANNEL_RES = [
+    re.compile(r"youtube\.com/channel/([\w-]+)"),
+    re.compile(r"youtube\.com/@([\w.\-]+)"),
+    re.compile(r"youtube\.com/user/([\w\-]+)"),
+    re.compile(r"youtube\.com/c/([\w\-]+)"),
+]
+
+
+def is_channel_url(url: str) -> bool:
+    """判断是否为 YouTube 频道/主页链接（区别于单个视频/播放列表）。"""
+    if not url:
+        return False
+    return any(p.search(url) for p in _YT_CHANNEL_RES)
+
+
+# 频道子标签：已带标签的链接保持原样，不带标签的裸主页默认指向 /videos
+_YT_CHANNEL_TAB_RE = re.compile(
+    r"/(videos|shorts|streams|playlists|search|channels|about|community|featured)\b"
+)
+
+
+def _normalize_channel_url(url: str) -> str:
+    """把裸频道/主页链接规范化到 /videos 标签页。
+
+    实测：flat 模式下直接传裸主页（如 /@CHUANGASIA）会返回
+    Videos/Live/Shorts 三个标签页本身而非作品；/videos 标签页才返回作品。
+    已带标签的链接保持原样；query/fragment 不影响列表，顺手去掉。
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/") or "/"
+    if not _YT_CHANNEL_TAB_RE.search(path):
+        path = f"{path}/videos"
+    return urlunparse(parsed._replace(path=path, query="", fragment=""))
+
+
+class ChannelListError(Exception):
+    """频道作品列表拉取失败（明确错误，调用方不得静默为空列表处理）。"""
+
+
+@dataclass
+class ChannelWork:
+    """频道作品列表中的一项（本地类型，不动 base.py 的共享模型）。
+
+    duration 单位为秒；upload_date 为 YYYYMMDD，flat 模式下可能为空。
+    """
+
+    video_id: str
+    url: str
+    title: str
+    thumbnail: str = ""
+    duration: Optional[int] = None
+    upload_date: str = ""
+
+
+@dataclass
+class ChannelWorksPage:
+    """一页频道作品：has_more 表示是否还有下一页（用 limit+1 条探测）。"""
+
+    works: list = field(default_factory=list)
+    has_more: bool = False
+    page: int = 1
+    page_size: int = 30
+
+
+def _pick_thumbnail(entry: dict) -> str:
+    """从 flat 条目里选一张最宽的缩略图，兜底 thumbnail 字段。"""
+    thumbs = entry.get("thumbnails") or []
+    best_url = ""
+    best_w = -1
+    for t in thumbs:
+        if not isinstance(t, dict):
+            continue
+        u = t.get("url") or ""
+        if not u:
+            continue
+        w = t.get("width") or 0
+        if w >= best_w:
+            best_w = w
+            best_url = u
+    return best_url or entry.get("thumbnail") or ""
+
+
+def _entry_to_work(entry: dict) -> Optional[ChannelWork]:
+    vid = entry.get("id") or ""
+    if not vid:
+        return None
+    raw_url = entry.get("webpage_url") or entry.get("url") or ""
+    # flat 模式下 entry["url"] 常常只是视频 id，需拼成完整 watch 链接
+    if not raw_url.startswith("http"):
+        raw_url = f"https://www.youtube.com/watch?v={vid}"
+    duration = entry.get("duration")
+    if duration is not None:
+        try:
+            duration = int(duration)
+        except (TypeError, ValueError):
+            duration = None
+    return ChannelWork(
+        video_id=vid,
+        url=raw_url,
+        title=entry.get("title") or "",
+        thumbnail=_pick_thumbnail(entry),
+        duration=duration,
+        upload_date=entry.get("upload_date") or "",
+    )
+
+
+def list_channel_works(url: str, limit: int = 30, page: int = 1) -> ChannelWorksPage:
+    """拉取 YouTube 频道/主页的一页作品列表。
+
+    走 yt-dlp flat-playlist（只取列表元数据，不打开每个视频页），
+    用 --playlist-items 按页切片：每次多取 1 条探测 has_more，
+    绝不一次拉全量。失败时抛 ChannelListError（不返回静默空列表）；
+    频道本身确实 0 作品时返回空页（has_more=False）。
+    """
+    import yt_dlp
+    from ..utils.config import get_cookie_path
+
+    if page < 1:
+        raise ValueError(f"page 必须 >= 1，得到 {page}")
+    if limit < 1 or limit > 100:
+        raise ValueError(f"limit 必须在 1~100 之间，得到 {limit}")
+    if not is_channel_url(url):
+        raise ValueError(f"不是频道/主页链接：{url}")
+    # 裸主页默认拉 /videos 标签页的作品（见 _normalize_channel_url）
+    url = _normalize_channel_url(url)
+
+    start = (page - 1) * limit + 1
+    end = page * limit + 1  # 多取 1 条，用于判断是否还有下一页
+
+    cookie = get_cookie_path()
+    opts = _yt_opts(cookie)
+    opts["skip_download"] = True
+    # ★ 关键：--flat-playlist 在 CLI 层对应 extract_flat='in_playlist'，
+    #   而不是 flat_playlist=True（后者在本版 yt-dlp 里不生效，
+    #   会导致每个视频被完整提取：网页 + player API + m3u8，31 条可拖数分钟）。
+    opts["extract_flat"] = "in_playlist"
+    opts["playlist_items"] = f"{start}-{end}"
+    # ★ 列表是交互操作：共享 yt_opts 的重试策略是为大文件下载调的
+    #   （retries=30 + 指数退避到 60s，持续失败时可拖 20 分钟以上），
+    #   直接沿用会导致弹窗长时间挂起。本地覆盖为快速失败：
+    #   持续失败时约 1 分钟内抛 ChannelListError（明确报错，不静默）。
+    #   opts 是 _yt_opts() 现场新建的 dict，覆盖不影响共享配置与其他调用方。
+    opts["retries"] = 3
+    opts["fragment_retries"] = 3
+    opts["retry_sleep_functions"] = {
+        "http": lambda n: min(n, 3),
+        "fragment": lambda n: min(n, 3),
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:
+        msg = str(e)
+        if "Sign in to confirm" in msg or "not a bot" in msg:
+            raise ChannelListError(
+                "YouTube 要求登录态或触发机器人墙（共享出口 IP），"
+                "频道列表暂时无法拉取；请在有登录态的环境重试"
+            ) from e
+        if "Private" in msg or "private" in msg:
+            raise ChannelListError(f"频道无法访问（可能为私密频道）：{msg}") from e
+        raise ChannelListError(f"频道列表拉取失败：{msg}") from e
+
+    if not isinstance(info, dict):
+        raise ChannelListError(f"频道列表返回异常结构：{type(info).__name__}")
+    entries = info.get("entries") or []
+    if not entries and info.get("id") and info.get("_type") != "playlist":
+        # 返回的是单个视频而非列表，说明链接并非频道列表页
+        raise ChannelListError("该链接未解析为频道列表（返回了单个视频）")
+
+    works = []
+    for entry in entries[:limit]:
+        if not isinstance(entry, dict):
+            continue
+        work = _entry_to_work(entry)
+        if work is not None:
+            works.append(work)
+
+    return ChannelWorksPage(
+        works=works,
+        has_more=len(entries) > limit,
+        page=page,
+        page_size=limit,
+    )
 
 
 def _yt_opts(cookie_path) -> dict:
@@ -47,15 +240,38 @@ class YouTubeProvider(BaseProvider):
         return Platform.YOUTUBE
 
     def match(self, url: str) -> bool:
+        # 显式模式优先：单个视频 + 频道/主页；兜底保留原有宽泛匹配（不收窄，
+        # 避免影响播放列表等既有调用方）。
         return bool(
-            "youtube.com" in url
+            _YT_WATCH_RE.search(url)
+            or _YT_SHORT_RE.search(url)
+            or _YT_EMBED_RE.search(url)
+            or _YT_SHORTS_RE.search(url)
+            or is_channel_url(url)
+            or "youtube.com" in url
             or "youtu.be" in url
             or "googleapis.com/youtube" in url
         )
 
+    def list_channel(self, url: str, limit: int = 30, page: int = 1) -> ChannelWorksPage:
+        """频道/主页作品列表（批量下载入口），见模块级 list_channel_works。"""
+        return list_channel_works(url, limit=limit, page=page)
+
     def extract_info(self, url: str) -> MediaInfo:
         import yt_dlp
         from ..utils.config import get_cookie_path
+
+        # 频道/主页链接不再静默返回列表第一个视频：明确失败并指引到
+        # list_channel_works（保持原有“解析失败”MediaInfo 契约，不会被缓存）。
+        if is_channel_url(url):
+            return MediaInfo(
+                platform=Platform.YOUTUBE,
+                url=url,
+                title="YouTube（解析失败）",
+                author="",
+                description="频道/主页链接请使用批量下载的频道列表功能（list_channel_works），"
+                "extract_info 只处理单个视频。",
+            )
 
         cookie = get_cookie_path()
         opts = _yt_opts(cookie)
