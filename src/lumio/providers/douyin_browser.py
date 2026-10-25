@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 # 详情接口 URL 特征（拦截用子串匹配，不依赖完整 URL）
 _DETAIL_URL_MARK = "/aweme/v1/web/aweme/detail/"
+# 主页作品列表接口 URL 特征（拦截用子串匹配）
+_POST_LIST_URL_MARK = "/aweme/v1/web/aweme/post/"
+# 主页入口（sec_uid 形式，如 MS4wLjABAAAA...）
+_USER_PAGE_URL = "https://www.douyin.com/user/{}/"
 # 分享页入口（打开后会 302 到 www.douyin.com/video/{id}，应用在该页内加载）
 _SHARE_PAGE_URL = "https://www.iesdouyin.com/share/video/{}/"
 # www 视频页入口（分享页卡住时的回退：实测同一视频分享页一直 Loading、
@@ -295,3 +299,310 @@ def fetch_aweme_detail_via_browser(
         return None, str(captured["filter_msg"])
     logger.warning("抖音浏览器拦截超时（video_id=%s）：未捕获到详情响应", video_id)
     return None, None
+
+
+def parse_user_post_aweme(aweme: dict) -> Optional[dict]:
+    """把主页列表接口的一项 aweme 解析为作品 dict。
+
+    返回键：url, title, thumbnail, media_type（"video"/"image"），
+    duration（视频秒数，图文为 None），image_count（图文图数，
+    视频为 0），post_time（YYYYMMDD_HHMMSS），aweme_id, author,
+    author_id。解析不出 aweme_id 时返回 None（调用方跳过该项）。
+
+    注意：aweme 结构与 aweme_detail 里的单条结构一致（desc /
+    author / video / images / create_time），因此字段取法与
+    douyin.py 的 _parse_aweme_detail 对齐。
+    """
+    if not isinstance(aweme, dict):
+        return None
+    aweme_id = str(aweme.get("aweme_id", "") or "")
+    if not aweme_id:
+        return None
+    title = aweme.get("desc", "") or ""
+    author_info = aweme.get("author", {}) or {}
+    author = author_info.get("nickname", "") or ""
+    author_id = str(author_info.get("uid", "") or "")
+
+    post_time = ""
+    create_time = aweme.get("create_time", 0)
+    if create_time:
+        import datetime
+
+        try:
+            ts = int(create_time)
+            dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+            post_time = dt.strftime("%Y%m%d_%H%M%S")
+        except (ValueError, OSError):
+            post_time = str(create_time)
+
+    images_list = aweme.get("images") or []
+    if images_list:
+        first = images_list[0] or {}
+        url_list = first.get("url_list", []) or []
+        thumbnail = url_list[0] if url_list else ""
+        return {
+            "url": f"https://www.douyin.com/note/{aweme_id}/",
+            "title": title,
+            "thumbnail": thumbnail,
+            "media_type": "image",
+            "duration": None,
+            "image_count": len(images_list),
+            "post_time": post_time,
+            "aweme_id": aweme_id,
+            "author": author,
+            "author_id": author_id,
+        }
+
+    video_info = aweme.get("video", {}) or {}
+    cover = video_info.get("origin_cover", {}) or video_info.get("cover", {})
+    cover_urls = cover.get("url_list", []) or []
+    thumbnail = cover_urls[0] if cover_urls else ""
+    raw_duration = aweme.get("duration", 0) or video_info.get("duration", 0) or 0
+    duration = None
+    if raw_duration:
+        duration = raw_duration // 1000 if raw_duration > 1000 else raw_duration
+    return {
+        "url": f"https://www.douyin.com/video/{aweme_id}/",
+        "title": title,
+        "thumbnail": thumbnail,
+        "media_type": "video",
+        "duration": duration,
+        "image_count": 0,
+        "post_time": post_time,
+        "aweme_id": aweme_id,
+        "author": author,
+        "author_id": author_id,
+    }
+
+
+def fetch_user_post_list_via_browser(
+    sec_uid: str,
+    limit: int = 30,
+    timeout: int = 180,
+    user_data_dir: Optional[Path] = None,
+    executable_path: Optional[str] = None,
+    chromium_args: Optional[list[str]] = None,
+    callback=None,
+    should_stop=None,
+) -> tuple[list[dict], str, bool, Optional[str]]:
+    """用真实浏览器拦截主页作品列表，返回 (items, next_cursor, has_more, error)。
+
+    思路与单条详情拦截相同：打开博主主页，让页面自己的 JS 走完
+    Argus 验证并签名作品列表请求，拦截 /aweme/v1/web/aweme/post/
+    的 200 响应；滚动页面触发翻页（服务端 max_cursor 链），直到
+    凑够 limit 条或 has_more 为 false，不一次拉全量。
+
+    Args:
+        sec_uid: 主页 sec_uid（douyin.com/user/ 后面的那串）。
+        limit: 最多返回条数（默认 30；首屏一页通常不足 30 条，
+            内部会滚动翻页补齐）。
+        timeout: 总等待时长（秒），超时返回已拿到的数据。
+        user_data_dir / executable_path / chromium_args：同
+            fetch_aweme_detail_via_browser。
+        callback: 可选进度回调 callback(current, total)。
+        should_stop: 可选取消回调，返回 True 时提前结束。
+
+    Returns:
+        (items, next_cursor, has_more, error)：items 为
+        parse_user_post_aweme 的 dict 列表；next_cursor 为最后
+        一页的 max_cursor（has_more 为 false 时为空串）；
+        error 非空表示拿不到列表（私密主页/无权访问/需要登录/
+        风控拦截/接口报错），此时 items 为空——调用方应把
+        error 展示出来，不要当成"0 作品"静默处理。
+        Playwright 未安装时返回 ([], "", False, error)。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning(
+            "抖音主页列表不可用：未安装 Playwright，"
+            "请执行 pip install lumio[browser] 后重试"
+        )
+        return [], "", False, "浏览器组件未安装：请执行 pip install lumio[browser] 后重试"
+
+    profile_dir = Path(user_data_dir) if user_data_dir else _default_user_data_dir()
+    state: dict[str, object] = {
+        "items": [],
+        "seen": set(),
+        "max_cursor": "",
+        "has_more": True,
+        "responded": False,
+        "empty_responses": 0,
+        "api_error": None,
+    }
+
+    def _on_response(resp) -> None:
+        # 调试用：主页实际请求的 aweme/v1/web 接口（默认 debug 关闭，零成本）
+        if "/aweme/v1/web/" in resp.url:
+            logger.debug("抖音主页响应 %s %s", resp.status, resp.url[:160])
+        if _POST_LIST_URL_MARK not in resp.url:
+            return
+        if resp.status != 200:
+            return
+        # 200 即算响应：抖音风控时列表接口会返回 200 空体（非 JSON），
+        # 此时 resp.json() 会抛错；若不标记 responded，首轮等待会
+        # 烧光整个 timeout 且永远进不了滚动翻页。空体只记数。
+        state["responded"] = True
+        try:
+            data = resp.json()
+        except Exception:
+            state["empty_responses"] = int(state["empty_responses"]) + 1
+            return
+        if data.get("status_code") != 0:
+            msg = data.get("status_msg") or ""
+            state["api_error"] = msg or (
+                f"作品列表接口返回 status_code={data.get('status_code')}"
+            )
+            return
+        items = state["items"]
+        seen = state["seen"]
+        for aw in data.get("aweme_list", []) or []:
+            item = parse_user_post_aweme(aw)
+            if item is not None and item["aweme_id"] not in seen:
+                seen.add(item["aweme_id"])
+                items.append(item)
+        mc = data.get("max_cursor")
+        if mc is not None:
+            state["max_cursor"] = str(mc)
+        hm = data.get("has_more")
+        if hm is not None:
+            state["has_more"] = bool(hm)
+        if callback is not None:
+            try:
+                callback(len(items), limit)
+            except Exception:
+                pass
+
+    page_text = ""
+    try:
+        with sync_playwright() as p:
+            launch_kwargs: dict = {"headless": True}
+            exe = executable_path
+            if not exe:
+                try:
+                    managed = Path(p.chromium.executable_path)
+                except Exception:
+                    managed = None
+                if managed is not None and managed.exists():
+                    exe = None
+                else:
+                    exe = find_system_browser()
+            if exe:
+                launch_kwargs["executable_path"] = exe
+            if chromium_args:
+                launch_kwargs["args"] = chromium_args
+            context = p.chromium.launch_persistent_context(
+                str(profile_dir), **launch_kwargs
+            )
+            try:
+                context.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', "
+                    "{ get: () => undefined })"
+                )
+                page = context.new_page()
+                page.on("response", _on_response)
+                user_url = _USER_PAGE_URL.format(sec_uid)
+                try:
+                    page.goto(user_url, wait_until="commit", timeout=30_000)
+                except Exception as e:
+                    logger.debug("抖音主页跳转未完成 %s，继续等待捕获：%s", user_url, e)
+                deadline = time.monotonic() + timeout
+                # 等首个列表响应（冷会话下页面 JS 验证可能耗时较久），
+                # 但最多等 60 秒：即使首个响应是空体或还没来，也要进
+                # 滚动翻页（后续请求可能成功），不要烧光整个 timeout。
+                first_wait_end = min(deadline, time.monotonic() + 60)
+                while (
+                    time.monotonic() < first_wait_end
+                    and not state["responded"]
+                    and not state["api_error"]
+                ):
+                    if should_stop is not None and should_stop():
+                        break
+                    page.wait_for_timeout(1000)
+                # 滚动翻页：直到凑够 limit、has_more 为 false、
+                # 连续 3 次滚动无新条目，或超时/取消
+                no_progress = 0
+                while (
+                    time.monotonic() < deadline
+                    and len(state["items"]) < limit
+                    and state["has_more"]
+                    and not state["api_error"]
+                ):
+                    if should_stop is not None and should_stop():
+                        break
+                    before = len(state["items"])
+                    try:
+                        page.evaluate(
+                            """() => {
+                              const cands = [document.scrollingElement];
+                              document.querySelectorAll('*').forEach(e => {
+                                if (e.scrollHeight > e.clientHeight + 50) cands.push(e);
+                              });
+                              let best = null;
+                              for (const e of cands) {
+                                if (!e) continue;
+                                if (!best || e.scrollHeight > best.scrollHeight) best = e;
+                              }
+                              if (best) best.scrollTop = best.scrollHeight;
+                              window.scrollTo(0, document.body.scrollHeight);
+                            }"""
+                        )
+                    except Exception:
+                        pass
+                    waited = 0
+                    while (
+                        waited < 5000
+                        and len(state["items"]) == before
+                        and time.monotonic() < deadline
+                    ):
+                        page.wait_for_timeout(500)
+                        waited += 500
+                    if len(state["items"]) == before:
+                        no_progress += 1
+                        if no_progress >= 3:
+                            break
+                    else:
+                        no_progress = 0
+                try:
+                    page_text = page.inner_text("body") or ""
+                except Exception:
+                    page_text = ""
+            finally:
+                context.close()
+    except Exception as e:
+        logger.warning("抖音主页列表拦截失败（sec_uid=%s）：%s", sec_uid[:20], e)
+        return [], "", False, f"浏览器打开主页失败：{e}"
+
+    items = list(state["items"])[:limit]
+    if items:
+        next_cursor = str(state["max_cursor"]) if state["has_more"] else ""
+        return items, next_cursor, bool(state["has_more"]), None
+    if state["api_error"]:
+        return [], "", False, f"抖音作品列表接口错误：{state['api_error']}"
+    if not state["responded"]:
+        return (
+            [],
+            "",
+            False,
+            "未能获取主页作品列表：未捕获到作品列表接口响应"
+            "（可能触发风控、需要登录，或主页不存在）",
+        )
+    if int(state["empty_responses"]) > 0 and not state["items"]:
+        return (
+            [],
+            "",
+            False,
+            "抖音作品列表接口返回空响应：服务器未返回作品数据"
+            "（可能需要登录，或当前网络/会话触发风控）",
+        )
+    # 接口成功返回但 0 条：先看页面文本区分私密/注销/登录墙，
+    # 都没有才认为是真实空主页
+    if "用户不存在" in page_text:
+        return [], "", False, "该用户不存在或主页链接无效"
+    if any(m in page_text for m in ("设为私密", "私密账号", "私密帐户")):
+        return [], "", False, "该账号已设为私密，无法查看作品列表"
+    if "登录" in page_text and any(
+        m in page_text for m in ("验证码", "扫码", "密码登录")
+    ):
+        return [], "", False, "查看该主页需要登录，请先登录抖音后再试"
+    return [], "", False, None

@@ -27,6 +27,7 @@ from .base import BaseProvider, MediaInfo, MediaItem, MediaType, FormatOption, P
 from .douyin_browser import (
     browser_executable_available,
     fetch_aweme_detail_via_browser,
+    fetch_user_post_list_via_browser,
     playwright_available,
 )
 from .network.headers import platform_headers
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 _VIDEO_ID_RE = re.compile(r"douyin\.com/video/(\d+)")
 # 图文帖（note）路径，aweme_id 在路径里，API 与视频共用
 _NOTE_ID_RE = re.compile(r"douyin\.com/note/(\d+)")
-_PROFILE_RE = re.compile(r"douyin\.com/user/([\w.]+)")
+_PROFILE_RE = re.compile(r"douyin\.com/user/([\w.\-]+)")
 _IES_RE = re.compile(r"iesdouyin\.com/(?:share/)?(?:video|note)/(\d+)")
 _SHARE_URL_RE = re.compile(r"v\.douyin\.com/[\w]+")
 
@@ -294,7 +295,8 @@ class DouyinProvider(BaseProvider):
 
         video_id = _extract_video_id(url)
         if not video_id:
-            # 个人主页
+            # 个人主页：单条解析拿不到列表，作品列表走
+            # enumerate_profile_posts（浏览器拦截主页作品列表接口）
             m = _PROFILE_RE.search(url)
             if m:
                 return MediaInfo(
@@ -302,7 +304,7 @@ class DouyinProvider(BaseProvider):
                     url=url,
                     title="抖音（个人主页）",
                     author=m.group(1),
-                    description="抖音个人主页批量下载暂未接入，请使用单条视频 URL。",
+                    description="抖音个人主页：请使用主页作品列表批量下载。",
                 )
             return MediaInfo(
                 platform=Platform.DOUYIN,
@@ -674,12 +676,42 @@ class DouyinProvider(BaseProvider):
         callback=None,
         cancel_event=None,
     ) -> list[dict]:
-        """抖音主页批量枚举暂不支持。"""
-        logger.warning(
-            "Douyin enumerate_profile_posts(%s, limit=%d): 暂不支持主页批量枚举",
-            identifier, limit,
+        """抖音主页作品列表（浏览器拦截，与单条解析同一思路）。
+
+        identifier 可为主页 URL 或 sec_uid。内部用真实浏览器打开主页，
+        拦截 /aweme/v1/web/aweme/post/ 响应，滚动触发翻页（max_cursor
+        链）直到凑够 limit 条或 has_more 为 false。
+
+        每项含 {title, url, thumbnail, media_type, duration, image_count,
+        post_time, aweme_id, author, author_id}（media_type 为 video/image；
+        duration 为视频秒数，image_count 为图文图数）。
+
+        私密主页/无权访问/需要登录/风控拦截时抛 RuntimeError（不在
+        返回 [] 里静默），这样调用方能区分"0 作品"和"拿不到"；
+        标识符本身无法提取 sec_uid 时返回 []。
+        """
+        sec_uid = (identifier or "").strip()
+        m = _PROFILE_RE.search(identifier or "")
+        if m:
+            sec_uid = m.group(1)
+        if not sec_uid:
+            logger.warning(
+                "Douyin enumerate_profile_posts: 无法从标识符提取 sec_uid：%s",
+                identifier,
+            )
+            return []
+        should_stop = None
+        if cancel_event is not None:
+            should_stop = lambda: cancel_event.is_set()
+        items, _next_cursor, _has_more, error = fetch_user_post_list_via_browser(
+            sec_uid,
+            limit=max(1, int(limit)),
+            callback=callback,
+            should_stop=should_stop,
         )
-        return []
+        if error:
+            raise RuntimeError(error)
+        return items
 
     def classify_error(self, error: Exception | str) -> str:
         text = str(error).lower()
