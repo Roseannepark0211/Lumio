@@ -14,9 +14,11 @@
  *   - macOS: 无自动下载，"立即下载"按钮直接打开 GitHub Release 页面
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ModalDialog } from "./ModalDialog";
 import { type UpdateInfo, type DownloadProgress } from "../api";
+import { renderReleaseNotes } from "../utils/releaseNotes";
+import "./ReleaseNotes.css";
 
 // lumioGlobal 在 api.ts 是模块内 const，不导出。这里通过 window.lumio 访问。
 const lumioGlobal = (typeof window !== "undefined" ? (window as unknown as { lumio?: any }).lumio : undefined);
@@ -42,6 +44,17 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
   const [errorMsg, setErrorMsg] = useState<string>("");
   /** 原始技术错误（小字展示，方便报障排查） */
   const [errorDetail, setErrorDetail] = useState<string>("");
+
+  /**
+   * 更新日志渲染：electron-updater 给的是 GitHub Atom 的 HTML，
+   * macOS 手动模式给的是原始 Markdown；renderReleaseNotes 会把
+   * 两者统一成白名单清洗过的安全 HTML，不再当纯文本原样输出，
+   * 且只显示新版本「更新内容」一段（下载表、系统要求等模板内容不显示）。
+   */
+  const renderedReleaseNotes = useMemo(
+    () => renderReleaseNotes(updateInfo?.releaseNotes),
+    [updateInfo?.releaseNotes],
+  );
 
   // 当前平台（macOS 走手动下载模式）
   const isMacos = lumioGlobal?.platform === "darwin";
@@ -184,11 +197,12 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
                 ? "macOS 需手动下载 DMG 安装包，点击下方按钮跳转 GitHub Release 页面。"
                 : "点击「立即下载」开始后台下载，下载完成后会提示重启安装。"}
             </div>
-            {updateInfo.releaseNotes && (
+            {renderedReleaseNotes && (
               <div className="max-h-60 overflow-y-auto rounded-lg bg-black/20 p-3">
-                <pre className="whitespace-pre-wrap break-words font-mono text-xs text-text">
-                  {updateInfo.releaseNotes}
-                </pre>
+                <div
+                  className="release-notes text-text"
+                  dangerouslySetInnerHTML={{ __html: renderedReleaseNotes }}
+                />
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">

@@ -1,0 +1,106 @@
+/* 更新日志排版：对话框只有 420px 宽，表格和标题都要在窄栏里可读。
+   颜色全部用半透明灰，不写死浅色/深色值，两种主题下都成立。 */
+.release-notes {
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.release-notes h2 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.release-notes h2:first-child,
+.release-notes h3:first-child,
+.release-notes p:first-child {
+  margin-top: 0;
+}
+
+.release-notes h3 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.release-notes h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.release-notes p {
+  margin: 6px 0;
+}
+
+.release-notes ul,
+.release-notes ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.release-notes ul {
+  list-style: disc;
+}
+
+.release-notes ol {
+  list-style: decimal;
+}
+
+.release-notes li {
+  margin: 2px 0;
+}
+
+.release-notes hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid rgba(128, 128, 128, 0.35);
+}
+
+.release-notes blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid rgba(128, 128, 128, 0.4);
+  opacity: 0.85;
+}
+
+.release-notes pre {
+  overflow-x: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.15);
+  font-size: 12px;
+}
+
+.release-notes code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.15);
+  font-size: 12px;
+}
+
+.release-notes pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.release-notes table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.release-notes th,
+.release-notes td {
+  padding: 5px 7px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  text-align: left;
+  vertical-align: top;
+}
+
+.release-notes th {
+  background: rgba(128, 128, 128, 0.15);
+  font-weight: 600;
+}

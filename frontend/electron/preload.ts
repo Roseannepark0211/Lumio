@@ -138,6 +138,8 @@ contextBridge.exposeInMainWorld("lumio", {
     quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
     /** 打开 GitHub Release 页面（更新报错时的手动下载兜底） */
     openReleasesPage: () => ipcRenderer.invoke("updater:open-releases"),
+    /** 打开 Lumio 官网（设置页「关于」里的官网按钮） */
+    openWebsitePage: () => ipcRenderer.invoke("updater:open-website"),
     /** 监听主进程推送的更新事件 */
     onEvent: (callback: (channel: string, data: any) => void) => {
       const channels = [

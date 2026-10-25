@@ -44,6 +44,8 @@ interface LumioGlobal {
     quitAndInstall: () => Promise<{ ok: boolean }>;
     /** 打开 GitHub Release 页面（更新报错时的手动下载兜底） */
     openReleasesPage: () => Promise<void>;
+    /** 打开 Lumio 官网（设置页「关于」里的官网按钮） */
+    openWebsitePage: () => Promise<void>;
     onEvent: (callback: (channel: string, data: any) => void) => void;
   };
 }

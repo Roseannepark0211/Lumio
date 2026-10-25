@@ -23,6 +23,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   api,
+  lumioGlobal,
   subscribeEvents,
   type AppEvent,
   type CookieStatusResponse,
@@ -482,6 +483,17 @@ export function SettingsPage() {
     },
     [showToast, setI18nLang]
   );
+
+  /** 打开 Lumio 官网：Electron 下走主进程 IPC 用系统浏览器打开；
+      非 Electron 环境（浏览器开发模式）回退到 window.open 新标签页。
+      官网地址与主进程 updater.ts 的 WEBSITE_URL 保持一致。 */
+  const onOpenWebsite = useCallback(async () => {
+    if (lumioGlobal?.updater?.openWebsitePage) {
+      await lumioGlobal.updater.openWebsitePage();
+    } else {
+      window.open("https://xksye7.dpdns.org/", "_blank", "noopener");
+    }
+  }, []);
 
   // —— 渲染 ——
   if (loading) {
@@ -1152,13 +1164,13 @@ export function SettingsPage() {
             >
               ↻ {tr("settings_check_update")}
             </button>
+            <button
+              onClick={onOpenWebsite}
+              className="rounded-lg px-3 py-1.5 text-xs text-text-muted hover:bg-white/5"
+            >
+              🌐 {tr("official_website")}
+            </button>
           </Row>
-
-          {/* 版本号来源说明：config.version 由 /api/config 实时注入 lumio.__version__，
-              不持久化到 config.json，确保升级后立即显示新版本号（不会残留旧值） */}
-          <p className="text-[10px] text-text-dim">
-            {tr("about_version_source")}
-          </p>
 
           <p className="text-center font-mono text-[10px] text-text-dim">
             Lumio © 2026{config.build_date ? ` · Build ${config.build_date}` : ""}

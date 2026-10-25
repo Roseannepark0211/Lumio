@@ -32,6 +32,9 @@ import type { ChildProcess } from "node:child_process";
 /** GitHub Release 页面（macOS 手动下载 / 报错兜底用） */
 const RELEASES_URL = "https://github.com/Roseannepark0211/Lumio/releases/latest";
 
+/** Lumio 官网（设置页「关于」里的官网按钮用，固定域名，不随版本变） */
+const WEBSITE_URL = "https://xksye7.dpdns.org/";
+
 // ============================================================
 // 错误文案映射：英文技术错误 → 用户能看懂的中文提示
 // 原文保留为 detail，随事件一起发给渲染进程（小字展示，方便报障排查）
@@ -352,6 +355,10 @@ export class UpdaterManager {
 
     ipcMain.handle("updater:open-releases", async () => {
       await shell.openExternal(RELEASES_URL);
+    });
+
+    ipcMain.handle("updater:open-website", async () => {
+      await shell.openExternal(WEBSITE_URL);
     });
   }
 
