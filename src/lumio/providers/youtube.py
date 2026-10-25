@@ -91,12 +91,17 @@ class ChannelWork:
 
 @dataclass
 class ChannelWorksPage:
-    """一页频道作品：has_more 表示是否还有下一页（用 limit+1 条探测）。"""
+    """一页频道作品：has_more 表示是否还有下一页（用 limit+1 条探测）。
+
+    author 为频道名（flat 列表 info 的 channel/uploader），拿不到时为空串，
+    调用方用它做弹窗标题与默认文件夹名，缺失时不阻塞列表展示。
+    """
 
     works: list = field(default_factory=list)
     has_more: bool = False
     page: int = 1
     page_size: int = 30
+    author: str = ""
 
 
 def _pick_thumbnail(entry: dict) -> str:
@@ -218,6 +223,9 @@ def list_channel_works(url: str, limit: int = 30, page: int = 1) -> ChannelWorks
         has_more=len(entries) > limit,
         page=page,
         page_size=limit,
+        # 频道名：flat 列表 info 的 channel/uploader；拿不到时为空串，
+        # 预览调用方不因此阻塞（弹窗标题与默认文件夹名有兜底）。
+        author=info.get("channel") or info.get("uploader") or "",
     )
 
 

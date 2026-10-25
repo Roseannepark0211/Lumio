@@ -164,6 +164,60 @@ export interface QueueTask {
   batch_id: string;
 }
 
+/** 批量下载：预览作品（与 BatchDownloadModal 的 BatchWork 契约对齐） */
+export interface BatchPreviewWork {
+  url: string;
+  title: string;
+  thumbnail?: string;
+  type: "video" | "image";
+  duration_seconds?: number;
+  image_count?: number;
+  post_time?: string;
+}
+
+/** 批量下载：预览结果（POST /api/batch/preview） */
+export interface BatchPreview {
+  platform: string;
+  author: string;
+  works: BatchPreviewWork[];
+  has_more: boolean;
+  page: number;
+  page_size: number;
+}
+
+/** 批量下载：入队请求（POST /api/batch/download） */
+export interface BatchDownloadRequest {
+  works: { url: string; title: string }[];
+  folder_name: string;
+  global_quality: string;
+  per_item_quality: Record<string, string>;
+  author: string;
+}
+
+/** 批量下载：入队结果 */
+export interface BatchDownloadResult {
+  batch_id: string;
+  folder_name: string;
+  output_dir: string;
+  task_ids: string[];
+  failed: { url: string; title: string; error: string }[];
+}
+
+/** 批量下载：分组进度与汇总（GET /api/batch/{batch_id}） */
+export interface BatchSummary {
+  batch_id: string;
+  folder_name: string;
+  total: number;
+  done: number;
+  failed: { task_id: string; title: string; error: string }[];
+  failed_count: number;
+  cancelled: number;
+  waiting: number;
+  downloading: number;
+  removed: number;
+  status: "active" | "done";
+}
+
 export interface LibraryItem {
   id: string;
   title: string;
@@ -581,6 +635,19 @@ export const api = {
   /** 检查 URL 是否已在素材库中（非阻断，返回 true 仍可继续下载） */
   checkUrlDuplicate: (url: string) =>
     get<{ duplicate: boolean }>(`/api/queue/check-url-duplicate?url=${encodeURIComponent(url)}`),
+
+  // —— 批量下载（重构阶段 3：主页预览 + 批量入队 + 分组进度）——
+  /** 主页/频道作品列表预览。非批量链接时后端 400 且 detail 带 profile_not_supported 前缀 */
+  batchPreview: (url: string, limit = 30, page = 1) =>
+    post<BatchPreview>("/api/batch/preview", { url, limit, page }),
+  /** 批量入队：每个作品一个任务，统一输出文件夹，同一 batch_id */
+  batchDownload: (payload: BatchDownloadRequest) =>
+    post<BatchDownloadResult>("/api/batch/download", payload),
+  /** 一批次的进度与汇总（队列任务 + 历史记录拼 x/N） */
+  getBatchSummary: (batchId: string) =>
+    get<BatchSummary>(`/api/batch/${encodeURIComponent(batchId)}`),
+  /** 所有已知批次的进度与汇总（供下载页恢复已完成批次行） */
+  getBatchList: () => get<BatchSummary[]>("/api/batch"),
 
   // —— HomePage: URL 解析 + 入队 ——
   /**

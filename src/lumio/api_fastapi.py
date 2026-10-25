@@ -378,6 +378,30 @@ class SearchXSouRequest(BaseModel):
 class PreviewXVideoRequest(BaseModel):
     video_url: str
 
+class BatchPreviewRequest(BaseModel):
+    """批量预览请求（POST /api/batch/preview）。"""
+    url: str = ""
+    limit: int = 30
+    page: int = 1
+
+
+class BatchDownloadWork(BaseModel):
+    url: str = ""
+    title: str = ""
+
+
+class BatchDownloadRequest(BaseModel):
+    """批量入队请求（POST /api/batch/download）。
+
+    works 只含 url/title（平台由后端按 provider match 判定）；
+    author 由前端从 preview 结果传入，用于任务展示元数据与默认文件夹。
+    """
+    works: list[BatchDownloadWork] = []
+    folder_name: str = ""
+    global_quality: str = "original"
+    per_item_quality: dict[str, str] = {}
+    author: str = ""
+
 
 # ============================================================
 # EventBus — Qt Signal → WebSocket 桥
@@ -1254,6 +1278,114 @@ def create_app() -> FastAPI:
     @app.get("/api/queue/check-url-duplicate")
     async def check_url_duplicate(url: str = Query(...)) -> dict:
         return {"duplicate": bool(_ctx().manager.check_url_duplicate(url))}
+
+    # ============================================================
+    # 1.x 批量下载（重构阶段 3：主页预览 + 批量入队 + 分组进度）
+    # 核心逻辑在 src/lumio/batch_download.py，本节只是薄封装。
+    # 注意：不支持的平台/链接类型返回 400 + detail 前缀 profile_not_supported，
+    # 前端据此回落到单帖解析；listing 本身失败则为 preview_failed 前缀。
+    # ============================================================
+
+    @app.post("/api/batch/preview")
+    async def batch_preview(req: BatchPreviewRequest) -> dict:
+        """主页/频道作品列表预览（复用阶段 1 listing）。"""
+        from .batch_download import BatchPreviewError, preview_batch
+        try:
+            return await asyncio.to_thread(
+                preview_batch, req.url, req.limit, req.page)
+        except BatchPreviewError as e:
+            logger.warning("batch preview failed url=%s: %s", req.url, e.message)
+            return JSONResponse(
+                status_code=400,
+                content={"error": e.code, "detail": f"{e.code}: {e.message}"})
+        except Exception as e:
+            logger.exception("batch preview error url=%s", req.url)
+            return JSONResponse(
+                status_code=400,
+                content={"error": "preview_failed",
+                         "detail": f"preview_failed: 批量预览失败：{e}"})
+
+    @app.post("/api/batch/download")
+    async def batch_download(req: BatchDownloadRequest) -> dict:
+        """批量入队：每个作品一个任务，统一输出文件夹，同一 batch_id。
+
+        入队后调用 manager._schedule() 启动（遵守 max_workers 并发上限；
+        公开的 start_task 会绕过 worker 槽位、start_all 还会恢复已暂停任务，
+        故这里直接用内部调度入口）。单项入队失败不影响其他项。
+        """
+        from .batch_download import enqueue_batch
+        from .downloader import extract_info
+        from .providers.douyin import DouyinProvider
+
+        def _add_task(info, format_id, format_type, custom_name, output_dir, batch_id):
+            return _ctx().manager.add_task_from_info(
+                info=info, format_id=format_id, format_type=format_type,
+                custom_name=custom_name, output_dir=output_dir, batch_id=batch_id)
+
+        try:
+            result = await asyncio.to_thread(
+                enqueue_batch,
+                [{"url": w.url, "title": w.title} for w in req.works],
+                req.folder_name, req.global_quality, req.per_item_quality,
+                req.author,
+                extract_info_fn=extract_info,
+                douyin_quality_fn=DouyinProvider().resolve_quality_url,
+                add_task_fn=_add_task,
+                download_dir=str(get_download_dir()),
+            )
+        except ValueError as e:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "invalid_request", "detail": str(e)})
+        if result["task_ids"]:
+            _ctx().manager._schedule()
+        return result
+
+    @app.get("/api/batch/{batch_id}")
+    async def batch_status(batch_id: str) -> dict:
+        """一批次的进度与汇总（队列任务 + 历史记录拼 x/N）。
+
+        已完成任务 1.5 秒后自动从队列移除，汇总靠历史记录补齐；
+        registry 里没有、队列与历史里也没有时返回 404（未知 batch）。
+        """
+        from .batch_download import batch_summary as _batch_summary
+        queue_tasks = [
+            _task_to_dict(t) for t in _ctx().manager.get_all_tasks()
+            if (getattr(t, "batch_id", "") or "") == batch_id
+        ]
+        history_records = [
+            r for r in _ctx().history_manager.records
+            if (getattr(r, "batch_id", "") or "") == batch_id
+        ]
+        summary = _batch_summary(batch_id, queue_tasks, history_records)
+        if summary is None:
+            raise HTTPException(404, f"unknown batch: {batch_id}")
+        return summary
+
+    @app.get("/api/batch")
+    async def batch_list() -> list[dict]:
+        """所有已知批次的进度与汇总（registry 进程内有效）。
+
+        供 DownloadsPage 在挂载时恢复已知批次（含已完成、任务已从
+        队列移除的批次），避免已完成汇总只在队列页常驻时可见。
+        """
+        from .batch_download import batch_summary as _batch_summary, list_batch_ids
+        all_tasks = _ctx().manager.get_all_tasks()
+        all_history = _ctx().history_manager.records
+        out = []
+        for bid in list_batch_ids():
+            queue_tasks = [
+                _task_to_dict(x) for x in all_tasks
+                if (getattr(x, "batch_id", "") or "") == bid
+            ]
+            history_records = [
+                r for r in all_history
+                if (getattr(r, "batch_id", "") or "") == bid
+            ]
+            summary = _batch_summary(bid, queue_tasks, history_records)
+            if summary is not None:
+                out.append(summary)
+        return out
 
     # ============================================================
     # 1.5. 移动端鉴权 / 配对 / 设备管理（新增，见联调验证.md）

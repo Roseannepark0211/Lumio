@@ -26,6 +26,7 @@ import {
   type XSouSearchPayload,
   type ParseCompletedPayload,
   type PreviewProgressPayload,
+  type BatchPreview,
 } from "../api";
 import { useI18n } from "../i18n";
 import { MediaItemsList, type SortedMediaItem } from "./home/MediaItemsList";
@@ -33,7 +34,30 @@ import { PreviewArea } from "./home/PreviewArea";
 import { XSouSearchPanel } from "./home/XSouSearchPanel";
 import { VideoPreviewDialog } from "./home/VideoPreviewDialog";
 import { PreviewProgressDialog } from "./home/PreviewProgressDialog";
+import {
+  BatchDownloadModal,
+  type BatchDownloadPayload,
+} from "../components/BatchDownloadModal";
 import { Logo3DGlow } from "../components/Logo3DGlow";
+
+/**
+ * 批量预览错误解析（阶段 3）：api.ts 的 throwHttpError 只透传 detail，
+ * 后端把错误码放在 detail 前缀（`profile_not_supported: ...` /
+ * `preview_failed: ...`），前端据此区分“不是批量链接（回落单帖）”
+ * 与“listing 失败（直接展示）”。返回 null 表示不是批量预览错误。
+ */
+const BATCH_PREVIEW_ERROR_RE =
+  /^400 .*? @ \/api\/batch\/preview: (profile_not_supported|preview_failed): /;
+function parseBatchPreviewError(e: unknown): { code: string; message: string } | null {
+  const m = String(e).match(BATCH_PREVIEW_ERROR_RE);
+  if (!m) return null;
+  return { code: m[1], message: String(e).slice(m[0].length) };
+}
+
+/** 预览平台名展示：后端返回 youtube/douyin，弹窗标题用品牌名/中文。 */
+function batchPlatformLabel(platform: string): string {
+  return platform === "youtube" ? "YouTube" : platform === "douyin" ? "抖音" : platform;
+}
 
 // 8 个平台徽章配置（与老版本 QML HomePage.qml 对齐）
 const PLATFORM_PILLS: { plat: string; labelKey: string; defaultLabel: string; color: string }[] = [
@@ -85,6 +109,9 @@ export function HomePage() {
   const [searchPage, setSearchPage] = useState(0);
   const [searchLimit] = useState(20);
   const [selectedSearchItems, setSelectedSearchItems] = useState<Record<number, boolean>>({});
+
+  // —— 批量下载状态（阶段 3：主页/频道链接预览后打开弹窗）——
+  const [batchPreview, setBatchPreview] = useState<BatchPreview | null>(null);
 
   // —— X-Sou 视频预览状态 ——
   const [, setPreviewDialogOpen] = useState(false);
@@ -261,6 +288,23 @@ export function HomePage() {
     setSearchTotal(0);
     setSearchPage(0);
     setSelectedSearchItems({});
+    // 批量下载阶段 3：先试批量预览（主页/频道链接 → 打开批量弹窗）。
+    // 预览对非批量链接只做 provider 正则判断、立即 400 profile_not_supported，
+    // 不产生网络请求；只有该错误才回落到单帖解析，listing 失败直接展示错误。
+    try {
+      const preview = await api.batchPreview(url);
+      setIsParsing(false);
+      setBatchPreview(preview);
+      return;
+    } catch (e) {
+      const be = parseBatchPreviewError(e);
+      if (be && be.code !== "profile_not_supported") {
+        setIsParsing(false);
+        showParseError(be.message);
+        return;
+      }
+      // profile_not_supported 或其他异常 → 回落单帖解析（单帖路径自带错误处理）
+    }
     try {
       await api.parseUrl(url);
     } catch (e) {
@@ -268,6 +312,32 @@ export function HomePage() {
       showParseError(tr("parse_failed") + `: ${e}`);
     }
   }, [urlText, isParsing, tr, showParseError]);
+
+  // —— 批量下载确认（弹窗 → 入队，阶段 3）——
+  const handleBatchDownload = useCallback(async (payload: BatchDownloadPayload) => {
+    if (!batchPreview) return;
+    const selected = batchPreview.works.filter((w) =>
+      payload.selected_urls.includes(w.url),
+    );
+    try {
+      const res = await api.batchDownload({
+        works: selected.map((w) => ({ url: w.url, title: w.title })),
+        folder_name: payload.folder_name,
+        global_quality: payload.global_quality,
+        per_item_quality: payload.per_item_quality,
+        author: batchPreview.author,
+      });
+      const okMsg = tr("batch_added", { n: res.task_ids.length });
+      showToast(
+        res.failed.length > 0
+          ? `${okMsg}，${tr("batch_partial_failed", { n: res.failed.length })}`
+          : okMsg,
+      );
+      setBatchPreview(null);
+    } catch (e) {
+      showToast(tr("enqueue_failed", { err: String(e) }));
+    }
+  }, [batchPreview, showToast, tr]);
 
   // —— 粘贴 ——
   const pasteFromClipboard = useCallback(async () => {
@@ -287,6 +357,7 @@ export function HomePage() {
     setParseError(null);
     setSortedItems([]);
     setIsParsing(false);
+    setBatchPreview(null);
   }, []);
 
   // —— 单项直链入队（多图帖子项）——
@@ -632,6 +703,19 @@ export function HomePage() {
         error={previewError}
         onClose={closePreviewDialog}
       />
+
+      {/* 批量下载弹窗（主页/频道链接预览后打开） */}
+      {batchPreview && (
+        <BatchDownloadModal
+          works={batchPreview.works}
+          author={{
+            name: batchPreview.author,
+            platform: batchPlatformLabel(batchPreview.platform),
+          }}
+          onClose={() => setBatchPreview(null)}
+          onDownload={handleBatchDownload}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

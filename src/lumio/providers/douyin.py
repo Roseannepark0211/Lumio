@@ -261,6 +261,73 @@ def _detect_codec(code_type: str, bitrate: int, res_num: int) -> str:
     return "H.264"
 
 
+def collect_douyin_formats(video_info: dict) -> dict[str, dict]:
+    """从 aweme detail 的 video 段收集清晰度档位表。
+
+    返回 label → {url, size, width, height, res_num, bitrate, gear, codec}，
+    同分辨率只保留码率最高的 normal 档（跳过 low/adapt 变体）。
+    _parse_aweme_detail 与批量下载的档位选择共用此函数。
+    """
+    bit_rate_list = (video_info or {}).get("bit_rate", [])
+    formats_by_label: dict[str, dict] = {}
+    for br in bit_rate_list:
+        gear_name = br.get("gear_name", "")
+        bitrate = br.get("bit_rate", 0)
+        play_addr = br.get("play_addr", {}) or {}
+        url_list = play_addr.get("url_list", [])
+        width = play_addr.get("width", 0)
+        height = play_addr.get("height", 0)
+        data_size = play_addr.get("data_size", 0)
+        if not url_list:
+            continue
+        url = url_list[0]
+        label, res_num = _map_gear_to_label(gear_name, width, height)
+        if label == "unknown":
+            continue
+        codec = _detect_codec(br.get("code_type", ""), bitrate, res_num)
+        existing = formats_by_label.get(label)
+        if existing is None or bitrate > existing["bitrate"]:
+            formats_by_label[label] = {
+                "url": url, "size": data_size,
+                "width": width, "height": height,
+                "res_num": res_num,
+                "bitrate": bitrate, "gear": gear_name,
+                "codec": codec,
+            }
+    return formats_by_label
+
+
+def pick_douyin_quality_url(formats_by_label: dict[str, dict], quality: str) -> str | None:
+    """按批量清晰度（original/1080p/720p/480p）从档位表挑 URL。
+
+    original → None（调用方保留最高画质）；具体档位 → 精确匹配，
+    否则回落到不高于目标的最高档，再无则取最低档（即“最接近的档位”）；
+    表为空时返回 None。“超高清”档按 2160 计。
+    """
+    if quality == "original":
+        return None
+    m = re.fullmatch(r"(\d+)p", quality or "")
+    if not m or not formats_by_label:
+        return None
+    target = int(m.group(1))
+    by_res: dict[int, str] = {}
+    for label, entry in formats_by_label.items():
+        if label == "超高清":
+            res = 2160
+        else:
+            mm = re.fullmatch(r"(\d+)p", label)
+            res = int(mm.group(1)) if mm else None
+        if res is not None:
+            by_res[res] = entry["url"]
+    if not by_res:
+        return None
+    if target in by_res:
+        return by_res[target]
+    below = [r for r in by_res if r <= target]
+    if below:
+        return by_res[max(below)]
+    return by_res[min(by_res)]
+
 @register
 class DouyinProvider(BaseProvider):
     """抖音 (Douyin) 内容解析 Provider。
@@ -525,54 +592,7 @@ class DouyinProvider(BaseProvider):
         # === 多清晰度：遍历 bit_rate[] 数组 ===
         # 参考报告第五节：bit_rate[] 每项含 gear_name + play_addr.url_list
         # 按分辨率去重：同分辨率只保留码率最高的 normal 档（跳过 low/adapt 变体）
-        bit_rate_list = video_info.get("bit_rate", [])
-        # label → {url, size, width, height, bitrate, codec}
-        # codec: "HEVC" / "H.264"（用于 FormatOption.label 显示，让用户理解
-        # 为什么 1440p HEVC 文件比 1080p H.264 还小）
-        formats_by_label: dict[str, dict] = {}
-
-        for br in bit_rate_list:
-            gear_name = br.get("gear_name", "")
-            bitrate = br.get("bit_rate", 0)
-            play_addr = br.get("play_addr", {}) or {}
-            url_list = play_addr.get("url_list", [])
-            width = play_addr.get("width", 0)
-            height = play_addr.get("height", 0)
-            data_size = play_addr.get("data_size", 0)
-
-            if not url_list:
-                continue
-
-            url = url_list[0]
-            label, res_num = _map_gear_to_label(gear_name, width, height)
-            if label == "unknown":
-                continue
-
-            # 编码识别：抖音 API 的 code_type 字段
-            # bytevc1 / bytevc7 / hevc / h265 → H.265 (HEVC)
-            # h264 / avc / mpeg4 → H.264
-            # 兜底用码率启发式：1440p+ 且 bitrate < 1500kbps 大概率是 HEVC
-            codec = _detect_codec(br.get("code_type", ""), bitrate, res_num)
-
-            # 同分辨率去重：保留码率最高的（normal > low > adapt）
-            existing = formats_by_label.get(label)
-            if existing is None:
-                formats_by_label[label] = {
-                    "url": url, "size": data_size,
-                    "width": width, "height": height,
-                    "res_num": res_num,
-                    "bitrate": bitrate, "gear": gear_name,
-                    "codec": codec,
-                }
-            elif bitrate > existing["bitrate"]:
-                # 码率更高，替换
-                formats_by_label[label].update({
-                    "url": url, "size": data_size,
-                    "width": width, "height": height,
-                    "res_num": res_num,
-                    "bitrate": bitrate, "gear": gear_name,
-                    "codec": codec,
-                })
+        formats_by_label = collect_douyin_formats(video_info)
 
         # 按分辨率降序排列（1440p > 1080p > 720p > 540p > ...）
         def _res_sort_key(label: str) -> int:
@@ -712,6 +732,28 @@ class DouyinProvider(BaseProvider):
         if error:
             raise RuntimeError(error)
         return items
+
+    def resolve_quality_url(self, url: str, quality: str) -> str | None:
+        """批量下载用：按档位解析视频直链。
+
+        original → None（调用方保留 media_items[0] 的最高画质）；
+        具体档位 → 精确匹配，否则回落到最接近的档位（见 pick_douyin_quality_url）；
+        拿不到 detail 或档位表为空时返回 None（调用方保留最高画质，不报错）。
+        取数顺序与 extract_info 一致：先 aweme detail API，再浏览器拦截兜底。
+        """
+        if quality == "original":
+            return None
+        video_id = _extract_video_id(url)
+        if not video_id:
+            return None
+        detail = self._fetch_aweme_detail(video_id)
+        if not detail:
+            detail, _filter_msg = fetch_aweme_detail_via_browser(
+                video_id, is_note=("/note/" in url))
+        if not detail:
+            return None
+        video_info = detail.get("video", {}) or {}
+        return pick_douyin_quality_url(collect_douyin_formats(video_info), quality)
 
     def classify_error(self, error: Exception | str) -> str:
         text = str(error).lower()

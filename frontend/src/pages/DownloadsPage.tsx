@@ -24,6 +24,8 @@ import {
 import { useI18n } from "../i18n";
 import { useToast } from "../App";
 import { TaskCard } from "./downloads/TaskCard";
+import { BatchGroup } from "./downloads/BatchGroup";
+import type { BatchSummary } from "../api";
 import {
   applyFilter,
   countActive,
@@ -39,6 +41,44 @@ export function DownloadsPage() {
   const [filterStatus] = useState<FilterStatus>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // —— 批量下载分组（阶段 3）——
+  const [batchSummaries, setBatchSummaries] = useState<Record<string, BatchSummary>>({});
+  const [dismissedBatches, setDismissedBatches] = useState<string[]>([]);
+  const toastedBatchesRef = useRef<Set<string>>(new Set());
+
+  // 拉取所有已知批次的进度与汇总（后端 registry 进程内有效）
+  const refreshBatchList = useCallback(async () => {
+    try {
+      const list = await api.getBatchList();
+      const next: Record<string, BatchSummary> = {};
+      for (const s of list) next[s.batch_id] = s;
+      setBatchSummaries(next);
+    } catch (e) {
+      console.warn("refresh batch list failed:", e);
+    }
+  }, []);
+
+  // 初次加载时恢复已知批次（含已完成行）
+  useEffect(() => {
+    refreshBatchList();
+  }, [refreshBatchList]);
+
+  // 整批完成时发一次汇总 toast（每批每会话一次；已关闭的行不提示）
+  useEffect(() => {
+    for (const [id, s] of Object.entries(batchSummaries)) {
+      if (s.status !== "done" || toastedBatchesRef.current.has(id)) continue;
+      if (dismissedBatches.includes(id)) continue;
+      toastedBatchesRef.current.add(id);
+      const msg = tr("batch_done_summary", { done: s.done, failed: s.failed_count });
+      const titles = s.failed.map((f) => f.title).filter(Boolean).slice(0, 3);
+      showToast(
+        titles.length > 0
+          ? `${msg}。${tr("batch_failed_titles", { titles: titles.join("、") })}`
+          : msg,
+      );
+    }
+  }, [batchSummaries, dismissedBatches, showToast, tr]);
 
   // 用于在 useEffect 中引用最新 tasks，避免闭包陈旧
   const tasksRef = useRef<QueueTask[]>([]);
@@ -91,6 +131,7 @@ export function DownloadsPage() {
         // 全量刷新：队列整体变化（start_all / pause_all / cancel_all / cleanup 等）
         case "queue_changed":
           reloadQueue();
+          refreshBatchList();
           break;
 
         // 增量 append：新任务加入队列
@@ -190,7 +231,7 @@ export function DownloadsPage() {
       }
     });
     return unsub;
-  }, [reloadQueue]);
+  }, [reloadQueue, refreshBatchList]);
 
   // —— 单任务操作 ——
   const onStart = useCallback(async (id: string) => {
@@ -236,6 +277,13 @@ export function DownloadsPage() {
     }
   }, []);
 
+  // —— 批量分组：关闭已完成行 ——
+  const onDismissCompleted = useCallback((batchId: string) => {
+    setDismissedBatches((prev) =>
+      prev.includes(batchId) ? prev : [...prev, batchId],
+    );
+  }, []);
+
   // —— 全局操作 ——
   const onStartAll = useCallback(async () => {
     try {
@@ -268,6 +316,19 @@ export function DownloadsPage() {
   const errorTasks = useMemo(
     () => tasks.filter((t) => t.error && t.error.length > 0),
     [tasks]
+  );
+
+  // —— 批量分组派生状态（阶段 3）——
+  const batchIdsInQueue = useMemo(
+    () => [...new Set(tasks.filter((t) => t.batch_id).map((t) => t.batch_id))],
+    [tasks]
+  );
+  const visibleBatchIds = useMemo(
+    () =>
+      [...new Set([...batchIdsInQueue, ...Object.keys(batchSummaries)])].filter(
+        (id) => !dismissedBatches.includes(id),
+      ),
+    [batchIdsInQueue, batchSummaries, dismissedBatches]
   );
 
   // —— 渲染 ——
@@ -332,27 +393,44 @@ export function DownloadsPage() {
         </header>
 
         {/* 空状态 */}
-        {tasks.length === 0 && (
+        {tasks.length === 0 && visibleBatchIds.length === 0 && (
           <div className="mt-20 text-center text-sm text-text-muted">
             {tr("downloads_empty")}
           </div>
         )}
 
-        {/* 任务列表 */}
-        {tasks.length > 0 && (
+        {/* 任务列表：批量分组在前，未分组任务在后 */}
+        {(filteredTasks.length > 0 || visibleBatchIds.length > 0) && (
           <div className="flex flex-col gap-2">
-            {filteredTasks.map((t) => (
-              <TaskCard
-                key={t.task_id}
-                task={t}
+            {visibleBatchIds.map((id) => (
+              <BatchGroup
+                key={id}
+                batchId={id}
+                tasks={filteredTasks.filter((t) => t.batch_id === id)}
+                summary={batchSummaries[id] ?? null}
                 onStart={onStart}
                 onPause={onPause}
                 onResume={onResume}
                 onRetry={onRetry}
                 onCancel={onCancel}
                 onDelete={onDelete}
+                onDismissCompleted={onDismissCompleted}
               />
             ))}
+            {filteredTasks
+              .filter((t) => !t.batch_id)
+              .map((t) => (
+                <TaskCard
+                  key={t.task_id}
+                  task={t}
+                  onStart={onStart}
+                  onPause={onPause}
+                  onResume={onResume}
+                  onRetry={onRetry}
+                  onCancel={onCancel}
+                  onDelete={onDelete}
+                />
+              ))}
           </div>
         )}
 
