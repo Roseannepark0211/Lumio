@@ -663,11 +663,15 @@ export async function extractInstagram(): Promise<ExtractResult | null> {
  */
 function locateDetailRoot(): Element | null {
   // 优先级 1：模态框（从主页点击进入）
-  const dialog = document.querySelector("div[role='dialog']");
-  if (dialog) {
+  // ★ 跳过不含 article 的 dialog：未登录时 IG 会弹注册弹窗（"Never miss a post"），
+  //   它本身就是 div[role='dialog'] 且不含 article；旧代码取到第一个 dialog 就
+  //   直接返回，导致详情容器错位成弹窗、isCarousel 在弹窗内搜不到按钮、
+  //   轮播翻页分支永不触发，最终只能靠 og:image 兜底拿到 1 张。
+  //   无 article 的 dialog 一律跳过，继续走下面的 fallback。
+  const dialogs = document.querySelectorAll("div[role='dialog']");
+  for (const dialog of Array.from(dialogs)) {
     const article = dialog.querySelector("article");
     if (article) return article;
-    return dialog;
   }
 
   // 优先级 2：main 内第一个 article（直接访问详情页 URL）
