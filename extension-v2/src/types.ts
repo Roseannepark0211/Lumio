@@ -13,7 +13,7 @@ export type Platform =
   | "weibo"
   | "";
 
-export type MediaType = "url" | "video" | "image" | "profile";
+export type MediaType = "url" | "video" | "image";
 
 export interface MediaItem {
   url: string;

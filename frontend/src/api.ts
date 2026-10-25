@@ -759,9 +759,6 @@ export const api = {
   /** 单条入队下载（status 为 new/failed 时可用） */
   inboxDownload: (itemId: string) =>
     post<{ ok: boolean; task_id: string }>(`/api/inbox/items/${encodeURIComponent(itemId)}/download`),
-  /** 批量入队下载 */
-  inboxBatchDownload: (ids: string[]) =>
-    post<{ ok: boolean }>("/api/inbox/batch-download", { ids }),
   /** 归档单条 */
   inboxArchive: (itemId: string) =>
     post<{ ok: boolean }>(`/api/inbox/items/${encodeURIComponent(itemId)}/archive`),

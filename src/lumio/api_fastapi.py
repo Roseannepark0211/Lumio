@@ -135,7 +135,7 @@ def _get_build_date() -> str:
 # Inbox ↔ Queue 任务映射
 # ============================================================
 # task_id → inbox_item_id，用于下载完成/失败/取消时同步更新 inbox 状态
-# 仅在 inbox_download / inbox_batch_download 入队时记录，任务终态时清理
+# 仅在 inbox_download 入队时记录，任务终态时清理
 _INBOX_TASK_MAP: dict[str, str] = {}
 _INBOX_TASK_LOCK = threading.Lock()
 
@@ -2115,63 +2115,6 @@ def create_app() -> FastAPI:
                 status_code=400,
                 content={"detail": f"解析或入队失败: {e}"},
             )
-
-    @app.post("/api/inbox/batch-download")
-    async def inbox_batch_download(req: InboxBatchRequest) -> dict:
-        """批量入队下载（用户手动点击批量下载按钮触发）。
-
-        ★ 单项失败不影响其他项，失败项标记为 failed。
-        """
-        import asyncio
-        from .downloader import extract_info
-
-        ctx = _ctx()
-        for iid in req.ids:
-            item = ctx.inbox_manager.get_item(iid)
-            if not item:
-                continue
-            try:
-                # ★ 有 direct_url 直接入队
-                if item.direct_url:
-                    from .queue_manager import QueueTask
-                    qt = QueueTask(
-                        url=item.url,
-                        direct_url=item.direct_url,
-                        title=item.title or "",
-                        platform=item.platform or "",
-                        author=item.author or "",
-                        post_time=item.post_time or "",
-                        thumbnail_url=item.thumbnail_url or None,
-                        output_dir=str(get_download_dir()),
-                    )
-                    ctx.manager.add_task(qt)
-                    ctx.inbox_manager.mark_status(iid, "queued")
-                    _set_inbox_task_map(qt.task_id, iid)
-                    _bus().publish("inbox_changed")
-                    continue
-
-                # ★ 无 direct_url，调 extract_info 重新解析
-                info = await asyncio.to_thread(extract_info, item.url)
-                format_type = "image" if any(
-                    not it.is_video for it in (info.media_items or [])
-                ) else "video"
-                # format_id 固定 "best"，避免取到 info.formats[0] 纯音频流导致只有声音没画面
-                format_id = "best"
-
-                batch_task_id = ctx.manager.add_task_from_info(
-                    info=info,
-                    format_id=format_id,
-                    format_type=format_type,
-                    custom_name="",
-                    output_dir=str(get_download_dir()),
-                )
-                ctx.inbox_manager.mark_status(iid, "queued")
-                _set_inbox_task_map(batch_task_id, iid)
-                _bus().publish("inbox_changed")
-            except Exception as e:
-                logger.warning("inbox_batch_download item=%s failed: %s", iid, e)
-                ctx.inbox_manager.mark_status(iid, "failed")
-        return {"ok": True}
 
     @app.post("/api/inbox/items/{item_id}/mark-downloaded")
     async def inbox_mark_downloaded(item_id: str) -> dict:

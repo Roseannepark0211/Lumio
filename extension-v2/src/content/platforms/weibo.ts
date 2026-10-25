@@ -27,7 +27,8 @@
  * ★ 策略：
  *   1. 博主主页 + 右键某帖子图片/video → 从右键元素向上找 wbpro-scroller-item
  *      → 提取该帖子 URL → 发送给后端解析（含最高画质选择）
- *   2. 博主主页 + popup 主动调用 → 返回博主信息（type: "profile" 触发批量）
+ *   2. 博主主页 + popup 主动调用（无右键上下文）→ 返回 null，
+ *      调用方退化为裸 URL 发送（不再返回博主信息触发批量）
  *   3. 单帖子 URL → 提取 og + DOM 元数据
  *
  * ★ 不提取 direct_url：微博视频 src 是 blob:，sinaimg.cn 图片需 Cookie，
@@ -787,30 +788,6 @@ function extractAuthorFromDom(): string {
 }
 
 /**
- * 从 DOM 提取博主头像（博主主页顶部）
- */
-function extractAuthorAvatar(): string {
-  // 博主主页顶部头像（待诊断数据确认选择器）
-  const avatarSelectors = [
-    "img[class*='avatar']",
-    "img[class*='Avatar']",
-    "[class*='profile'] img",
-    "[class*='header'] img[class*='avatar']",
-  ];
-  for (const sel of avatarSelectors) {
-    try {
-      const el = document.querySelector(sel) as HTMLImageElement | null;
-      if (el?.src && el.src.startsWith("http")) {
-        return el.src;
-      }
-    } catch {
-      // 选择器语法错误
-    }
-  }
-  return "";
-}
-
-/**
  * 从 meta 标签提取缩略图（多重 fallback）
  *
  * ★ 微博详情页 og:image 常为空，需多重 fallback：
@@ -918,33 +895,11 @@ export async function extractWeibo(): Promise<ExtractResult | null> {
       }
     }
 
-    // 无右键上下文 / 找不到帖子容器 → 返回博主信息触发批量
-    console.log("[Lumio-weibo] 无右键上下文或未提取到帖子，返回博主信息触发批量");
-    // ★ 优先 DOM 提取真实博主名（a[href*='/u/'][aria-label]），title 仅作 fallback
-    //   分组页 title="明星 - 首页 - 微博" 是分组名不是博主名，
-    //   DOM 提取能拿到真实博主名（如"杨超越"）
-    const author =
-      extractAuthorFromDom() ||
-      extractAuthorFromTitle(document.title);
-    // ★ 缩略图：优先博主头像，兜底 meta + 文章首图
-    //   分组页博主头像选择器可能不匹配，加多重 fallback 提高成功率
-    const thumbnail =
-      extractAuthorAvatar() ||
-      extractThumbnailFromMeta() ||
-      extractFirstImageFromArticle();
-    // ★ title 不能用 document.title（分组浏览页是"明星 - 首页 - 微博"等无意义标题）
-    //   用 author + "的微博主页" 作为可读标题；author 为空时 fallback 到 URL
-    const profileTitle = author ? `${author}的微博主页` : "微博博主主页";
-
-    return {
-      url, // 博主主页 URL
-      title: profileTitle,
-      author,
-      platform: "weibo",
-      thumbnail,
-      duration: null,
-      type: "profile", // 触发批量分支
-    };
+    // 无右键上下文 / 找不到帖子容器 → 不再返回博主信息触发批量。
+    // 返回 null，调用方（content/index.ts）退化为裸 URL 的 PageMeta（type: "url"），
+    // 后端 /capture 对主页 URL 会明确拒绝（profile_not_supported）。
+    console.log("[Lumio-weibo] 无右键上下文或未提取到帖子，返回 null（不再触发批量）");
+    return null;
   }
 
   // ── 单帖子模式（详情页，从博主主页点击帖子后进入） ────────────────

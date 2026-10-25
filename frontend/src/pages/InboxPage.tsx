@@ -5,7 +5,7 @@
  *   1. 收件箱列表（缩略图 + 标题 + 作者/平台/来源/时间 + 状态徽章 + 操作按钮）
  *   2. 状态筛选（all/new/queued/downloaded/archived/failed）+ 来源筛选（all/browser/telegram/manual）
  *   3. 单条操作：下载 / 打开原网页 / 归档 / 删除（带确认对话框）
- *   4. 批量模式：选择 / 全选 / 取消全选 / 批量下载 / 批量删除
+ *   4. 批量模式：选择 / 全选 / 取消全选 / 批量删除
  *   5. 清空已完成（downloaded/archived）— 带确认对话框
  *   6. WebSocket 事件驱动刷新（inbox_changed）
  *   7. 空状态提示
@@ -254,19 +254,6 @@ export function InboxPage() {
   }, []);
 
   // —— 批量操作 ——
-  const onBatchDownload = useCallback(async () => {
-    if (selectedIds.length === 0) return;
-    setActionError(null);
-    try {
-      await api.inboxBatchDownload(selectedIds);
-      setSelectedIds([]);
-      setSelectMode(false);
-    } catch (e) {
-      console.warn("inbox batch download failed:", e);
-      setActionError(e instanceof Error ? e.message : String(e));
-    }
-  }, [selectedIds]);
-
   const onBatchDelete = useCallback(() => {
     if (selectedIds.length === 0) return;
     setDeleteDialogIds(selectedIds.slice());
@@ -390,13 +377,6 @@ export function InboxPage() {
               className="rounded-lg bg-white/5 px-2.5 py-1 text-xs text-text-muted transition-colors hover:bg-white/10 hover:text-text disabled:opacity-40"
             >
               {tr("library_batch_deselect_all")}
-            </button>
-            <button
-              onClick={onBatchDownload}
-              disabled={selectedIds.length === 0}
-              className="flex items-center gap-1 rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-40 disabled:hover:bg-accent/15"
-            >
-              ↓ {tr("inbox_download_selected")}
             </button>
             <button
               onClick={onBatchDelete}

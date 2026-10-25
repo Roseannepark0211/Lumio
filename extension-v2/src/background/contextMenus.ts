@@ -9,9 +9,8 @@
  *     - image 项 → 智能判断：图在媒体容器内 → 发整帖；否则 → 发该图
  *     - video 项 → 智能判断：视频是当前帖子 → 发整帖；否则 → 发该视频
  *     - link 项 → 智能判断：链接是平台帖子 URL → 发该帖子；否则 → 发链接
- *   - 博主主页（/channel/, /user/, /c/, /profile/）：
- *     - page 项 → "发送博主主页到 Lumio"（触发批量）
- *     - 其他项按默认行为
+ *   - 博主主页：不再有批量入口，page / link 项退化为普通发送当前页面/链接
+ *     （后端 /capture 对主页 URL 仍会明确拒绝 profile_not_supported）
  *   - 非支持平台：所有菜单项隐藏
  *
  * 实现：chrome.contextMenus.onShown（MV3）+ 动态 update 标题/可见性
@@ -90,45 +89,19 @@ export function isContextSensitivePageUrl(url: string): boolean {
   return false;
 }
 
-/** 判断是否为博主主页 */
-function isProfilePageUrl(url: string): boolean {
-  if (!url) return false;
-  return (
-    /youtube\.com\/(@|channel|user|c)\//.test(url) || // YouTube
-    /instagram\.com\/[^/]+\/?$/.test(url) || // Instagram
-    /instagram\.com\/[^/]+\/?\?/.test(url) ||
-    /x\.com\/[^/]+\/?$/.test(url) || // X
-    /twitter\.com\/[^/]+\/?$/.test(url) ||
-    /space\.bilibili\.com\/\d+/.test(url) || // B站
-    /xiaohongshu\.com\/user\/profile\//.test(url) || // 小红书
-    /douyin\.com\/user\//.test(url) || // 抖音
-    /kuaishou\.com\/profile\//.test(url) || // 快手
-    /weibo\.com\/u\/\d+/.test(url) || // 微博
-    /weibo\.com\/[^/]+\/?$/.test(url)
-  );
-}
+// ── 菜单标题动态生成 ──────────────────────────────────────────────────
+
+// ★ platformLabel 已抽到 ../shared/platformLabels.ts，与 popup 共用一份映射表
 
 /** 判断 URL 是否为平台帖子链接（用于右键链接场景） */
 function isPlatformPostUrl(url: string): boolean {
   return isDetailPageUrl(url);
 }
 
-/** 判断 URL 是否为博主主页链接（用于右键链接场景） */
-function isProfileUrl(url: string): boolean {
-  return isProfilePageUrl(url);
-}
-
-// ── 菜单标题动态生成 ──────────────────────────────────────────────────
-
-// ★ platformLabel 已抽到 ../shared/platformLabels.ts，与 popup 共用一份映射表
-
 /** 根据上下文生成 page 项标题 */
 function pageMenuItemTitle(url: string, platform: Platform): string {
   if (isDetailPageUrl(url)) {
     return `发送当前${platformLabel(platform)}帖子到 Lumio`;
-  }
-  if (isProfilePageUrl(url)) {
-    return `发送${platformLabel(platform)}博主主页到 Lumio（批量）`;
   }
   return "发送当前页面到 Lumio";
 }
@@ -138,10 +111,6 @@ function linkMenuItemTitle(linkUrl: string): string {
   if (isPlatformPostUrl(linkUrl)) {
     const platform = detectPlatform(linkUrl);
     return `发送此${platformLabel(platform)}帖子链接到 Lumio`;
-  }
-  if (isProfileUrl(linkUrl)) {
-    const platform = detectPlatform(linkUrl);
-    return `发送此${platformLabel(platform)}博主主页到 Lumio（批量）`;
   }
   return "发送链接到 Lumio";
 }
@@ -261,21 +230,7 @@ export function buildCapturePayload(
         };
       }
 
-      // 博主主页：发送主页 URL，type=profile 触发后端批量
-      if (isProfilePageUrl(tabUrl)) {
-        return {
-          url: tabUrl,
-          title: tab.title || "",
-          author: extractAuthorFromUrl(tabUrl),
-          platform,
-          thumbnail: "",
-          duration: null,
-          source: "browser",
-          type: "profile",
-        };
-      }
-
-      // 其他页面：发裸 URL
+      // 其他页面（含博主主页）：发裸 URL，不再有批量入口
       return {
         url: tabUrl,
         title: tab.title || "",
@@ -303,20 +258,7 @@ export function buildCapturePayload(
           type: "url",
         };
       }
-      // 链接是博主主页 URL → 触发批量
-      if (isProfileUrl(linkUrl)) {
-        return {
-          url: linkUrl,
-          title: info.selectionText || linkUrl,
-          author: extractAuthorFromUrl(linkUrl),
-          platform: detectPlatform(linkUrl),
-          thumbnail: "",
-          duration: null,
-          source: "browser",
-          type: "profile",
-        };
-      }
-      // 普通链接
+      // 普通链接（含博主主页链接）
       return {
         url: linkUrl,
         title: info.selectionText || linkUrl,
