@@ -196,13 +196,32 @@ class NotificationManager(QObject):
         self.notifications_changed.emit(count)
 
     def add_notification(self, notif: Notification) -> None:
-        """添加通知。按 source_key 去重（已存在则跳过）。"""
+        """添加通知。按 source_key 去重：已存在则更新内容（upsert）。
+
+        根治旧问题：通知持久化在 ~/.lumio/notifications.json，旧版
+        “已存在则跳过”会让已存记录的内容永远停留在首次写入的版本
+        （如 Python 依赖通知的安装动作在 v4.5.3 改指 python.org 后，
+        老设备上的旧记录仍指向仓库地址，而新设备直接就是新地址）。
+        upsert 后，启动检测每次生成的最新内容都会刷新已存记录；
+        id / created_at / read 予以保留（不重复提醒用户），其余
+        内容字段以当前代码为准。
+        """
         with self._lock:
-            if notif.source_key and any(
-                n.source_key == notif.source_key for n in self._notifications
-            ):
-                return
-            self._notifications.append(notif)
+            existing = None
+            if notif.source_key:
+                for n in self._notifications:
+                    if n.source_key == notif.source_key:
+                        existing = n
+                        break
+            if existing is not None:
+                for field_name in (
+                    "category", "type", "title", "message",
+                    "action", "action_text", "dismissable",
+                    "priority", "expires_at", "group_key",
+                ):
+                    setattr(existing, field_name, getattr(notif, field_name))
+            else:
+                self._notifications.append(notif)
             self._save_locked()
             count = self.unread_count()
         self.notifications_changed.emit(count)
