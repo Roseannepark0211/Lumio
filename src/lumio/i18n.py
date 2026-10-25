@@ -1,4 +1,8 @@
+import logging
+
 from .utils.config import load_config, save_config
+
+logger = logging.getLogger(__name__)
 
 _LANG: str | None = None  # lazy-loaded on first access
 
@@ -145,6 +149,7 @@ _TRANSLATIONS = {
         "status_interrupted": "已中断",
         "status_completed": "已完成",
         "task_completed_toast": "下载完成：{title}",
+        "cache_cleaned_toast": "缓存已清理：{0} 个文件，释放 {1}",
         "status_failed": "失败",
         "status_cancelled": "已取消",
         "status_merging": "合并中",
@@ -963,6 +968,7 @@ _TRANSLATIONS = {
         "status_interrupted": "Interrupted",
         "status_completed": "Completed",
         "task_completed_toast": "Download complete: {title}",
+        "cache_cleaned_toast": "Cache cleaned: {0} files, {1} freed",
         "status_failed": "Failed",
         "status_cancelled": "Cancelled",
         "status_merging": "Merging",
@@ -1660,7 +1666,13 @@ def t(key: str, *args, **kwargs) -> str:
     kwargs，导致 `TypeError: t() takes 1 positional argument but 2 were given`。
     """
     lang = _get_lang()
-    text = _TRANSLATIONS.get(lang, _TRANSLATIONS["zh"]).get(key, key)
+    table = _TRANSLATIONS.get(lang, _TRANSLATIONS["zh"])
+    if key not in table:
+        # 缺 key 时不再静默回退到 key 本身：记一条 warning，让缺失在日志里可见
+        logger.warning("Missing i18n key: %s (lang=%s)", key, lang)
+        text = key
+    else:
+        text = table[key]
     if args or kwargs:
         text = text.format(*args, **kwargs)
     return text

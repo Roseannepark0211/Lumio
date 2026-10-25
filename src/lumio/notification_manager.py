@@ -42,14 +42,12 @@ _VERSION_CHECK_INTERVAL = 7 * 24 * 3600  # seconds
 #   - python-telegram-bot 包的 import 名是 telegram
 _PYTHON_DEPS = {
     "yt_dlp": "YouTube/X 视频解析与下载",
-    "PySide6": "GUI 框架",
     "flask": "本地 API 服务",
     "sqlalchemy": "素材库 + 收件箱 ORM",
     "PIL": "缩略图生成",
     "apify_client": "Apify Actor 代理",
     "imageio_ffmpeg": "内置 ffmpeg 二进制",
     "requests": "HTTP 请求",
-    "packaging": "版本号对比",
 }
 
 # 可选依赖：仅当用户启用对应功能时才检测，缺失时降级为 low priority 提示
@@ -229,7 +227,9 @@ class NotificationManager(QObject):
     def _remove_by_source_key(self, source_key: str) -> None:
         """按 source_key 清理通知（用于修复历史误报后清理过时通知）。
 
-        清理成功后触发 notifications_changed 信号让 UI 刷新。
+        唯一定义（文件内不得重复定义；Python 类体以后定义覆盖先定义，
+        重复定义曾导致删除不保存、不发信号）。可重入锁，持锁/不持锁
+        调用均可。清理成功后保存并触发 notifications_changed 信号。
         """
         with self._lock:
             before = len(self._notifications)
@@ -249,7 +249,7 @@ class NotificationManager(QObject):
         """启动时调用。默认后台异步执行，不阻塞 GUI。
 
         重构后分类检查：
-        1. Python 依赖（yt-dlp/PySide6/Flask 等）
+        1. Python 依赖（yt-dlp/Flask 等）
         2. 网络代理（国外平台需 VPN/系统代理）
         3. FFmpeg（imageio-ffmpeg 内置二进制）
         4. Cookie 状态（missing/expired/warning 7天预警）
@@ -373,6 +373,9 @@ class NotificationManager(QObject):
                     action_text="",
                     source_key="ffmpeg_missing",
                 ))
+            else:
+                # 找到 FFmpeg → 清理之前发的缺失通知
+                self._remove_by_source_key("ffmpeg_missing")
         except Exception as e:
             logger.debug("FFmpeg check failed: %s", e)
 
@@ -418,6 +421,9 @@ class NotificationManager(QObject):
                     action_text=t("notif_action_configure"),
                     source_key="cookie_missing",
                 ))
+            else:
+                # 没有缺失/过期的 Cookie → 清理之前的缺失通知
+                self._remove_by_source_key("cookie_missing")
 
             # 新增：Cookie 即将过期预警（7 天内）
             if expiring:
@@ -431,6 +437,9 @@ class NotificationManager(QObject):
                     action_text=t("notif_action_update"),
                     source_key="cookie_expiring",
                 ))
+            else:
+                # 没有即将过期的 Cookie → 清理之前的预警通知
+                self._remove_by_source_key("cookie_expiring")
         except Exception as e:
             logger.debug("Cookie check failed: %s", e)
 
@@ -576,16 +585,10 @@ class NotificationManager(QObject):
                 with self._lock:
                     self._remove_by_source_key("version_new")
                     self._remove_by_source_key("version_latest")
-                # 通知页改为"更新内容通知"——把 release body（markdown）写入 message
-                # 用户在通知页直接看到实际更新内容，而不是简单的"有新版本"提示
-                release_body = getattr(self, "_latest_release_body", "") or ""
+                # 通知只留一句话摘要，不再把 release body 塞进 message
+                # （完整更新内容在更新弹窗/Release 页查看；长正文曾让单条通知极长）
                 release_name = getattr(self, "_latest_release_name", "") or ""
-                # message 格式：release_name + 换行 + release body（截断到 1000 字防过长）
-                if release_body:
-                    body_preview = release_body[:1000] + ("..." if len(release_body) > 1000 else "")
-                    message = body_preview
-                else:
-                    message = t("notif_version_new_msg", __version__, new_version)
+                message = t("notif_version_new_msg", __version__, new_version)
                 # title 包含版本号 + release name（如果有）
                 title = f"Lumio {new_version}" + (f" — {release_name}" if release_name else "")
                 self.add_notification(Notification(
@@ -599,22 +602,11 @@ class NotificationManager(QObject):
                     source_key="version_new",
                 ))
             elif result == "latest":
-                # 移除旧通知（如有），添加新的"已是最新"
-                # 修复：去掉 expires_at=now，让 version_latest 持久保留
-                # 否则下次启动 _cleanup_expired 会清掉（如果用户已读），
-                # 再加上 7 天内跳过检查，版本分类就永远空了
+                # 已是最新：静默，不再创建常驻"已是最新"条目；
+                # 仍清理旧的新版本/已是最新通知，避免残留
                 with self._lock:
                     self._remove_by_source_key("version_new")
                     self._remove_by_source_key("version_latest")
-                self.add_notification(Notification(
-                    category="update",
-                    type="info",
-                    priority="low",
-                    title=t("notif_version_latest_title"),
-                    message=t("notif_version_latest_msg", __version__),
-                    source_key="version_latest",
-                    # 不设 expires_at，持久保留
-                ))
             # error 不发通知，仅日志
             elif result.startswith("error:"):
                 logger.debug("Version check error: %s", result[6:])
@@ -715,7 +707,7 @@ class NotificationManager(QObject):
                 has_update = _vt(latest) > _vt(__version__)
 
             if has_update:
-                # 把 release body（更新内容）缓存到实例，供 check_version_manual 用
+                # 把 release body（更新内容）缓存到实例（通知不再直接贴正文）
                 self._latest_release_body = data.get("body", "")
                 self._latest_release_url = data.get("html_url", "")
                 self._latest_release_name = data.get("name", "")
@@ -746,14 +738,9 @@ class NotificationManager(QObject):
             # 移除旧的新版本通知（如有），添加新的
             self._remove_by_source_key("version_new")
             self._remove_by_source_key("version_latest")
-            # 通知页改为"更新内容通知"——把 release body 写入 message
-            release_body = getattr(self, "_latest_release_body", "") or ""
+            # 通知只留一句话摘要，不再把 release body 塞进 message
             release_name = getattr(self, "_latest_release_name", "") or ""
-            if release_body:
-                body_preview = release_body[:1000] + ("..." if len(release_body) > 1000 else "")
-                message = body_preview
-            else:
-                message = t("notif_version_new_msg", __version__, new_version)
+            message = t("notif_version_new_msg", __version__, new_version)
             title = f"Lumio {new_version}" + (f" — {release_name}" if release_name else "")
             self.add_notification(Notification(
                 category="update",
@@ -766,23 +753,11 @@ class NotificationManager(QObject):
                 source_key="version_new",
             ))
         elif result == "latest":
+            # 手动检查确认最新：清理旧通知，不再创建常驻条目；
+            # 返回值 "latest" 本身就是给设置页 UI 的反馈，不受影响
             self._remove_by_source_key("version_new")
             self._remove_by_source_key("version_latest")
-            self.add_notification(Notification(
-                category="update",
-                type="info",
-                priority="low",
-                title=t("notif_version_latest_title"),
-                message=t("notif_version_latest_msg", __version__),
-                source_key="version_latest",
-            ))
         return result
-
-    def _remove_by_source_key(self, source_key: str) -> None:
-        """按 source_key 移除通知（内部用，不加锁，调用方需持锁）。"""
-        self._notifications = [
-            n for n in self._notifications if n.source_key != source_key
-        ]
 
     # ── 事件接入 API ────────────────────────────────────────────────
 
