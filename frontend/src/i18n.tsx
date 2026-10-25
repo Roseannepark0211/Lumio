@@ -28,7 +28,8 @@ interface I18nContextValue {
   ready: boolean;
   /** 切换语言（调后端 → 后端发 lang_changed 事件 → 自动刷新） */
   setLang: (lang: Lang) => Promise<void>;
-  /** 翻译函数。找不到 key 时回退到 key 本身（与后端 t() 一致） */
+  /** 翻译函数。找不到 key 时最后兜底仍返回 key 本身（与后端 t() 一致），
+   * 但会 console.warn 注明原因，避免静默把 key 显示给用户而无人发现 */
   tr: (key: string, params?: Record<string, string | number>) => string;
 }
 
@@ -44,15 +45,18 @@ export const useI18n = () => useContext(I18nContext);
 /** 完整翻译字典：{ zh: {key: text}, en: {key: text} } */
 type TranslationTable = Record<Lang, Record<string, string>>;
 
-/** 模板变量替换 — 与后端 i18n.py 的 `text.format(**kwargs)` 对齐 */
+/** 模板变量替换 — 与后端 i18n.py 的 `text.format(**kwargs)` 对齐。
+ * 未匹配的占位符不再原样保留 `{name}`（会把占位符暴露给用户），
+ * 改为空字符串并 console.warn，便于定位缺失参数的调用方。 */
 function formatTemplate(text: string, params?: Record<string, string | number>): string {
   if (!params) return text;
   // 用正则替换 {name} 占位符，避免 format() 对 `{` `}` 报错
-  return text.replace(/\{(\w+)\}/g, (m, key: string) => {
+  return text.replace(/\{(\w+)\}/g, (_m, key: string) => {
     if (Object.prototype.hasOwnProperty.call(params, key)) {
       return String(params[key]);
     }
-    return m; // 找不到占位符变量，保留原文
+    console.warn(`[i18n] missing template param: {${key}} in "${text}"`);
+    return "";
   });
 }
 
@@ -104,9 +108,19 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const tr = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      if (!table) return key; // 字典未加载完，回退到 key
+      if (!table) {
+        // 字典未加载完：最后兜底仍返回 key，但记一条警告，
+        // 避免静默把 key 显示给用户而无人发现
+        console.warn(`[i18n] dictionary not loaded yet, falling back to key: ${key}`);
+        return key;
+      }
       const dict = table[lang] || table.zh;
-      const text = dict[key] || table.zh[key] || key;
+      const text = dict[key] || table.zh[key];
+      if (text === undefined) {
+        // 双语字典都没有这个 key：最后兜底仍返回 key，并注明原因
+        console.warn(`[i18n] missing translation key: ${key} (lang: ${lang}, fell back to key)`);
+        return key;
+      }
       return formatTemplate(text, params);
     },
     [table, lang]

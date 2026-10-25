@@ -119,6 +119,37 @@ const PRIORITY_ORDER: Record<string, number> = {
 };
 
 // ============================================================
+// 通知中心分区（按 source_key 归组，与后端 notification_manager 对齐）
+//   todo   — 需处理：条件类警告（deps/env/配额等），条件消失应自动清除
+//   update — 更新：version_new 及残留的 version_latest
+//   tips   — 提示：永久性建议，收进可折叠区，不与警告混排
+// 组标题暂用硬编码中文：后端字典里没有这三个组名 key，
+// 与本文件 inbox 类别硬编码 "收件箱" 的先例一致
+// ============================================================
+
+type NotificationGroup = "todo" | "update" | "tips";
+
+const GROUP_META: { id: NotificationGroup; title: string }[] = [
+  { id: "todo", title: "需处理" },
+  { id: "update", title: "更新" },
+  { id: "tips", title: "提示" },
+];
+
+function notificationGroup(n: NotificationItem): NotificationGroup {
+  const key = n.source_key || "";
+  if (key === "version_new" || key === "version_latest") return "update";
+  if (
+    key === "ig_risk_warning" ||
+    key === "copyright_notice" ||
+    key === "install_extension" ||
+    key.startsWith("recommend_")
+  ) {
+    return "tips";
+  }
+  return "todo";
+}
+
+// ============================================================
 // 主组件
 // ============================================================
 
@@ -129,6 +160,8 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  // 「提示」组默认收起（标题始终可见，点击展开）
+  const [tipsExpanded, setTipsExpanded] = useState(false);
 
   // —— 拉取数据 ——
   const reload = useCallback(async () => {
@@ -178,6 +211,19 @@ export function NotificationsPage() {
     });
     return out;
   }, [items, filter]);
+
+  // —— 分组（在筛选+排序结果上分组，组内保持优先级顺序） ——
+  const grouped = useMemo(() => {
+    const g: Record<NotificationGroup, NotificationItem[]> = {
+      todo: [],
+      update: [],
+      tips: [],
+    };
+    for (const n of filtered) {
+      g[notificationGroup(n)].push(n);
+    }
+    return g;
+  }, [filtered]);
 
   // —— 统计 ——
   const unreadCount = useMemo(
@@ -334,146 +380,186 @@ export function NotificationsPage() {
       )}
 
       {/* ============================================================ */}
-      {/* 通知列表 */}
+      {/* 通知列表（按组分区，顺序：需处理 → 更新 → 提示；空组不渲染） */}
       {/* ============================================================ */}
-      <div className="space-y-3">
-        {filtered.map((n) => {
-          const cs = categoryStyle(n.category);
-          const isCritical = n.priority === "critical";
-          const isHigh = n.priority === "high";
-          const isLow = n.priority === "low";
-          const showPriorityBar = isCritical || isHigh;
-
+      <div className="space-y-6">
+        {GROUP_META.map((g) => {
+          const list = grouped[g.id];
+          if (list.length === 0) return null;
+          const isTips = g.id === "tips";
+          const expanded = !isTips || tipsExpanded;
           return (
-            <div
-              key={n.id}
-              onClick={() => {
-                if (!n.read) onMarkRead(n.id);
-              }}
-              className={`glass-card group relative flex cursor-pointer items-start gap-4 overflow-hidden p-5 transition-colors ${
-                n.read ? "opacity-80" : ""
-              } ${isLow ? "opacity-70" : ""} hover:bg-white/[0.06]`}
-            >
-              {/* 优先级左边条（critical/high） */}
-              {showPriorityBar && (
-                <div
-                  className={`absolute left-2 top-2 bottom-2 w-[3px] rounded-full ${priorityBarClass(
-                    n.priority
-                  )} ${isCritical ? "opacity-100" : "opacity-70"}`}
-                />
-              )}
-
-              {/* 永久通知左边 indicator（替代优先级条，不可关闭时显示） */}
-              {!n.dismissable && !showPriorityBar && (
-                <div className="absolute left-2 top-2 bottom-2 w-1 rounded-full bg-danger/60" />
-              )}
-
-              {/* 类型图标圆圈 */}
-              <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${cs.bg} ${cs.border} ${cs.text} ${
-                  isLow ? "h-8 w-8 text-xs" : "text-base"
-                }`}
-                style={{ marginLeft: showPriorityBar || !n.dismissable ? 8 : 0 }}
-              >
-                <span>{typeIcon(n.type)}</span>
-              </div>
-
-              {/* 内容区 */}
-              <div className="min-w-0 flex-1">
-                {/* 标题行 */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3
-                    className={`text-sm font-semibold ${
-                      n.read ? "text-text-muted" : "text-text"
-                    }`}
-                  >
-                    {n.title}
-                  </h3>
-
-                  {/* 优先级 badge */}
-                  {(isCritical || isHigh) && (
-                    <span
-                      className={`rounded border ${
-                        isCritical
-                          ? "border-danger/30 bg-danger/10 text-danger"
-                          : "border-warning/30 bg-warning/10 text-warning"
-                      } px-1.5 py-0.5 font-mono text-[9px] font-bold`}
-                    >
-                      {isCritical ? "CRITICAL" : "HIGH"}
-                    </span>
-                  )}
-
-                  {/* 分类 badge */}
-                  <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-text-muted">
-                    {CATEGORY_LABEL_KEY[n.category]
-                      ? tr(CATEGORY_LABEL_KEY[n.category])
-                      : CATEGORY_LABEL_FALLBACK[n.category] || n.category}
+            <section key={g.id}>
+              {isTips ? (
+                <button
+                  type="button"
+                  aria-expanded={tipsExpanded}
+                  onClick={() => setTipsExpanded((v) => !v)}
+                  className="mb-3 flex w-full items-baseline gap-2 border-b border-white/10 pb-2 text-left transition-opacity hover:opacity-80"
+                >
+                  <span className="text-xs text-text-muted">
+                    {tipsExpanded ? "▾" : "▸"}
                   </span>
-
-                  {/* 时间 */}
-                  <span className="ml-auto font-mono text-[10px] text-text-dim">
-                    {formatTime(n.created_at)}
+                  <span className="text-base font-semibold text-text">
+                    {g.title}
+                  </span>
+                  <span className="text-sm text-text-muted">
+                    （{list.length}）
+                  </span>
+                </button>
+              ) : (
+                <div className="mb-3 flex items-baseline gap-2 border-b border-white/10 pb-2">
+                  <h2 className="text-base font-semibold text-text">{g.title}</h2>
+                  <span className="text-sm text-text-muted">
+                    （{list.length}）
                   </span>
                 </div>
+              )}
+              {expanded && (
+                <div className="space-y-3">
+                  {list.map((n) => {
+                    const cs = categoryStyle(n.category);
+                    const isCritical = n.priority === "critical";
+                    const isHigh = n.priority === "high";
+                    const isLow = n.priority === "low";
+                    const showPriorityBar = isCritical || isHigh;
 
-                {/* 消息正文 */}
-                {n.message && (
-                  <p
-                    className={`mt-1 text-sm text-text-muted ${
-                      isLow ? "opacity-70" : ""
-                    }`}
-                  >
-                    {n.message}
-                  </p>
-                )}
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          if (!n.read) onMarkRead(n.id);
+                        }}
+                        className={`glass-card group relative flex cursor-pointer items-start gap-4 overflow-hidden p-5 transition-colors ${
+                          n.read ? "opacity-80" : ""
+                        } ${isLow ? "opacity-70" : ""} hover:bg-white/[0.06]`}
+                      >
+                        {/* 优先级左边条（critical/high） */}
+                        {showPriorityBar && (
+                          <div
+                            className={`absolute left-2 top-2 bottom-2 w-[3px] rounded-full ${priorityBarClass(
+                              n.priority
+                            )} ${isCritical ? "opacity-100" : "opacity-70"}`}
+                          />
+                        )}
 
-                {/* Action 按钮 */}
-                {n.action_text && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAction(n.action);
-                    }}
-                    className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
-                  >
-                    {n.action_text}
-                    <span>↗</span>
-                  </button>
-                )}
-              </div>
+                        {/* 永久通知左边 indicator（替代优先级条，不可关闭时显示） */}
+                        {!n.dismissable && !showPriorityBar && (
+                          <div className="absolute left-2 top-2 bottom-2 w-1 rounded-full bg-danger/60" />
+                        )}
 
-              {/* 右侧：未读红点 + 关闭/锁图标 */}
-              <div className="flex shrink-0 flex-col items-center gap-2">
-                {/* 未读小红点 */}
-                {!n.read && (
-                  <span className="h-2 w-2 rounded-full bg-accent opacity-90" />
-                )}
+                        {/* 类型图标圆圈 */}
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${cs.bg} ${cs.border} ${cs.text} ${
+                            isLow ? "h-8 w-8 text-xs" : "text-base"
+                          }`}
+                          style={{ marginLeft: showPriorityBar || !n.dismissable ? 8 : 0 }}
+                        >
+                          <span>{typeIcon(n.type)}</span>
+                        </div>
 
-                <div className="flex-1" />
+                        {/* 内容区 */}
+                        <div className="min-w-0 flex-1">
+                          {/* 标题行 */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3
+                              className={`text-sm font-semibold ${
+                                n.read ? "text-text-muted" : "text-text"
+                              }`}
+                            >
+                              {n.title}
+                            </h3>
 
-                {/* 关闭按钮（可关闭的通知） */}
-                {n.dismissable ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDismiss(n.id);
-                    }}
-                    title={tr("close")}
-                    className="flex h-6 w-6 items-center justify-center rounded text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text group-hover:opacity-100"
-                  >
-                    ✕
-                  </button>
-                ) : (
-                  /* 永久通知的锁图标 */
-                  <div
-                    title={tr("notif_permanent_locked")}
-                    className="flex h-6 w-6 cursor-help items-center justify-center rounded border border-white/10 text-text-dim"
-                  >
-                    <span className="text-[10px]">🔒</span>
-                  </div>
-                )}
-              </div>
-            </div>
+                            {/* 优先级 badge */}
+                            {(isCritical || isHigh) && (
+                              <span
+                                className={`rounded border ${
+                                  isCritical
+                                    ? "border-danger/30 bg-danger/10 text-danger"
+                                    : "border-warning/30 bg-warning/10 text-warning"
+                                } px-1.5 py-0.5 font-mono text-[9px] font-bold`}
+                              >
+                                {isCritical ? "CRITICAL" : "HIGH"}
+                              </span>
+                            )}
+
+                            {/* 分类 badge */}
+                            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-text-muted">
+                              {CATEGORY_LABEL_KEY[n.category]
+                                ? tr(CATEGORY_LABEL_KEY[n.category])
+                                : CATEGORY_LABEL_FALLBACK[n.category] || n.category}
+                            </span>
+
+                            {/* 时间 */}
+                            <span className="ml-auto font-mono text-[10px] text-text-dim">
+                              {formatTime(n.created_at)}
+                            </span>
+                          </div>
+
+                          {/* 消息正文（两行截断，防长文撑版；悬停看全文） */}
+                          {n.message && (
+                            <p
+                              title={n.message}
+                              className={`mt-1 line-clamp-2 text-sm text-text-muted ${
+                                isLow ? "opacity-70" : ""
+                              }`}
+                            >
+                              {n.message}
+                            </p>
+                          )}
+
+                          {/* Action 按钮 */}
+                          {n.action_text && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAction(n.action);
+                              }}
+                              className="mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+                            >
+                              {n.action_text}
+                              <span>↗</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 右侧：未读红点 + 关闭/锁图标 */}
+                        <div className="flex shrink-0 flex-col items-center gap-2">
+                          {/* 未读小红点 */}
+                          {!n.read && (
+                            <span className="h-2 w-2 rounded-full bg-accent opacity-90" />
+                          )}
+
+                          <div className="flex-1" />
+
+                          {/* 关闭按钮（可关闭的通知） */}
+                          {n.dismissable ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDismiss(n.id);
+                              }}
+                              title={tr("close")}
+                              className="flex h-6 w-6 items-center justify-center rounded text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text group-hover:opacity-100"
+                            >
+                              ✕
+                            </button>
+                          ) : (
+                            /* 永久通知的锁图标 */
+                            <div
+                              title={tr("notif_permanent_locked")}
+                              className="flex h-6 w-6 cursor-help items-center justify-center rounded border border-white/10 text-text-dim"
+                            >
+                              <span className="text-[10px]">🔒</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           );
         })}
       </div>
