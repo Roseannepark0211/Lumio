@@ -100,6 +100,62 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '5.0.0',
+    date: '2026-10-25',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          'chore: 版本号升至 5.0.0',
+          'fix(notif): 同 source_key 通知更新内容而非跳过（根治旧动作残留）',
+          'fix(ui): 更新日志渲染与关于卡片整理',
+          'chore(batch): 删旧批量入口与插件批量（批量下载阶段 4）',
+          'feat(batch): 批量入队 API + 分组进度 + 弹窗接线（批量下载阶段 3）',
+          'feat(ui): 批量下载弹窗 BatchDownloadModal（批量下载阶段 2）',
+          'feat(providers): 抖音主页作品列表（批量下载阶段 1，实现完成）',
+          'feat(providers): YouTube 频道作品列表（批量下载阶段 1）',
+          'fix(extension): IG 详情容器跳过无 article 的 dialog',
+          'fix(ci): 发版收尾两处自动化修复',
+          'website: 同步 v4.5.3（发版自动更新）',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v5.0.0',
+  },
+  {
     version: '4.5.3',
     date: '2026-10-24',
     sections: [
@@ -194,54 +250,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.2',
-  },
-  {
-    version: '4.5.1',
-    date: '2026-10-24',
-    sections: [
-      {
-        title: '📥 普通用户下载（只需选一个）',
-        items: [
-
-        ],
-      },
-      {
-        title: '📋 更新内容',
-        items: [
-          '抖音解析恢复：Argus 升级后无签名请求被拦截，新增浏览器拦截兜底（视频优先走 www 页，图文走分享页），多清晰度与图文均已验证',
-          '更新检查报错提示改为中文友好文案，并附原始错误详情与重试、官网下载入口',
-          '关闭弹窗的“记住”只对应最小化与退出，点取消不再残留状态',
-        ],
-      },
-      {
-        title: '💻 系统要求',
-        items: [
-          '**Windows**: Windows 10/11 x64',
-          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
-          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
-        ],
-      },
-      {
-        title: '📦 安装说明',
-        items: [
-
-        ],
-      },
-      {
-        title: '🔄 自动更新',
-        items: [
-          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
-          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
-        ],
-      },
-      {
-        title: '🛠️ 从源码运行（开发者）',
-        items: [
-
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.1',
   },
 ];
 
