@@ -100,6 +100,54 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '5.0.2',
+    date: '2026-10-26',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          'chore: bump version to 5.0.2 (verification build for Douyin batch listing)',
+          'fix(batch): Douyin homepage recognition in preview_batch',
+          'website: 同步 v5.0.1（发版自动更新）',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v5.0.2',
+  },
+  {
     version: '5.0.1',
     date: '2026-10-26',
     sections: [
@@ -206,54 +254,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v5.0.0',
-  },
-  {
-    version: '4.5.3',
-    date: '2026-10-24',
-    sections: [
-      {
-        title: '📥 普通用户下载（只需选一个）',
-        items: [
-
-        ],
-      },
-      {
-        title: '📋 更新内容',
-        items: [
-          '收件箱下载修复：无直链条目（抖音/小红书/快手/微博）点击下载没反应的问题修好（字段名迁移遗留）',
-          '下载失败现在显示具体原因，不再悄悄失败',
-          'Python 依赖缺失通知的“安装”按钮改指 Python 官网下载页（之前误指到仓库）',
-        ],
-      },
-      {
-        title: '💻 系统要求',
-        items: [
-          '**Windows**: Windows 10/11 x64',
-          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
-          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
-        ],
-      },
-      {
-        title: '📦 安装说明',
-        items: [
-
-        ],
-      },
-      {
-        title: '🔄 自动更新',
-        items: [
-          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
-          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
-        ],
-      },
-      {
-        title: '🛠️ 从源码运行（开发者）',
-        items: [
-
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.3',
   },
 ];
 
