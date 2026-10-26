@@ -166,12 +166,45 @@ def preview_batch(
     # 手机端主页分享短链（v.douyin.com）需先 302 展开再判定：
     # 展开后可能是 douyin.com/user/，也可能是 iesdouyin.com/share/user/。
     # 非短链直接返回原 URL，无网络开销。
-    from .providers.douyin import _PROFILE_RE, _SHARE_USER_RE
+    from .providers.douyin import (
+        _PROFILE_RE,
+        _SHARE_URL_RE,
+        _SHARE_USER_RE,
+        _expand_share_url,
+        _extract_profile_sec_uid,
+    )
     from .providers.url_normalizer import normalize_url
     from .utils.url_parser import extract_url_from_text
 
-    expanded_url = normalize_url(extract_url_from_text(url) or url)
-    if _PROFILE_RE.search(expanded_url) or _SHARE_USER_RE.search(expanded_url):
+    def _is_profile_url(u: str) -> bool:
+        return bool(_PROFILE_RE.search(u) or _SHARE_USER_RE.search(u))
+
+    # 1. 已是完整主页链接：直接用，不再 resolve——resolve 可能把好链接
+    # 重定向走（PC UA 易被抖音反爬拦截），反而认不出来。
+    text_url = extract_url_from_text(url) or url
+    if _is_profile_url(text_url):
+        expanded_url = text_url
+    else:
+        # 2. 短链先走 normalize 展开；展开后仍不匹配时，用移动端 UA 的
+        # provider 展开再试一次（单帖路径在真机上已证实该方式可用，
+        # resolve_url 的 PC UA 可能被抖音反爬拦截导致重定向失败）。
+        expanded_url = normalize_url(text_url)
+        if not _is_profile_url(expanded_url) and _SHARE_URL_RE.search(text_url):
+            try:
+                alt = _expand_share_url(text_url)
+            except Exception:
+                alt = None
+            if alt:
+                expanded_url = alt
+        # 3. 仍不匹配：试 sec_uid 兜底（share/user 形态但 sec_uid 只在
+        # 查询参数时），拼规范 share/user 链接。
+        if not _is_profile_url(expanded_url):
+            sec_uid = _extract_profile_sec_uid(expanded_url)
+            if sec_uid:
+                expanded_url = (
+                    f"https://www.iesdouyin.com/share/user/{sec_uid}"
+                )
+    if _is_profile_url(expanded_url):
         if douyin_enumerator is None:
             from .providers.douyin import DouyinProvider
 
