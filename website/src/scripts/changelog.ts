@@ -100,6 +100,58 @@ export function toSummary(release: { sections: ChangelogSection[] }): ChangelogS
  * ============================================================================ */
 export const FALLBACK_RELEASES: ParsedRelease[] = [
   {
+    version: '5.0.1',
+    date: '2026-10-26',
+    sections: [
+      {
+        title: '📥 普通用户下载（只需选一个）',
+        items: [
+
+        ],
+      },
+      {
+        title: '📋 更新内容',
+        items: [
+          'chore(release): bump version to 5.0.1',
+          '抖音解析提速：缓存规范 key + 直链信任窗口 + 常驻暖浏览器',
+          'fix(douyin): 批量入口先提纯再判定，原文粘贴也能进批量弹窗',
+          'fix(ui): 通知中心分区 + 占位符不再原样显示',
+          'fix(notif): 检查单与常驻条目清理',
+          'fix(douyin): 手机主页短链 share/user 识别',
+          'website: 同步 v5.0.0（发版自动更新）',
+        ],
+      },
+      {
+        title: '💻 系统要求',
+        items: [
+          '**Windows**: Windows 10/11 x64',
+          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
+          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
+        ],
+      },
+      {
+        title: '📦 安装说明',
+        items: [
+
+        ],
+      },
+      {
+        title: '🔄 自动更新',
+        items: [
+          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
+          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
+        ],
+      },
+      {
+        title: '🛠️ 从源码运行（开发者）',
+        items: [
+
+        ],
+      },
+    ],
+    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v5.0.1',
+  },
+  {
     version: '5.0.0',
     date: '2026-10-25',
     sections: [
@@ -202,54 +254,6 @@ export const FALLBACK_RELEASES: ParsedRelease[] = [
       },
     ],
     url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.3',
-  },
-  {
-    version: '4.5.2',
-    date: '2026-10-24',
-    sections: [
-      {
-        title: '📥 普通用户下载（只需选一个）',
-        items: [
-
-        ],
-      },
-      {
-        title: '📋 更新内容',
-        items: [
-          '打包版抖音解析恢复：安装包补上浏览器组件与驱动，优先复用本机 Chrome/Edge，不用再下载 Chromium（修复 v4.5.1 安装包里浏览器兜底不可用的问题）',
-          '未找到可用浏览器时给出明确提示：请安装 Chrome 或 Edge 后重试，或运行 playwright install chromium',
-          '修复发版后官网版本同步失败的问题',
-        ],
-      },
-      {
-        title: '💻 系统要求',
-        items: [
-          '**Windows**: Windows 10/11 x64',
-          '**macOS**: macOS 12+（仅 Apple Silicon，Intel Mac 暂不提供预编译包）',
-          '**Linux**: Ubuntu 20.04+ / Fedora 36+ / Debian 11+ x64',
-        ],
-      },
-      {
-        title: '📦 安装说明',
-        items: [
-
-        ],
-      },
-      {
-        title: '🔄 自动更新',
-        items: [
-          '**Windows / Linux**: 检测到新版本后弹窗提示，确认后后台下载，完成后一键重启安装',
-          '**macOS**: 检测到新版本后跳转到 Release 页面手动下载 DMG（无 Apple Developer 证书，不支持自动更新）',
-        ],
-      },
-      {
-        title: '🛠️ 从源码运行（开发者）',
-        items: [
-
-        ],
-      },
-    ],
-    url: 'https://github.com/Roseannepark0211/Lumio/releases/tag/v4.5.2',
   },
 ];
 
