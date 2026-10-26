@@ -11,7 +11,9 @@ extraction only, never live Douyin.
 """
 from __future__ import annotations
 
-from lumio.batch_download import preview_batch
+import pytest
+
+from lumio.batch_download import BatchPreviewError, preview_batch
 from lumio.providers.base import Platform
 from lumio.providers.detector import detect_domestic
 from lumio.providers.douyin import DouyinProvider, _extract_profile_sec_uid
@@ -179,3 +181,54 @@ class TestPreviewBatchShareUser:
         assert res["platform"] == "douyin"
         assert len(res["works"]) == 1
         assert seen == [SHARE_USER_URL]
+
+
+# ========================================================================
+# preview_batch: raw share text is extracted before judging
+# ========================================================================
+# Regression: the frontend sends the raw pasted text (share password
+# text with a short link inside) to /api/batch/preview. normalize_url
+# cannot handle free text with Chinese, so without extraction the
+# Douyin branch never matched and raw pastes fell back to single parse.
+
+
+RAW_SHARE_TEXT = (
+    "4- 长按复制此条消息，打开抖音搜索，查看TA的更多作品。 "
+    + SHORT_URL + " 7@5.com :3pm"
+)
+RAW_LONG_USER_TEXT = (
+    "看看TA的主页 " + DOUYIN_USER_URL + " 记得关注"
+)
+
+
+class TestPreviewBatchRawText:
+    def test_preview_raw_share_text_routes_to_douyin(self, monkeypatch):
+        # 提纯用真实 extract_url_from_text（纯正则，不触网）；
+        # 展开 mock 成短链 -> share/user
+        monkeypatch.setattr(
+            "lumio.providers.url_normalizer.normalize_url",
+            lambda u: SHARE_USER_URL if u == SHORT_URL else u,
+        )
+        seen = []
+        res = preview_batch(RAW_SHARE_TEXT,
+                            douyin_enumerator=_douyin_enumerator(seen))
+        assert res["platform"] == "douyin"
+        assert len(res["works"]) == 1
+        assert seen == [SHARE_USER_URL]
+
+    def test_preview_raw_text_with_long_user_url_routes(self, monkeypatch):
+        monkeypatch.setattr(
+            "lumio.providers.url_normalizer.normalize_url", lambda u: u)
+        seen = []
+        res = preview_batch(RAW_LONG_USER_TEXT,
+                            douyin_enumerator=_douyin_enumerator(seen))
+        assert res["platform"] == "douyin"
+        assert seen == [DOUYIN_USER_URL]
+
+    def test_preview_raw_text_without_url_still_not_supported(self, monkeypatch):
+        monkeypatch.setattr(
+            "lumio.providers.url_normalizer.normalize_url", lambda u: u)
+        with pytest.raises(BatchPreviewError) as exc_info:
+            preview_batch("长按复制此条消息，打开抖音搜索，查看TA的更多作品。",
+                          douyin_enumerator=_douyin_enumerator([]))
+        assert exc_info.value.code == "profile_not_supported"

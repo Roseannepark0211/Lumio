@@ -161,13 +161,16 @@ def preview_batch(
         }
 
     # —— 抖音个人主页 ——
+    # 原文粘贴（如手机分享口令文本）先提纯出 URL 再判定：
+    # normalize_url 处理不了带中文的整段文本，不提纯会直接判不通过。
     # 手机端主页分享短链（v.douyin.com）需先 302 展开再判定：
     # 展开后可能是 douyin.com/user/，也可能是 iesdouyin.com/share/user/。
     # 非短链直接返回原 URL，无网络开销。
     from .providers.douyin import _PROFILE_RE, _SHARE_USER_RE
     from .providers.url_normalizer import normalize_url
+    from .utils.url_parser import extract_url_from_text
 
-    expanded_url = normalize_url(url)
+    expanded_url = normalize_url(extract_url_from_text(url) or url)
     if _PROFILE_RE.search(expanded_url) or _SHARE_USER_RE.search(expanded_url):
         if douyin_enumerator is None:
             from .providers.douyin import DouyinProvider

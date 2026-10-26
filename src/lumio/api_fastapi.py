@@ -1763,14 +1763,14 @@ def create_app() -> FastAPI:
         url = extract_url_from_text(url) or url
         rid = req.request_id or f"parse_{int(time.time()*1000)}"
 
-        # 主页/频道/播放列表批量导入功能未迁移到 React 前端
+        # 主页/频道/播放列表不走单帖解析：批量预览才是正确入口，
         # 立即返回错误，避免 yt-dlp 在频道 URL 上挂起导致前端一直显示「解析中」
         try:
             parsed = _parse_url(url)
             if parsed.kind in ("profile", "channel", "playlist"):
                 _bus().publish("parse_failed", {
                     "request_id": rid,
-                    "error": "主页/频道/播放列表批量导入功能暂未实现，请使用单帖链接",
+                    "error": "主页/频道请使用批量下载入口，播放列表暂不支持",
                 })
                 return {"ok": False, "error": "profile_not_supported"}
         except Exception:
