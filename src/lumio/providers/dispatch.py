@@ -21,6 +21,38 @@ from .url_normalizer import normalize_url
 
 logger = logging.getLogger(__name__)
 
+# 抖音直链信任窗口（秒）：缓存的 CDN 直链超过该年龄不再返回，
+# 由调用方重新解析，避免隔夜旧直链下载时 403。
+# 该值未经实测（真实直链寿命仍待验证窗口补测），保守取 6 小时，
+# 同日重复解析可命中，隔夜条目重新解析。
+_DOUYIN_LINK_TTL = 6 * 3600
+
+
+def _douyin_video_id(url: str) -> Optional[str]:
+    """从抖音视频/图文 URL 提取 aweme_id（本地导入，避免循环导入）。"""
+    try:
+        from .douyin import _extract_video_id
+    except Exception:
+        return None
+    try:
+        return _extract_video_id(url)
+    except Exception:
+        return None
+
+
+def _resolve_cache_key(normalized: str) -> tuple[str, Optional[int]]:
+    """确定缓存 key 与链接信任窗口。
+
+    抖音视频/图文：同一视频有 www 视频页、ies 分享页、短链展开后
+    多种形态，URL key 会 miss；改按 aweme_id 做规范 key，
+    各形态命中同一条目，并对直链施加 _DOUYIN_LINK_TTL 窗口。
+    其他平台：沿用原 URL key（去 query/fragment）与默认 TTL。
+    """
+    video_id = _douyin_video_id(normalized)
+    if video_id:
+        return f"douyin:aweme:{video_id}", _DOUYIN_LINK_TTL
+    return _normalize_cache_key(normalized), None
+
 
 def _is_failed_media_info(info: MediaInfo) -> bool:
     """判断 MediaInfo 是否是解析失败的结果（不应被缓存）。
@@ -69,12 +101,13 @@ def resolve_via_providers(url: str) -> Optional[MediaInfo]:
     # Step 1: normalize short URLs (t.cn -> weibo.com, etc.)
     normalized = normalize_url(url)
 
-    # Step 2: 用规范化 URL（去 query/fragment）作为缓存 key，
-    # 避免同一帖子因 igsh/utm_source 等 query 参数重复缓存
-    cache_key = _normalize_cache_key(normalized)
+    # Step 2: 确定缓存 key。抖音视频/图文按 aweme_id 做规范 key
+    # （各形态命中同一条目），并对直链施加信任窗口；其他平台
+    # 沿用规范化 URL（去 query/fragment）与默认 TTL。
+    cache_key, link_max_age = _resolve_cache_key(normalized)
 
     # Step 2.5: 检查缓存 —— 跳过失败的缓存项（兼容旧版本写入的失败缓存）
-    cached = provider_cache.get(cache_key)
+    cached = provider_cache.get(cache_key, max_age=link_max_age)
     if cached is not None:
         if _is_failed_media_info(cached):
             # 命中失败缓存，跳过直接重新解析（不返回缓存的失败结果）

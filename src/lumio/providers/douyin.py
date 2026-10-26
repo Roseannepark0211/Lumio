@@ -425,7 +425,7 @@ class DouyinProvider(BaseProvider):
         # note 链接走分享页优先（已验证），视频链接走 www 页优先（更稳）；
         # url 此时已是展开后的最终 URL，含 /note/ 即为图文
         detail, filter_msg = fetch_aweme_detail_via_browser(
-            video_id, is_note=("/note/" in url))
+            video_id, is_note=("/note/" in url), use_warm=True)
         if detail:
             info = self._parse_aweme_detail(detail, url, video_id)
             if info.media_items:
@@ -780,7 +780,7 @@ class DouyinProvider(BaseProvider):
         detail = self._fetch_aweme_detail(video_id)
         if not detail:
             detail, _filter_msg = fetch_aweme_detail_via_browser(
-                video_id, is_note=("/note/" in url))
+                video_id, is_note=("/note/" in url), use_warm=True)
         if not detail:
             return None
         video_info = detail.get("video", {}) or {}

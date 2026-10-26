@@ -228,8 +228,14 @@ def _save_cache_file(data: dict[str, dict]) -> None:
         logger.warning("Failed to save provider cache file: %s", e)
 
 
-def get_file_cached(url: str, ttl: int = _FILE_TTL) -> Optional[MediaInfo]:
-    """从文件缓存中获取解析结果。"""
+def get_file_cached(url: str, ttl: int = _FILE_TTL,
+                    max_age: Optional[int] = None) -> Optional[MediaInfo]:
+    """从文件缓存中获取解析结果。
+
+    max_age 不为 None 时覆盖 ttl：条目超过 max_age 即视为过期
+    （用于直链有效期短于元数据的情况：调用方按视频 ID 等条件
+    传入更短的链接信任窗口，过期条目不返回、由调用方重新解析）。
+    """
     key = _hash_url(url)
     with _file_lock:
         data = _load_cache_file()
@@ -237,7 +243,8 @@ def get_file_cached(url: str, ttl: int = _FILE_TTL) -> Optional[MediaInfo]:
         if entry is None:
             return None
         cached_time = entry.get("_cached_at", 0)
-        if time.time() - cached_time > ttl:
+        limit = max_age if max_age is not None else ttl
+        if time.time() - cached_time > limit:
             # 过期
             data.pop(key, None)
             _save_cache_file(data)
@@ -275,13 +282,18 @@ def _clear_file_cache() -> None:
 
 # === 统一缓存接口 ===
 
-def get(url: str, use_file_cache: bool = True) -> Optional[MediaInfo]:
-    """统一查询缓存：先查内存，未命中再查文件。"""
+def get(url: str, use_file_cache: bool = True,
+        max_age: Optional[int] = None) -> Optional[MediaInfo]:
+    """统一查询缓存：先查内存，未命中再查文件。
+
+    max_age 透传给文件层（内存层 TTL 30 分钟已短于常规链接
+    信任窗口，无需再收紧）。
+    """
     info = get_cached(url)
     if info is not None:
         return info
     if use_file_cache:
-        info = get_file_cached(url)
+        info = get_file_cached(url, max_age=max_age)
         if info is not None:
             # 回填到内存缓存，缩短 TTL 避免文件缓存项长期占内存
             set_cached(url, info, ttl=_MEMORY_TTL)

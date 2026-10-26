@@ -34,6 +34,7 @@ import logging
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -168,45 +169,123 @@ def extract_detail_from_payload(data: dict) -> tuple[Optional[dict], Optional[st
     return None, None
 
 
-def fetch_aweme_detail_via_browser(
-    video_id: str,
-    timeout: int = DEFAULT_TIMEOUT,
-    user_data_dir: Optional[Path] = None,
-    executable_path: Optional[str] = None,
-    chromium_args: Optional[list[str]] = None,
-    is_note: bool = False,
-) -> tuple[Optional[dict], Optional[str]]:
-    """用真实浏览器拦截 aweme detail 响应，返回 (detail, filter_msg)。
+# === 常驻暖浏览器上下文（解析提速） ===
+# Playwright 同步 API 对象绑定到创建它的线程；FastAPI 经 to_thread 在
+# 线程池里调用解析，跨线程复用同一上下文会报错，且同一 profile 目录
+# 同时开两个持久上下文会撞锁。因此常驻上下文实行“单线程独占”：
+# 同线程 + 同 profile + 同启动参数才复用，否则关掉旧的、当前线程重建；
+# 任何一步失败都回落到冷启动（现起现关），不影响正确性。
+# 注意：暖来自一次成功解析养出的会话，不是光启动浏览器——首个解析
+# 仍是冷耗时，成功解析后后续解析复用会话（验证结论）。
+_warm_lock = threading.Lock()
+_warm_playwright = None
+_warm_context = None
+_warm_owner_thread = None
+_warm_fingerprint = None
+_warm_atexit_registered = False
 
-    Args:
-        video_id: 抖音 aweme_id。
-        timeout: 总等待时长（秒），超时返回 (None, None)。
-        user_data_dir: 浏览器 profile 目录，默认 ~/.lumio/browser/douyin；
-            复用同一目录是"养会话"的关键，不要传临时目录。
-        executable_path: 指定 Chromium 可执行文件（测试用；默认按
-            Playwright 自带浏览器 → 本机 Chrome/Edge 的顺序自动解析，
-            两者皆无时由 Playwright 报错并返回 (None, None)）。
-        chromium_args: 透传给 Chromium 的启动参数（如沙箱内需
-            --no-sandbox；用户机器上一般不需要）。
-        is_note: 是否为图文帖。图文走分享页优先（已验证），视频走
-            www 页优先：分享页只是带 Argus 预检的壳，启动过程受风控
-            影响时好时坏（同一视频有时 Loading 卡死、零请求，有时
-            正常触发签名详情），而 www 页跳过分享壳，更稳。
 
-    Returns:
-        (detail, filter_msg)，见 extract_detail_from_payload。
-        Playwright 未安装时返回 (None, None) 并记 warning。
-    """
+def _add_stealth_init_script(context) -> None:
+    """隐藏 webdriver 标记（不改 UA：实测改 UA 反而导致验证不通过）。"""
+    context.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', "
+        "{ get: () => undefined })"
+    )
+
+
+def _resolve_chromium_executable(pw, executable_path):
+    """浏览器解析：显式指定 > Playwright 自带（版本最匹配）>
+    本机 Chrome/Edge（打包版无自带浏览器时的主力）>
+    都没有则返回 None，让 Playwright 报明确错误。"""
+    if executable_path:
+        return executable_path
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        logger.warning(
-            "抖音浏览器兜底不可用：未安装 Playwright，"
-            "请执行 pip install lumio[browser] 后重试"
-        )
-        return None, None
+        managed = Path(pw.chromium.executable_path)
+    except Exception:
+        managed = None
+    if managed is not None and managed.exists():
+        return None  # 自带浏览器存在，沿用 Playwright 默认
+    return find_system_browser()
 
+
+def _drop_warm_context_locked() -> None:
+    """关掉常驻上下文并停掉 Playwright（调用方须持 _warm_lock）。"""
+    global _warm_playwright, _warm_context, _warm_owner_thread, _warm_fingerprint
+    ctx, pw = _warm_context, _warm_playwright
+    _warm_context = None
+    _warm_playwright = None
+    _warm_owner_thread = None
+    _warm_fingerprint = None
+    if ctx is not None:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+    if pw is not None:
+        try:
+            pw.stop()
+        except Exception:
+            pass
+
+
+def close_warm_context() -> None:
+    """公开关闭入口（应用退出、测试清理用）。"""
+    with _warm_lock:
+        _drop_warm_context_locked()
+
+
+def _acquire_warm_context(user_data_dir, executable_path, chromium_args,
+                          playwright_factory=None):
+    """获取常驻上下文；建不起来返回 None（调用方走冷启动）。
+
+    playwright_factory 默认 sync_playwright，测试可注入 fake。
+    """
+    global _warm_playwright, _warm_context, _warm_owner_thread
+    global _warm_fingerprint, _warm_atexit_registered
+    if playwright_factory is None:
+        try:
+            from playwright.sync_api import sync_playwright as playwright_factory
+        except ImportError:
+            return None
     profile_dir = Path(user_data_dir) if user_data_dir else _default_user_data_dir()
+    fingerprint = (str(profile_dir), executable_path, tuple(chromium_args or []))
+    with _warm_lock:
+        if (_warm_context is not None
+                and _warm_owner_thread == threading.get_ident()
+                and _warm_fingerprint == fingerprint):
+            return _warm_context
+        # 线程、profile 或启动参数变了：关旧建新，避免跨线程使用与 profile 锁冲突
+        _drop_warm_context_locked()
+        try:
+            pw = playwright_factory().start()
+            exe = _resolve_chromium_executable(pw, executable_path)
+            launch_kwargs: dict = {"headless": True}
+            if exe:
+                launch_kwargs["executable_path"] = exe
+            if chromium_args:
+                launch_kwargs["args"] = chromium_args
+            ctx = pw.chromium.launch_persistent_context(str(profile_dir), **launch_kwargs)
+            _add_stealth_init_script(ctx)
+        except Exception:
+            _drop_warm_context_locked()
+            return None
+        _warm_playwright = pw
+        _warm_context = ctx
+        _warm_owner_thread = threading.get_ident()
+        _warm_fingerprint = fingerprint
+        if not _warm_atexit_registered:
+            import atexit
+            atexit.register(close_warm_context)
+            _warm_atexit_registered = True
+        return ctx
+
+
+def _capture_detail(context, video_id, is_note, deadline):
+    """在给定上下文里开新页、拦截详情响应，返回 (detail, filter_msg)。
+
+    页由本函数开关（常驻上下文不关闭，冷路径随后有关上下文）。
+    deadline 为绝对时间（monotonic），到时未捕获即返回 (None, None)。
+    """
     captured: dict[str, object] = {}
 
     def _on_response(resp) -> None:
@@ -224,73 +303,44 @@ def fetch_aweme_detail_via_browser(
         elif filter_msg:
             captured.setdefault("filter_msg", filter_msg)
 
+    page = context.new_page()
     try:
-        with sync_playwright() as p:
-            launch_kwargs: dict = {"headless": True}
-            # 浏览器解析：显式指定 > Playwright 自带（版本最匹配）>
-            # 本机 Chrome/Edge（打包版无自带浏览器时的主力）>
-            # 都没有则不传 executable_path，让 Playwright 报明确错误。
-            exe = executable_path
-            if not exe:
-                try:
-                    managed = Path(p.chromium.executable_path)
-                except Exception:
-                    managed = None
-                if managed is not None and managed.exists():
-                    exe = None  # 自带浏览器存在，沿用 Playwright 默认
-                else:
-                    exe = find_system_browser()
-            if exe:
-                launch_kwargs["executable_path"] = exe
-            if chromium_args:
-                launch_kwargs["args"] = chromium_args
-            context = p.chromium.launch_persistent_context(
-                str(profile_dir), **launch_kwargs
-            )
+        page.on("response", _on_response)
+        # 入口页：图文走分享页优先（已验证），视频走 www 页优先。
+        # 分享页只是带 Argus 预检的壳，启动过程受风控影响时好时坏
+        # （同一视频有时 Loading 卡死、零请求，有时正常触发签名详情），
+        # 而 www 页跳过分享壳，更稳。
+        # goto 用 commit 即返回，不等 DOM：应用在后台继续加载，
+        # 轮询期间仍能捕获签名请求（冷会话下 domcontentloaded
+        # 常常 60s 超时，反而浪费预算）。
+        share_url = _SHARE_PAGE_URL.format(video_id)
+        www_url = _VIDEO_PAGE_URL.format(video_id)
+        entry_urls = (
+            [share_url, www_url] if is_note else [www_url, share_url]
+        )
+        remaining = max(0.0, deadline - time.monotonic())
+        per_page = max(30.0, remaining / len(entry_urls))
+        for page_url in entry_urls:
+            if time.monotonic() >= deadline:
+                break
+            if "detail" in captured or "filter_msg" in captured:
+                break
+            page_deadline = min(deadline, time.monotonic() + per_page)
             try:
-                # 隐藏 webdriver 标记（不改 UA：实测改 UA 反而导致验证不通过）
-                context.add_init_script(
-                    "Object.defineProperty(navigator, 'webdriver', "
-                    "{ get: () => undefined })"
+                page.goto(page_url, wait_until="commit", timeout=30_000)
+            except Exception as e:
+                logger.debug(
+                    "抖音入口页跳转未完成 %s，继续等待捕获：%s", page_url, e
                 )
-                page = context.new_page()
-                page.on("response", _on_response)
-                # 入口页：图文走分享页优先（已验证），视频走 www 页优先。
-                # 分享页只是带 Argus 预检的壳，启动过程受风控影响时好时坏
-                # （同一视频有时 Loading 卡死、零请求，有时正常触发签名详情），
-                # 而 www 页跳过分享壳，更稳。
-                # goto 用 commit 即返回，不等 DOM：应用在后台继续加载，
-                # 轮询期间仍能捕获签名请求（冷会话下 domcontentloaded
-                # 常常 60s 超时，反而浪费预算）。
-                share_url = _SHARE_PAGE_URL.format(video_id)
-                www_url = _VIDEO_PAGE_URL.format(video_id)
-                entry_urls = (
-                    [share_url, www_url] if is_note else [www_url, share_url]
-                )
-                per_page = max(30.0, timeout / len(entry_urls))
-                deadline = time.monotonic() + timeout
-                for page_url in entry_urls:
-                    if time.monotonic() >= deadline:
-                        break
-                    if "detail" in captured or "filter_msg" in captured:
-                        break
-                    page_deadline = min(deadline, time.monotonic() + per_page)
-                    try:
-                        page.goto(page_url, wait_until="commit", timeout=30_000)
-                    except Exception as e:
-                        logger.debug(
-                            "抖音入口页跳转未完成 %s，继续等待捕获：%s", page_url, e
-                        )
-                    while time.monotonic() < page_deadline:
-                        if "detail" in captured or "filter_msg" in captured:
-                            break
-                        page.wait_for_timeout(1000)
-            finally:
-                context.close()
-    except Exception as e:
-        logger.warning("抖音浏览器拦截失败（video_id=%s）：%s", video_id, e)
-        return None, None
-
+            while time.monotonic() < page_deadline:
+                if "detail" in captured or "filter_msg" in captured:
+                    break
+                page.wait_for_timeout(1000)
+    finally:
+        try:
+            page.close()
+        except Exception:
+            pass
     if "detail" in captured:
         logger.info("抖音浏览器拦截成功（video_id=%s）：拿到 aweme_detail", video_id)
         return captured["detail"], None
@@ -299,6 +349,102 @@ def fetch_aweme_detail_via_browser(
         return None, str(captured["filter_msg"])
     logger.warning("抖音浏览器拦截超时（video_id=%s）：未捕获到详情响应", video_id)
     return None, None
+
+
+def _fetch_cold(video_id, is_note, deadline, user_data_dir,
+                executable_path, chromium_args):
+    """冷启动：现起现关（原 fetch 逻辑）。deadline 为绝对时间。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning(
+            "抖音浏览器兜底不可用：未安装 Playwright，"
+            "请执行 pip install lumio[browser] 后重试"
+        )
+        return None, None
+
+    profile_dir = Path(user_data_dir) if user_data_dir else _default_user_data_dir()
+    try:
+        with sync_playwright() as p:
+            launch_kwargs: dict = {"headless": True}
+            exe = _resolve_chromium_executable(p, executable_path)
+            if exe:
+                launch_kwargs["executable_path"] = exe
+            if chromium_args:
+                launch_kwargs["args"] = chromium_args
+            context = p.chromium.launch_persistent_context(
+                str(profile_dir), **launch_kwargs
+            )
+            try:
+                _add_stealth_init_script(context)
+                return _capture_detail(context, video_id, is_note, deadline)
+            finally:
+                context.close()
+    except Exception as e:
+        logger.warning("抖音浏览器拦截失败（video_id=%s）：%s", video_id, e)
+        return None, None
+
+
+def fetch_aweme_detail_via_browser(
+    video_id: str,
+    timeout: int = DEFAULT_TIMEOUT,
+    user_data_dir: Optional[Path] = None,
+    executable_path: Optional[str] = None,
+    chromium_args: Optional[list[str]] = None,
+    is_note: bool = False,
+    use_warm: bool = False,
+    _playwright_factory=None,
+) -> tuple[Optional[dict], Optional[str]]:
+    """用真实浏览器拦截 aweme detail 响应，返回 (detail, filter_msg)。
+
+    Args:
+        video_id: 抖音 aweme_id。
+        timeout: 总等待时长（秒），超时返回 (None, None)。
+        user_data_dir: 浏览器 profile 目录，默认 ~/.lumio/browser/douyin；
+            复用同一目录是"养会话"的关键，不要传临时目录。
+        executable_path: 指定 Chromium 可执行文件（测试用；默认按
+            Playwright 自带浏览器 → 本机 Chrome/Edge 的顺序自动解析，
+            两者皆无时由 Playwright 报错并返回 (None, None)）。
+        chromium_args: 透传给 Chromium 的启动参数（如沙箱内需
+            --no-sandbox；用户机器上一般不需要）。
+        is_note: 是否为图文帖。图文走分享页优先（已验证），视频走
+            www 页优先：分享页只是带 Argus 预检的壳，启动过程受风控
+            影响时好时坏（同一视频有时 Loading 卡死、零请求，有时
+            正常触发签名详情），而 www 页跳过分享壳，更稳。
+        use_warm: 复用常驻上下文（解析提速）。首个解析仍是冷耗时，
+            成功解析后后续解析复用会话；常驻建不起来或中途失效时
+            在剩余预算内回落冷启动。默认 False（调用方显式开启，
+            避免改变其他调用方的行为）。
+        _playwright_factory: 测试注入用（默认 sync_playwright）。
+
+    Returns:
+        (detail, filter_msg)，见 extract_detail_from_payload。
+        Playwright 未安装时返回 (None, None) 并记 warning。
+    """
+    deadline = time.monotonic() + timeout
+    if use_warm:
+        ctx = None
+        try:
+            ctx = _acquire_warm_context(
+                user_data_dir, executable_path, chromium_args,
+                _playwright_factory)
+        except Exception:
+            ctx = None
+        if ctx is not None:
+            try:
+                return _capture_detail(ctx, video_id, is_note, deadline)
+            except Exception as e:
+                logger.debug("常驻上下文捕获失败，回落冷启动：%s", e)
+                with _warm_lock:
+                    _drop_warm_context_locked()
+        if time.monotonic() < deadline:
+            return _fetch_cold(
+                video_id, is_note, deadline,
+                user_data_dir, executable_path, chromium_args)
+        return None, None
+    return _fetch_cold(
+        video_id, is_note, deadline,
+        user_data_dir, executable_path, chromium_args)
 
 
 def parse_user_post_aweme(aweme: dict) -> Optional[dict]:

@@ -163,7 +163,7 @@ class TestBrowserFallbackWiring:
         self._block_fast_paths(monkeypatch)
         monkeypatch.setattr(
             douyin_mod, "fetch_aweme_detail_via_browser",
-            lambda video_id, is_note=False: (_DETAIL_FIXTURE, None),
+            lambda video_id, is_note=False, use_warm=False: (_DETAIL_FIXTURE, None),
         )
         info = self.provider.extract_info(self.url)
         assert info.platform == Platform.DOUYIN
@@ -179,7 +179,7 @@ class TestBrowserFallbackWiring:
         self._block_fast_paths(monkeypatch)
         monkeypatch.setattr(
             douyin_mod, "fetch_aweme_detail_via_browser",
-            lambda video_id, is_note=False: (None, _FILTER_MSG),
+            lambda video_id, is_note=False, use_warm=False: (None, _FILTER_MSG),
         )
         info = self.provider.extract_info(self.url)
         assert "不可看" in info.title
@@ -191,7 +191,7 @@ class TestBrowserFallbackWiring:
 
         self._block_fast_paths(monkeypatch)
         monkeypatch.setattr(
-            douyin_mod, "fetch_aweme_detail_via_browser", lambda video_id, is_note=False: (None, None)
+            douyin_mod, "fetch_aweme_detail_via_browser", lambda video_id, is_note=False, use_warm=False: (None, None)
         )
         monkeypatch.setattr(douyin_mod, "playwright_available", lambda: False)
         info = self.provider.extract_info(self.url)
@@ -204,22 +204,25 @@ class TestBrowserFallbackWiring:
         self._block_fast_paths(monkeypatch)
         seen = {}
 
-        def fake_fetch(video_id, is_note=False):
+        def fake_fetch(video_id, is_note=False, use_warm=False):
             seen["is_note"] = is_note
+            seen["use_warm"] = use_warm
             return None, None
 
         monkeypatch.setattr(douyin_mod, "fetch_aweme_detail_via_browser", fake_fetch)
         self.provider.extract_info("https://www.douyin.com/note/1234567890")
         assert seen["is_note"] is True
+        assert seen["use_warm"] is True
         self.provider.extract_info("https://www.douyin.com/video/1234567890")
         assert seen["is_note"] is False
+        assert seen["use_warm"] is True
 
     def test_no_browser_hint_in_failure(self, monkeypatch):
         import lumio.providers.douyin as douyin_mod
 
         self._block_fast_paths(monkeypatch)
         monkeypatch.setattr(
-            douyin_mod, "fetch_aweme_detail_via_browser", lambda video_id, is_note=False: (None, None)
+            douyin_mod, "fetch_aweme_detail_via_browser", lambda video_id, is_note=False, use_warm=False: (None, None)
         )
         monkeypatch.setattr(douyin_mod, "playwright_available", lambda: True)
         monkeypatch.setattr(douyin_mod, "browser_executable_available", lambda: False)
