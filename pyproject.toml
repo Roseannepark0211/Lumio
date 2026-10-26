@@ -1,6 +1,6 @@
 [project]
 name = "lumio"
-version = "5.0.0"
+version = "5.0.1"
 description = "Download videos/images from Instagram and YouTube via share links"
 license = "MIT"
 requires-python = ">=3.10"

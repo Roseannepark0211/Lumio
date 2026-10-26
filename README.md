@@ -4,7 +4,7 @@
 
 ![主页](docs/images/主页.png)
 
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](src/lumio/__init__.py)
+[![Version](https://img.shields.io/badge/version-5.0.1-blue.svg)](src/lumio/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#安装)
 
